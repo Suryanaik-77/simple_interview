@@ -31,6 +31,7 @@ INWORLD_API_KEY = os.getenv("INWORLD_API_KEY", "")
 INWORLD_VOICE_ID = os.getenv("INWORLD_VOICE_ID", "Sarah")
 INWORLD_MODEL_ID = os.getenv("INWORLD_MODEL_ID", "inworld-tts-1.5-mini")
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
 JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASS = os.getenv("ADMIN_PASS", "admin123")
@@ -41,6 +42,11 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 xai_client = None
 if XAI_API_KEY:
     xai_client = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1")
+
+cerebras_client = None
+if CEREBRAS_API_KEY:
+    cerebras_client = OpenAI(api_key=CEREBRAS_API_KEY, base_url="https://api.cerebras.ai/v1")
+    print("Cerebras LLM ready.")
 
 bedrock_client = None
 try:
@@ -154,6 +160,34 @@ def _call_bedrock(messages, model_id, temperature, max_tokens):
     return json.dumps(result_body)
 
 
+# ── Cerebras (fast, free — for resume parsing) ──────────────────────────
+
+def call_cerebras(messages, temperature=0.5, max_tokens=1000):
+    """Fast resume parsing via Cerebras. Falls back to OpenAI."""
+    if cerebras_client:
+        try:
+            resp = cerebras_client.chat.completions.create(
+                model="llama3.1-8b", messages=messages,
+                temperature=temperature, max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"[Cerebras] Failed, falling back: {e}")
+    return call_llm(messages, temperature=temperature, max_tokens=max_tokens)
+
+
+def safe_json(text: str):
+    """Extract JSON from LLM response."""
+    text = re.sub(r"```json|```", "", text).strip()
+    try: return json.loads(text)
+    except: pass
+    m = re.search(r'\{.*\}', text, re.DOTALL)
+    if m:
+        try: return json.loads(m.group())
+        except: pass
+    return None
+
+
 # ── Resume Parsing ───────────────────────────────────────────────────────
 
 def parse_resume(resume_text: str) -> dict:
@@ -163,15 +197,23 @@ def parse_resume(resume_text: str) -> dict:
 {{"candidate_name":"","level":"fresh_graduate|trained_fresher|experienced_junior|experienced_senior",
 "years_experience":0,"skills":[],"tools":[],"key_projects":[],"domain":"","education":""}}
 
+Rules:
+- level: 0 years = fresh_graduate, 0-1 year = trained_fresher, 1-3 = experienced_junior, 3+ = experienced_senior
+- skills: VLSI/EDA specific only
+- tools: EDA tool names (ICC2, PrimeTime, Calibre, Virtuoso, VCS, etc.)
+- key_projects: max 5
+- domain: physical_design or analog_layout or design_verification
+
 RESUME:
 {resume_text[:3000]}
 
 JSON:"""
     try:
-        raw = call_llm([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
-        raw = re.sub(r"```json|```", "", raw).strip()
-        return json.loads(raw)
-    except:
+        raw = call_cerebras([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
+        parsed = safe_json(raw)
+        return parsed if parsed else {}
+    except Exception as e:
+        print(f"[Resume] Parse failed: {e}")
         return {}
 
 
