@@ -313,9 +313,9 @@ def build_interview_prompt(session):
     domain = resume.get("domain", "VLSI").replace("_", " ")
     level = resume.get("level", "fresher").replace("_", " ")
     years = resume.get("years_experience", 0)
-    tools = ", ".join(resume.get("tools", [])[:5]) or "not specified"
-    projects = ", ".join(resume.get("key_projects", [])[:3]) or "not specified"
-    skills = ", ".join(resume.get("skills", [])[:8]) or "not specified"
+    tools = ", ".join(str(t) for t in resume.get("tools", [])[:5]) or "not specified"
+    projects = ", ".join(str(p) for p in resume.get("key_projects", [])[:3]) or "not specified"
+    skills = ", ".join(str(s) for s in resume.get("skills", [])[:8]) or "not specified"
 
     candidate_info = f"CANDIDATE: {name} | {level} | {years} years | Domain: {domain} | Tools: {tools} | Projects: {projects} | Skills: {skills}"
 
