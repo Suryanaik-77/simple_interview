@@ -65,9 +65,26 @@ RUNTIME_CONFIG = {
 
 sessions = {}
 
-# ── Candidate History (in-memory, keyed by email) ────────────────────────
-# Stores past interview summaries for returning candidate detection
-candidate_history: dict[str, list[dict]] = {}
+# ── Candidate History (file-backed, keyed by email) ──────────────────────
+HISTORY_FILE = os.path.join(os.path.dirname(__file__), "candidate_history.json")
+
+def _load_history() -> dict:
+    try:
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, "r") as f:
+                return json.load(f)
+    except: pass
+    return {}
+
+def _save_history_to_disk():
+    try:
+        with open(HISTORY_FILE, "w") as f:
+            json.dump(candidate_history, f, indent=2, default=str)
+    except Exception as e:
+        print(f"[History] Save failed: {e}")
+
+candidate_history: dict[str, list[dict]] = _load_history()
+print(f"[History] Loaded {sum(len(v) for v in candidate_history.values())} sessions for {len(candidate_history)} candidates")
 
 
 def save_candidate_session(session):
@@ -88,6 +105,7 @@ def save_candidate_session(session):
         "weak_signals": [],
     }
     candidate_history.setdefault(email, []).append(summary)
+    _save_history_to_disk()
     print(f"[History] Saved for {email}: {summary['turns']} turns, session {summary['session_id'][:8]}")
 
 
@@ -474,18 +492,128 @@ Silently test if they actually improved or just memorized."""
     return messages
 
 
-def generate_question(session, candidate_answer: str) -> str:
-    """Simple: send conversation + answer to LLM, get next question."""
+def _quick_eval(question: str, answer: str) -> dict:
+    """Fast lightweight eval — not full scoring, just quality signal for pacing."""
+    if not answer or len(answer.strip().split()) < 3:
+        return {"quality": "no_answer", "score": 0}
+    dont_know = ["i don't know", "i dont know", "no idea", "not sure", "i haven't studied"]
+    if any(p in answer.lower() for p in dont_know):
+        return {"quality": "honest_admission", "score": 1}
+    # Let LLM do a quick 1-word quality check
+    try:
+        result = call_llm([{"role": "user", "content": f"""Rate this interview answer in ONE word only.
+QUESTION: {question[:150]}
+ANSWER: {answer[:300]}
+Reply ONLY: strong / adequate / weak"""}], temperature=0, max_tokens=5)
+        quality = result.strip().lower()
+        if "strong" in quality: return {"quality": "strong", "score": 8}
+        elif "adequate" in quality: return {"quality": "adequate", "score": 5}
+        else: return {"quality": "weak", "score": 2}
+    except:
+        return {"quality": "adequate", "score": 5}
+
+
+def _get_interview_phase(session) -> str:
+    """Determine interview phase based on turn count and performance."""
+    turn = session.get("turn", 0)
+    scores = session.get("eval_scores", [])
+    avg = sum(scores) / len(scores) if scores else 5
+
+    if turn <= 1: return "WARM_OPENING"
+    elif turn <= 4: return "DISCOVERY"
+    elif avg >= 6: return "DEEP_PROBING"
+    elif avg <= 3: return "SUPPORT"
+    else: return "ADAPTIVE"
+
+
+def _get_topics_covered(session) -> list[str]:
+    """Extract topics already covered from conversation."""
+    topics = []
+    for entry in session.get("conversation", []):
+        q = entry.get("question", "").lower()
+        for topic in ["floorplan", "placement", "cts", "clock", "routing", "sta", "timing",
+                       "ir drop", "power", "drc", "lvs", "matching", "parasitic", "latch",
+                       "esd", "ota", "ldo", "bandgap", "pll", "adc", "dac",
+                       "uvm", "coverage", "assertion", "sv", "systemverilog", "formal",
+                       "debug", "waveform", "verification"]:
+            if topic in q and topic not in topics:
+                topics.append(topic)
+    return topics
+
+
+def _should_end_interview(session) -> tuple[bool, str]:
+    """Decide if interview should auto-end based on performance + turn count."""
+    turn = session.get("turn", 0)
+    scores = session.get("eval_scores", [])
+    consecutive_weak = session.get("consecutive_weak", 0)
+
+    # Hard limit
+    if turn >= 20:
+        return True, "Interview complete — 20 questions reached."
+
+    # Struggling candidate — end early with grace
+    if turn >= 8 and consecutive_weak >= 4:
+        return True, "Thank you for your time. That's all for today."
+
+    # Strong candidate — can end at 15 if consistent
+    if turn >= 15 and scores:
+        avg = sum(scores) / len(scores)
+        if avg >= 7:
+            return True, "I've seen enough. Thank you — that was a strong interview."
+
+    return False, ""
+
+
+def generate_question(session, candidate_answer: str) -> dict:
+    """Generate next question with pacing, topic tracking, and auto-end logic.
+    Returns dict with question, should_end, phase, topic info."""
+
     # Add candidate's answer to history
     if session["conversation"]:
         session["conversation"][-1]["answer"] = candidate_answer
 
+    # Quick eval of the answer
+    last_q = session["conversation"][-1].get("question", "") if session["conversation"] else ""
+    eval_result = _quick_eval(last_q, candidate_answer)
+    session.setdefault("eval_scores", []).append(eval_result["score"])
+    session["conversation"][-1]["eval"] = eval_result
+
+    # Track consecutive weak/strong
+    if eval_result["score"] <= 3:
+        session["consecutive_weak"] = session.get("consecutive_weak", 0) + 1
+        session["consecutive_strong"] = 0
+    elif eval_result["score"] >= 7:
+        session["consecutive_strong"] = session.get("consecutive_strong", 0) + 1
+        session["consecutive_weak"] = 0
+    else:
+        session["consecutive_weak"] = 0
+        session["consecutive_strong"] = 0
+
+    # Check auto-end
+    should_end, end_msg = _should_end_interview(session)
+    if should_end:
+        session["phase"] = "ended"
+        return {"question": end_msg, "should_end": True, "phase": "ended"}
+
+    # Get current phase and topics
+    phase = _get_interview_phase(session)
+    topics_covered = _get_topics_covered(session)
+
+    # Inject pacing + topic awareness into the prompt
     messages = build_interview_prompt(session)
-    if candidate_answer:
-        messages.append({"role": "user", "content": candidate_answer})
+
+    pacing_note = f"\nPHASE: {phase} | Turn: {session['turn']} | Last answer quality: {eval_result['quality']}"
+    if topics_covered:
+        pacing_note += f"\nTopics already covered: {', '.join(topics_covered)}. Explore DIFFERENT topics."
+    if session.get("consecutive_weak", 0) >= 2:
+        pacing_note += "\nCandidate is struggling. Simplify or consider transitioning."
+    if session.get("consecutive_strong", 0) >= 2:
+        pacing_note += "\nCandidate is strong. Push harder — edge cases, trade-offs, failures."
+
+    messages.append({"role": "user", "content": candidate_answer + pacing_note})
 
     # Call LLM
-    question = call_llm(messages, temperature=0.7, max_tokens=150)
+    question = call_llm(messages, temperature=0.7, max_tokens=120)
 
     # Clean markdown
     question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', question)
@@ -496,7 +624,7 @@ def generate_question(session, candidate_answer: str) -> str:
     session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
     session["turn"] += 1
 
-    return question
+    return {"question": question, "should_end": False, "phase": phase}
 
 
 def generate_greeting(session) -> str:
@@ -704,15 +832,18 @@ async def submit_answer(data: dict):
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
 
-    question = generate_question(session, answer)
-    audio = synthesize_speech(question)
+    result = generate_question(session, answer)
+    audio = synthesize_speech(result["question"])
 
-    should_end = session["turn"] >= 20
+    if result["should_end"]:
+        session["phase"] = "ended"
+        save_candidate_session(session)
 
     return {
-        "question": question, "question_type": "interview", "turn": session["turn"],
-        "phase": session["phase"], "audio": audio, "difficulty": "basic",
-        "should_end": should_end,
+        "question": result["question"], "question_type": "interview",
+        "turn": session["turn"], "phase": session["phase"],
+        "audio": audio, "difficulty": "basic",
+        "should_end": result["should_end"],
     }
 
 
