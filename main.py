@@ -738,7 +738,12 @@ async def create_session_endpoint(data: dict):
 
     resume = {}
     if resume_text:
-        resume = parse_resume(resume_text)
+        # Frontend sends JSON.stringify(parsedResume) — try to use it directly
+        try:
+            resume = json.loads(resume_text)
+        except (json.JSONDecodeError, TypeError):
+            # Raw text — parse it
+            resume = parse_resume(resume_text)
     if not resume.get("domain"):
         resume["domain"] = domain
 
