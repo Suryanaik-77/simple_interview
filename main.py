@@ -82,7 +82,10 @@ def save_candidate_session(session):
         "turns": session.get("turn", 0),
         "topics_asked": [e.get("topic", "") for e in session.get("conversation", []) if e.get("question")],
         "questions_asked": [e.get("question", "") for e in session.get("conversation", []) if e.get("question")],
-        "weak_signals": [],  # future: add eval-based weak topics
+        "projects": session.get("resume", {}).get("key_projects", []),
+        "skills": session.get("resume", {}).get("skills", []),
+        "tools": session.get("resume", {}).get("tools", []),
+        "weak_signals": [],
     }
     candidate_history.setdefault(email, []).append(summary)
     print(f"[History] Saved for {email}: {summary['turns']} turns, session {summary['session_id'][:8]}")
@@ -440,12 +443,20 @@ def build_interview_prompt(session):
             # Take only last 2 sessions
             recent = prev_sessions[-2:]
             prev_questions = []
+            prev_projects = set()
             for ps in recent:
                 prev_questions.extend(ps.get("questions_asked", []))
+                for p in ps.get("projects", []):
+                    prev_projects.add(str(p))
+
+            projects_note = ""
+            if prev_projects:
+                projects_note = f"\nProjects discussed before: {', '.join(prev_projects)}\nAsk about DIFFERENT aspects of these projects, or explore projects not yet discussed."
+
             returning_block = f"""
 RETURNING CANDIDATE: This candidate has interviewed {len(prev_sessions)} time(s) before.
 DO NOT ask these questions again (they may have memorized answers):
-{chr(10).join(f'- {q}' for q in prev_questions)}
+{chr(10).join(f'- {q}' for q in prev_questions)}{projects_note}
 Ask DIFFERENT questions on DIFFERENT angles of the same topics.
 Silently test if they actually improved or just memorized."""
 
