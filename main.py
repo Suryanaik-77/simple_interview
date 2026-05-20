@@ -412,7 +412,9 @@ async def auth_me(request: Request):
     if not token: raise HTTPException(401)
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        return {"user": payload["sub"], "role": payload.get("role", "admin")}
+        username = payload["sub"]
+        role = payload.get("role", "admin")
+        return {"user": username, "username": username, "role": role}
     except: raise HTTPException(401)
 
 @app.post("/api/login")
