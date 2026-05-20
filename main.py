@@ -346,15 +346,76 @@ async def health():
     return {"status": "ok"}
 
 
+# ── Auth endpoints (matching monolith admin.html) ────────────────────────
+
+@app.post("/api/auth/login")
+async def auth_login(data: dict, response: Response):
+    if data.get("username") == ADMIN_USER and data.get("password") == ADMIN_PASS:
+        token = create_token(ADMIN_USER)
+        response.set_cookie("auth_token", token, httponly=True, max_age=28800)
+        return {"token": token, "user": ADMIN_USER}
+    raise HTTPException(401, "Invalid credentials")
+
+@app.post("/api/auth/logout")
+async def auth_logout(response: Response):
+    response.delete_cookie("auth_token")
+    return {"ok": True}
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    token = request.cookies.get("auth_token")
+    if not token:
+        cred = request.headers.get("Authorization", "")
+        if cred.startswith("Bearer "): token = cred[7:]
+    if not token: raise HTTPException(401)
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return {"user": payload["sub"], "role": payload.get("role", "admin")}
+    except: raise HTTPException(401)
+
+@app.post("/api/login")
+async def login(data: dict, response: Response):
+    return await auth_login(data, response)
+
+
+# ── Resume Parsing ───────────────────────────────────────────────────────
+
+@app.post("/api/parse-resume")
+async def parse_resume_endpoint(file: UploadFile = File(...)):
+    content = await file.read()
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+
+    if ext == "pdf":
+        try:
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(content))
+            text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except:
+            text = content.decode("utf-8", errors="ignore")
+    else:
+        text = content.decode("utf-8", errors="ignore")
+
+    if not text.strip():
+        return {"is_vlsi_suitable": False, "rejection_reason": "Could not read resume file."}
+
+    parsed = parse_resume(text)
+    parsed["is_vlsi_suitable"] = True
+    parsed["resume_text"] = text[:3000]
+    return parsed
+
+
 # ── Session Management ───────────────────────────────────────────────────
 
 @app.post("/api/create-session")
-async def create_session(data: dict):
+async def create_session_endpoint(data: dict):
     resume_text = data.get("resume_text", "")
     mode = data.get("mode", "mock")
     domain = data.get("domain", "physical_design")
 
-    resume = parse_resume(resume_text) if resume_text else {}
+    resume = {}
+    if resume_text:
+        resume = parse_resume(resume_text)
     if not resume.get("domain"):
         resume["domain"] = domain
 
@@ -362,15 +423,27 @@ async def create_session(data: dict):
     session = {
         "id": sid, "mode": mode, "resume": resume, "phase": "greeting",
         "turn": 0, "conversation": [], "started_at": time.time(),
+        "difficulty_level": 1,
     }
     sessions[sid] = session
+    return {"session_id": sid, "resume": resume}
 
-    # Pre-generate greeting
+
+@app.post("/api/start-interview")
+async def start_interview(data: dict):
+    sid = data.get("session_id")
+    session = sessions.get(sid)
+    if not session: raise HTTPException(404, "Session not found")
+
     greeting = generate_greeting(session)
     audio = synthesize_speech(greeting)
     session["phase"] = "interview"
 
-    return {"session_id": sid, "resume": resume, "greeting": greeting, "audio": audio}
+    return {
+        "question": greeting, "question_type": "greeting", "turn": session["turn"],
+        "phase": session["phase"], "audio": audio, "difficulty": "basic",
+        "should_end": False, "resume": session.get("resume", {}),
+    }
 
 
 @app.post("/api/transcribe")
@@ -386,18 +459,17 @@ async def submit_answer(data: dict):
     sid = data.get("session_id")
     answer = data.get("answer", "")
     session = sessions.get(sid)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    if not session: raise HTTPException(404, "Session not found")
 
-    # Generate next question
     question = generate_question(session, answer)
     audio = synthesize_speech(question)
 
+    should_end = session["turn"] >= 20
+
     return {
-        "question": question,
-        "turn": session["turn"],
-        "phase": session["phase"],
-        "audio": audio,
+        "question": question, "question_type": "interview", "turn": session["turn"],
+        "phase": session["phase"], "audio": audio, "difficulty": "basic",
+        "should_end": should_end,
     }
 
 
@@ -405,42 +477,73 @@ async def submit_answer(data: dict):
 async def end_session(data: dict):
     sid = data.get("session_id")
     session = sessions.get(sid)
-    if session:
-        session["phase"] = "ended"
+    if session: session["phase"] = "ended"
     return {"ok": True}
 
 
 @app.get("/api/get-session")
-async def get_session(session_id: str):
+async def get_session_endpoint(session_id: str):
     session = sessions.get(session_id)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    if not session: raise HTTPException(404, "Session not found")
     return {"session_id": session_id, "phase": session["phase"], "turn": session["turn"],
             "resume": session.get("resume", {}), "mode": session.get("mode", "mock")}
 
 
+@app.post("/api/generate-report")
+async def generate_report(data: dict):
+    sid = data.get("session_id")
+    session = sessions.get(sid)
+    if not session: return {"report": "No session found."}
+    return {"report": "Interview completed.", "session_id": sid, "turns": session["turn"]}
+
+
+# ── Anti-cheat stubs (templates call these) ──────────────────────────────
+
+@app.post("/api/anticheat-event")
+async def anticheat_event(data: dict):
+    return {"ok": True}
+
+@app.get("/api/anticheat-settings")
+async def anticheat_settings():
+    return {"face_detect": False, "head_turn": False, "eye_away": False}
+
+@app.post("/api/sim/ai-done")
+async def sim_ai_done(data: dict):
+    return {"ok": True}
+
+
 # ── Admin: LLM Config ───────────────────────────────────────────────────
+
+AVAILABLE_MODELS = [
+    {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "tier": "fast", "input_cost": "$0.15/1M", "output_cost": "$0.60/1M", "latency": "~1-2s", "context": "128K", "best_for": "Fast, cheap"},
+    {"id": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "name": "Claude Haiku 4.5", "tier": "fast", "input_cost": "$1.00/1M", "output_cost": "$5.00/1M", "latency": "~0.5-1s", "context": "200K", "best_for": "Question generation"},
+    {"id": "us.anthropic.claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "tier": "balanced", "input_cost": "$3.00/1M", "output_cost": "$15.00/1M", "latency": "~1-2s", "context": "200K", "best_for": "Evaluation"},
+    {"id": "grok-4-1-fast-non-reasoning", "name": "Grok 4.1 Fast", "tier": "fast", "input_cost": "$0.20/1M", "output_cost": "$0.50/1M", "latency": "~0.3-0.5s", "context": "2M", "best_for": "Fastest"},
+    {"id": "us.meta.llama4-maverick-17b-instruct-v1:0", "name": "Llama 4 Maverick", "tier": "fast", "input_cost": "$0.17/1M", "output_cost": "$0.17/1M", "latency": "~0.5-1s", "context": "128K", "best_for": "Cheapest"},
+    {"id": "us.amazon.nova-lite-v1:0", "name": "Amazon Nova Lite", "tier": "fast", "input_cost": "$0.06/1M", "output_cost": "$0.24/1M", "latency": "~0.5s", "context": "300K", "best_for": "AWS native"},
+]
 
 @app.get("/api/admin/llm-config")
 async def get_llm_config(_=Depends(require_admin)):
-    return {
-        "qgen_model": RUNTIME_CONFIG["qgen_model"],
-        "eval_model": RUNTIME_CONFIG["eval_model"],
-        "available_models": [
-            {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "tier": "fast", "cost": "$0.15/$0.60 per 1M"},
-            {"id": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "name": "Claude Haiku 4.5", "tier": "fast", "cost": "$1.00/$5.00 per 1M"},
-            {"id": "us.anthropic.claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "tier": "balanced", "cost": "$3.00/$15.00 per 1M"},
-            {"id": "grok-4-1-fast-non-reasoning", "name": "Grok 4.1 Fast", "tier": "fast", "cost": "$0.20/$0.50 per 1M"},
-            {"id": "us.meta.llama4-maverick-17b-instruct-v1:0", "name": "Llama 4 Maverick", "tier": "fast", "cost": "$0.17/$0.17 per 1M"},
-            {"id": "us.amazon.nova-lite-v1:0", "name": "Amazon Nova Lite", "tier": "fast", "cost": "$0.06/$0.24 per 1M"},
-        ],
-    }
+    return {"qgen_model": RUNTIME_CONFIG["qgen_model"], "eval_model": RUNTIME_CONFIG["eval_model"], "available_models": AVAILABLE_MODELS}
 
 @app.post("/api/admin/llm-config")
 async def set_llm_config(data: dict, _=Depends(require_admin)):
     if "qgen_model" in data: RUNTIME_CONFIG["qgen_model"] = data["qgen_model"]
     if "eval_model" in data: RUNTIME_CONFIG["eval_model"] = data["eval_model"]
-    return {"status": "success", **RUNTIME_CONFIG}
+    return {"status": "success", "qgen_model": RUNTIME_CONFIG["qgen_model"], "eval_model": RUNTIME_CONFIG["eval_model"]}
+
+@app.get("/api/admin/llm-prompts")
+async def get_llm_prompts(_=Depends(require_admin)):
+    return {"eval_prompt": "", "qgen_rules": "", "qgen_prompt": INTERVIEWER_PROMPT}
+
+@app.post("/api/admin/llm-prompts")
+async def set_llm_prompts(data: dict, _=Depends(require_admin)):
+    return {"status": "success"}
+
+@app.get("/api/admin/qgen-prompt")
+async def get_qgen_prompt(domain: str = "physical_design", level: str = "trained_fresher", name: str = "Sample", _=Depends(require_admin)):
+    return {"prompt": INTERVIEWER_PROMPT}
 
 
 # ── Admin: Voice Config ──────────────────────────────────────────────────
@@ -466,13 +569,25 @@ async def test_tts(data: dict, _=Depends(require_admin)):
     provider = data.get("provider", RUNTIME_CONFIG["tts_provider"])
     voice = data.get("voice", RUNTIME_CONFIG["tts_voice"])
     old_p, old_v = RUNTIME_CONFIG["tts_provider"], RUNTIME_CONFIG["tts_voice"]
-    RUNTIME_CONFIG["tts_provider"] = provider
-    RUNTIME_CONFIG["tts_voice"] = voice
+    RUNTIME_CONFIG["tts_provider"], RUNTIME_CONFIG["tts_voice"] = provider, voice
     t0 = time.time()
     audio = synthesize_speech(text)
-    RUNTIME_CONFIG["tts_provider"] = old_p
-    RUNTIME_CONFIG["tts_voice"] = old_v
+    RUNTIME_CONFIG["tts_provider"], RUNTIME_CONFIG["tts_voice"] = old_p, old_v
     return {"audio": audio, "latency_ms": int((time.time() - t0) * 1000)}
+
+@app.get("/api/admin/voice-library")
+async def voice_library(_=Depends(require_admin)):
+    return {"voices": []}
+
+@app.post("/api/admin/clone-voice")
+async def clone_voice(_=Depends(require_admin)):
+    return {"ok": False, "error": "Not supported in simple mode"}
+
+@app.post("/api/playground/tts")
+async def playground_tts(data: dict):
+    text = data.get("text", "")
+    audio = synthesize_speech(text)
+    return {"audio": audio}
 
 
 # ── Admin: Prompt Playground ─────────────────────────────────────────────
@@ -495,6 +610,17 @@ async def prompt_playground(data: dict, _=Depends(require_admin)):
         return {"status": "success", "raw_response": raw, "latency_ms": round((time.time() - t0) * 1000), "model": model_id}
     except Exception as e:
         return {"status": "error", "error": str(e), "latency_ms": round((time.time() - t0) * 1000), "model": model_id}
+
+
+# ── Admin: Anti-cheat Config (stubs) ─────────────────────────────────────
+
+@app.get("/api/admin/anticheat-config")
+async def get_anticheat_config(_=Depends(require_admin)):
+    return {"features": {}}
+
+@app.post("/api/admin/anticheat-config")
+async def set_anticheat_config(data: dict, _=Depends(require_admin)):
+    return {"status": "success"}
 
 
 # ── Start ────────────────────────────────────────────────────────────────
