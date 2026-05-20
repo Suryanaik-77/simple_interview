@@ -395,7 +395,7 @@ async def auth_login(data: dict, response: Response):
     if data.get("username") == ADMIN_USER and data.get("password") == ADMIN_PASS:
         token = create_token(ADMIN_USER)
         response.set_cookie("auth_token", token, httponly=True, max_age=28800)
-        return {"token": token, "user": ADMIN_USER}
+        return {"token": token, "user": ADMIN_USER, "role": "admin"}
     raise HTTPException(401, "Invalid credentials")
 
 @app.post("/api/auth/logout")
