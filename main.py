@@ -509,10 +509,21 @@ def generate_greeting(session) -> str:
     hour = datetime.now().hour
     time_of_day = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
 
+    # Pick a short callable name from full name
+    full_name = resume.get("candidate_name", "") or ""
+    parts = full_name.strip().split()
+    if len(parts) <= 2:
+        call_name = parts[0] if parts else ""
+    else:
+        # Long name — skip surname (first) and title-like parts, pick the actual first name
+        # "Beeram Veera Venkata Reddy" → "Veera"
+        # Skip parts that look like surnames (first part) or suffixes (last part)
+        call_name = parts[1] if len(parts) > 2 else parts[0]
+
     context = f"""Generate a natural, warm opening greeting for a technical interview.
 
 Time: {time_of_day}
-Candidate name: {resume.get('candidate_name', 'unknown')}
+Candidate name: {call_name}
 Domain: {resume.get('domain', 'VLSI').replace('_', ' ')}
 Level: {resume.get('level', 'fresher').replace('_', ' ')}
 Returning: {'yes, interviewed ' + str(len(prev_sessions)) + ' time(s) before' if prev_sessions else 'no, first time'}
