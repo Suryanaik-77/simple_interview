@@ -65,6 +65,33 @@ RUNTIME_CONFIG = {
 
 sessions = {}
 
+# ── Candidate History (in-memory, keyed by email) ────────────────────────
+# Stores past interview summaries for returning candidate detection
+candidate_history: dict[str, list[dict]] = {}
+
+
+def save_candidate_session(session):
+    """Save completed session to candidate history."""
+    email = session.get("resume", {}).get("email", "")
+    if not email:
+        return
+    summary = {
+        "session_id": session["id"],
+        "date": datetime.utcnow().isoformat(),
+        "domain": session.get("resume", {}).get("domain", ""),
+        "turns": session.get("turn", 0),
+        "topics_asked": [e.get("topic", "") for e in session.get("conversation", []) if e.get("question")],
+        "questions_asked": [e.get("question", "") for e in session.get("conversation", []) if e.get("question")],
+        "weak_signals": [],  # future: add eval-based weak topics
+    }
+    candidate_history.setdefault(email, []).append(summary)
+    print(f"[History] Saved for {email}: {summary['turns']} turns, session {summary['session_id'][:8]}")
+
+
+def get_candidate_previous(email: str) -> list[dict]:
+    """Get previous sessions for a returning candidate."""
+    return candidate_history.get(email, [])
+
 # ── Auth ─────────────────────────────────────────────────────────────────
 security = HTTPBearer(auto_error=False)
 
@@ -199,10 +226,12 @@ def parse_resume(resume_text: str) -> dict:
     if not resume_text or len(resume_text.strip()) < 20:
         return {}
     prompt = f"""Extract from this resume. Return ONLY valid JSON:
-{{"candidate_name":"","level":"fresh_graduate|trained_fresher|experienced_junior|experienced_senior",
+{{"candidate_name":"","email":"","phone":"","level":"fresh_graduate|trained_fresher|experienced_junior|experienced_senior",
 "years_experience":0,"skills":[],"tools":[],"key_projects":[],"domain":"","education":""}}
 
 Rules:
+- email: extract email address if present, empty string if not found
+- phone: extract phone number if present, empty string if not found
 - level: 0 years = fresh_graduate, 0-1 year = trained_fresher, 1-3 = experienced_junior, 3+ = experienced_senior
 - skills: VLSI/EDA specific only
 - tools: EDA tool names (ICC2, PrimeTime, Calibre, Virtuoso, VCS, etc.)
@@ -402,7 +431,23 @@ def build_interview_prompt(session):
     domain_prompt = _DOMAIN.get(domain, _DOMAIN["physical_design"])
     candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Tools: {tools} | Projects: {projects} | Skills: {skills}"
 
-    system = _BASE + level_prompt + domain_prompt + candidate_info
+    # Check for returning candidate
+    returning_block = ""
+    email = resume.get("email", "")
+    if email:
+        prev_sessions = get_candidate_previous(email)
+        if prev_sessions:
+            prev_questions = []
+            for ps in prev_sessions:
+                prev_questions.extend(ps.get("questions_asked", []))
+            returning_block = f"""
+RETURNING CANDIDATE: This candidate has interviewed {len(prev_sessions)} time(s) before.
+DO NOT ask these questions again (they may have memorized answers):
+{chr(10).join(f'- {q}' for q in prev_questions[-10:])}
+Ask DIFFERENT questions on DIFFERENT angles of the same topics.
+Silently test if they actually improved or just memorized."""
+
+    system = _BASE + level_prompt + domain_prompt + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
 
@@ -442,14 +487,25 @@ def generate_question(session, candidate_answer: str) -> str:
 
 
 def generate_greeting(session) -> str:
-    """Generate opening question."""
+    """Generate opening — different for new vs returning candidates."""
     resume = session.get("resume", {})
     name = resume.get("candidate_name", "Candidate")
     if name and name != "Candidate":
         name = name.split()[0]
-    domain = resume.get("domain", "VLSI").replace("_", " ")
 
-    greeting = f"Hi {name}, let's get started. Tell me about the most challenging {domain} project you've worked on — what was the main technical difficulty?"
+    email = resume.get("email", "")
+    prev_sessions = get_candidate_previous(email) if email else []
+
+    if prev_sessions:
+        # Returning candidate — acknowledge without revealing score
+        greeting = f"Hi {name}, good to see you again. Let's start — please introduce yourself."
+        session["is_returning"] = True
+        session["previous_sessions"] = len(prev_sessions)
+        print(f"[Returning] {name} ({email}) — {len(prev_sessions)} previous session(s)")
+    else:
+        # New candidate — warm opening
+        greeting = f"Good morning {name}. Let's start with a quick introduction — tell me about yourself and what you've been working on recently."
+
     session["conversation"].append({"question": greeting, "answer": None, "turn": 0})
     return greeting
 
@@ -623,7 +679,9 @@ async def submit_answer(data: dict):
 async def end_session(data: dict):
     sid = data.get("session_id")
     session = sessions.get(sid)
-    if session: session["phase"] = "ended"
+    if session:
+        session["phase"] = "ended"
+        save_candidate_session(session)
     return {"ok": True}
 
 
