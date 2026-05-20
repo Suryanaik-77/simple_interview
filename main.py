@@ -71,11 +71,16 @@ security = HTTPBearer(auto_error=False)
 def create_token(sub: str, role: str = "admin"):
     return jwt.encode({"sub": sub, "role": role, "exp": datetime.utcnow() + timedelta(hours=8)}, JWT_SECRET, algorithm="HS256")
 
-async def require_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if not credentials:
+async def require_admin(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = None
+    if credentials:
+        token = credentials.credentials
+    else:
+        token = request.cookies.get("auth_token")
+    if not token:
         raise HTTPException(401, "Not authenticated")
     try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         return payload
     except JWTError:
         raise HTTPException(401, "Invalid token")
