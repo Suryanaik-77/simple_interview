@@ -492,38 +492,11 @@ Silently test if they actually improved or just memorized."""
     return messages
 
 
-def _quick_eval(question: str, answer: str) -> dict:
-    """Fast lightweight eval — not full scoring, just quality signal for pacing."""
-    if not answer or len(answer.strip().split()) < 3:
-        return {"quality": "no_answer", "score": 0}
-    dont_know = ["i don't know", "i dont know", "no idea", "not sure", "i haven't studied"]
-    if any(p in answer.lower() for p in dont_know):
-        return {"quality": "honest_admission", "score": 1}
-    # Let LLM do a quick 1-word quality check
-    try:
-        result = call_llm([{"role": "user", "content": f"""Rate this interview answer in ONE word only.
-QUESTION: {question[:150]}
-ANSWER: {answer[:300]}
-Reply ONLY: strong / adequate / weak"""}], temperature=0, max_tokens=5)
-        quality = result.strip().lower()
-        if "strong" in quality: return {"quality": "strong", "score": 8}
-        elif "adequate" in quality: return {"quality": "adequate", "score": 5}
-        else: return {"quality": "weak", "score": 2}
-    except:
-        return {"quality": "adequate", "score": 5}
-
-
-def _get_interview_phase(session) -> str:
-    """Determine interview phase based on turn count and performance."""
-    turn = session.get("turn", 0)
-    scores = session.get("eval_scores", [])
-    avg = sum(scores) / len(scores) if scores else 5
-
+def _get_interview_phase(turn: int) -> str:
+    """Determine interview phase based on turn count."""
     if turn <= 1: return "WARM_OPENING"
     elif turn <= 4: return "DISCOVERY"
-    elif avg >= 6: return "DEEP_PROBING"
-    elif avg <= 3: return "SUPPORT"
-    else: return "ADAPTIVE"
+    else: return "ADAPTIVE_DEPTH"
 
 
 def _get_topics_covered(session) -> list[str]:
@@ -542,83 +515,39 @@ def _get_topics_covered(session) -> list[str]:
 
 
 def _should_end_interview(session) -> tuple[bool, str]:
-    """Decide if interview should auto-end based on performance + turn count."""
+    """Decide if interview should auto-end. LLM handles pacing — we just set limits."""
     turn = session.get("turn", 0)
-    scores = session.get("eval_scores", [])
-    consecutive_weak = session.get("consecutive_weak", 0)
 
-    # Hard limit
     if turn >= 20:
-        return True, "Interview complete — 20 questions reached."
-
-    # Struggling candidate — end early with grace
-    if turn >= 8 and consecutive_weak >= 4:
-        return True, "Thank you for your time. That's all for today."
-
-    # Strong candidate — can end at 15 if consistent
-    if turn >= 15 and scores:
-        avg = sum(scores) / len(scores)
-        if avg >= 7:
-            return True, "I've seen enough. Thank you — that was a strong interview."
+        return True, "That's all from my side. Thank you for your time."
 
     return False, ""
 
 
 def generate_question(session, candidate_answer: str) -> dict:
-    """Generate next question with pacing, topic tracking, and auto-end logic.
-    Returns dict with question, should_end, phase, topic info."""
+    """Send conversation + answer to LLM, get next question. LLM handles all intelligence."""
 
     # Add candidate's answer to history
     if session["conversation"]:
         session["conversation"][-1]["answer"] = candidate_answer
 
-    # Use PREVIOUS turn's eval (already computed in background)
-    # For current answer, estimate from word count (instant, no LLM)
-    word_count = len(candidate_answer.strip().split()) if candidate_answer else 0
-    dont_know = any(p in (candidate_answer or "").lower() for p in ["i don't know", "no idea", "not sure"])
-    if dont_know or word_count < 5:
-        eval_result = {"quality": "weak", "score": 1}
-    elif word_count > 30:
-        eval_result = {"quality": "adequate", "score": 5}
-    else:
-        eval_result = {"quality": "adequate", "score": 4}
-    session.setdefault("eval_scores", []).append(eval_result["score"])
-    if session["conversation"]:
-        session["conversation"][-1]["eval"] = eval_result
-
-    # Track consecutive weak/strong
-    if eval_result["score"] <= 3:
-        session["consecutive_weak"] = session.get("consecutive_weak", 0) + 1
-        session["consecutive_strong"] = 0
-    elif eval_result["score"] >= 7:
-        session["consecutive_strong"] = session.get("consecutive_strong", 0) + 1
-        session["consecutive_weak"] = 0
-    else:
-        session["consecutive_weak"] = 0
-        session["consecutive_strong"] = 0
-
     # Check auto-end
     should_end, end_msg = _should_end_interview(session)
     if should_end:
         session["phase"] = "ended"
-        return {"question": end_msg, "should_end": True, "phase": "ended"}
+        return {"question": end_msg, "should_end": True}
 
-    # Get current phase and topics
-    phase = _get_interview_phase(session)
-    topics_covered = _get_topics_covered(session)
-
-    # Inject pacing + topic awareness into the prompt
+    # Build prompt with pacing + topic context
     messages = build_interview_prompt(session)
 
-    pacing_note = f"\nPHASE: {phase} | Turn: {session['turn']} | Last answer quality: {eval_result['quality']}"
-    if topics_covered:
-        pacing_note += f"\nTopics already covered: {', '.join(topics_covered)}. Explore DIFFERENT topics."
-    if session.get("consecutive_weak", 0) >= 2:
-        pacing_note += "\nCandidate is struggling. Simplify or consider transitioning."
-    if session.get("consecutive_strong", 0) >= 2:
-        pacing_note += "\nCandidate is strong. Push harder — edge cases, trade-offs, failures."
+    phase = _get_interview_phase(session["turn"])
+    topics_covered = _get_topics_covered(session)
 
-    messages.append({"role": "user", "content": candidate_answer + pacing_note})
+    pacing = f"\nPHASE: {phase} | Turn: {session['turn']}"
+    if topics_covered:
+        pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
+
+    messages.append({"role": "user", "content": candidate_answer + pacing})
 
     # Call LLM
     question = call_llm(messages, temperature=0.7, max_tokens=120)
@@ -632,7 +561,7 @@ def generate_question(session, candidate_answer: str) -> dict:
     session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
     session["turn"] += 1
 
-    return {"question": question, "should_end": False, "phase": phase}
+    return {"question": question, "should_end": False}
 
 
 def generate_greeting(session) -> str:
