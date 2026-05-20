@@ -425,16 +425,33 @@ async def login(data: dict, response: Response):
 @app.post("/api/parse-resume")
 async def parse_resume_endpoint(file: UploadFile = File(...)):
     content = await file.read()
-    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if len(content) > 5_000_000:
+        raise HTTPException(413, "File too large. Max 5MB.")
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "txt"
 
     if ext == "pdf":
+        if not content.startswith(b"%PDF-"):
+            raise HTTPException(400, "Not a valid PDF.")
         try:
-            from pypdf import PdfReader
-            import io
-            reader = PdfReader(io.BytesIO(content))
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except:
-            text = content.decode("utf-8", errors="ignore")
+            import pdfplumber
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(content); tmp_path = tmp.name
+            text = ""
+            with pdfplumber.open(tmp_path) as pdf:
+                for page in pdf.pages:
+                    text += (page.extract_text() or "") + "\n"
+            os.unlink(tmp_path)
+        except Exception as e:
+            raise HTTPException(400, f"PDF error: {e}")
+    elif ext in ("docx", "doc"):
+        try:
+            import docx2txt
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+                tmp.write(content); tmp_path = tmp.name
+            text = docx2txt.process(tmp_path)
+            os.unlink(tmp_path)
+        except Exception as e:
+            raise HTTPException(400, f"DOCX error: {e}")
     else:
         text = content.decode("utf-8", errors="ignore")
 
@@ -444,7 +461,7 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
     parsed = parse_resume(text)
     parsed["is_vlsi_suitable"] = True
     parsed["resume_text"] = text[:3000]
-    return parsed
+    return JSONResponse(parsed)
 
 
 # ── Session Management ───────────────────────────────────────────────────
