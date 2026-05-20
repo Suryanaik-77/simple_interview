@@ -437,13 +437,15 @@ def build_interview_prompt(session):
     if email:
         prev_sessions = get_candidate_previous(email)
         if prev_sessions:
+            # Take only last 2 sessions
+            recent = prev_sessions[-2:]
             prev_questions = []
-            for ps in prev_sessions:
+            for ps in recent:
                 prev_questions.extend(ps.get("questions_asked", []))
             returning_block = f"""
 RETURNING CANDIDATE: This candidate has interviewed {len(prev_sessions)} time(s) before.
 DO NOT ask these questions again (they may have memorized answers):
-{chr(10).join(f'- {q}' for q in prev_questions[-10:])}
+{chr(10).join(f'- {q}' for q in prev_questions)}
 Ask DIFFERENT questions on DIFFERENT angles of the same topics.
 Silently test if they actually improved or just memorized."""
 
