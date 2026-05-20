@@ -572,11 +572,19 @@ def generate_question(session, candidate_answer: str) -> dict:
     if session["conversation"]:
         session["conversation"][-1]["answer"] = candidate_answer
 
-    # Quick eval of the answer
-    last_q = session["conversation"][-1].get("question", "") if session["conversation"] else ""
-    eval_result = _quick_eval(last_q, candidate_answer)
+    # Use PREVIOUS turn's eval (already computed in background)
+    # For current answer, estimate from word count (instant, no LLM)
+    word_count = len(candidate_answer.strip().split()) if candidate_answer else 0
+    dont_know = any(p in (candidate_answer or "").lower() for p in ["i don't know", "no idea", "not sure"])
+    if dont_know or word_count < 5:
+        eval_result = {"quality": "weak", "score": 1}
+    elif word_count > 30:
+        eval_result = {"quality": "adequate", "score": 5}
+    else:
+        eval_result = {"quality": "adequate", "score": 4}
     session.setdefault("eval_scores", []).append(eval_result["score"])
-    session["conversation"][-1]["eval"] = eval_result
+    if session["conversation"]:
+        session["conversation"][-1]["eval"] = eval_result
 
     # Track consecutive weak/strong
     if eval_result["score"] <= 3:
