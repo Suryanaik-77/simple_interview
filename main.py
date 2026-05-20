@@ -665,6 +665,98 @@ async def set_anticheat_config(data: dict, _=Depends(require_admin)):
     return {"status": "success"}
 
 
+# ── Admin: Sessions ──────────────────────────────────────────────────────
+
+@app.get("/api/admin/sessions")
+async def admin_sessions(_=Depends(require_admin)):
+    session_list = []
+    for sid, s in sessions.items():
+        session_list.append({
+            "session_id": sid,
+            "id": sid,
+            "resume": s.get("resume", {}),
+            "phase": s.get("phase", ""),
+            "turn": s.get("turn", 0),
+            "mode": s.get("mode", "mock"),
+            "started_at": s.get("started_at", 0),
+            "difficulty_level": s.get("difficulty_level", 1),
+        })
+    return session_list
+
+
+@app.get("/api/admin/session/{sid}")
+async def admin_session_detail(sid: str, _=Depends(require_admin)):
+    session = sessions.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    turn_log = []
+    for entry in session.get("conversation", []):
+        turn_log.append({
+            "turn": entry.get("turn", 0),
+            "phase": "interview",
+            "question": entry.get("question", ""),
+            "answer": entry.get("answer", ""),
+            "question_type": "interview",
+            "topic": "",
+            "difficulty": "basic",
+            "score": "",
+            "quality": "",
+            "accuracy": "",
+            "quadrant": "",
+            "notes": "",
+            "word_count": len((entry.get("answer") or "").split()),
+            "answer_duration_sec": 0,
+            "score_reasoning": "",
+            "expected_points": [],
+            "missing_points": [],
+            "level_gap": 0,
+            "behavioral_flags": [],
+        })
+    return {
+        "session_id": sid,
+        "resume": session.get("resume", {}),
+        "phase": session.get("phase", ""),
+        "turn": session.get("turn", 0),
+        "difficulty_level": session.get("difficulty_level", 1),
+        "trajectory": "unknown",
+        "turn_log": turn_log,
+        "anticheat_log": [],
+        "contradiction_log": [],
+        "recovery_log": [],
+        "notable_moments": [],
+        "genuine_signals": [],
+        "suspicion_events": [],
+        "raw_scores": [],
+        "topics_covered": [],
+        "expert_reviews": [],
+        "eval_model": RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini"),
+        "qgen_model": RUNTIME_CONFIG.get("qgen_model", "gpt-4o-mini"),
+        "observability": {"session_id": sid, "total_calls": 0, "logs": []},
+    }
+
+
+# ── Admin: Observability ─────────────────────────────────────────────────
+
+@app.get("/api/observability/summary")
+async def obs_summary(window: int = 86400, _=Depends(require_admin)):
+    return {
+        "total_calls": 0, "success_calls": 0, "failure_calls": 0,
+        "total_cost_usd": 0, "avg_latency_ms": 0,
+        "step_breakdown": {},
+    }
+
+@app.get("/api/observability/logs")
+async def obs_logs(limit: int = 500, _=Depends(require_admin)):
+    return []
+
+
+# ── Admin: Expert Review ─────────────────────────────────────────────────
+
+@app.post("/api/admin/review")
+async def submit_review(data: dict, _=Depends(require_admin)):
+    return {"ok": True, "review_id": f"R-{secrets.token_hex(4).upper()}"}
+
+
 # ── Start ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
