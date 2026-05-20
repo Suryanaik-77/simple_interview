@@ -263,13 +263,17 @@ RESUME:
 {resume_text[:3000]}
 
 JSON:"""
-    try:
-        raw = call_cerebras([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
-        parsed = safe_json(raw)
-        return parsed if parsed else {}
-    except Exception as e:
-        print(f"[Resume] Parse failed: {e}")
-        return {}
+    for attempt in range(3):
+        try:
+            raw = call_cerebras([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
+            parsed = safe_json(raw)
+            if parsed and parsed.get("candidate_name"):
+                print(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')}")
+                return parsed
+            print(f"[Resume] Attempt {attempt+1}: empty result, retrying...")
+        except Exception as e:
+            print(f"[Resume] Attempt {attempt+1} failed: {e}")
+    return {}
 
 
 # ── STT ──────────────────────────────────────────────────────────────────
@@ -580,8 +584,9 @@ def generate_greeting(session) -> str:
     email = resume.get("email", "")
     prev_sessions = get_candidate_previous(email) if email else []
 
-    from datetime import datetime
-    hour = datetime.now().hour
+    from datetime import datetime, timezone, timedelta
+    ist = timezone(timedelta(hours=5, minutes=30))
+    hour = datetime.now(ist).hour
     time_of_day = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
 
     # Pick a short callable name from full name
