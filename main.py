@@ -500,24 +500,41 @@ def generate_question(session, candidate_answer: str) -> str:
 
 
 def generate_greeting(session) -> str:
-    """Generate opening — different for new vs returning candidates."""
+    """Let the LLM generate a natural opening based on candidate context."""
     resume = session.get("resume", {})
-    name = resume.get("candidate_name", "Candidate")
-    if name and name != "Candidate":
-        name = name.split()[0]
-
     email = resume.get("email", "")
     prev_sessions = get_candidate_previous(email) if email else []
 
+    from datetime import datetime
+    hour = datetime.now().hour
+    time_of_day = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
+
+    context = f"""Generate a natural, warm opening greeting for a technical interview.
+
+Time: {time_of_day}
+Candidate name: {resume.get('candidate_name', 'unknown')}
+Domain: {resume.get('domain', 'VLSI').replace('_', ' ')}
+Level: {resume.get('level', 'fresher').replace('_', ' ')}
+Returning: {'yes, interviewed ' + str(len(prev_sessions)) + ' time(s) before' if prev_sessions else 'no, first time'}
+
+Rules:
+- 1-2 sentences only
+- Greet naturally, ask them to introduce themselves
+- Do NOT ask technical questions yet
+- Do NOT mention scoring or evaluation
+- If returning: acknowledge briefly, don't reveal previous scores
+- Sound like a real person, not a script"""
+
+    try:
+        greeting = call_llm([{"role": "user", "content": context}], temperature=0.8, max_tokens=60)
+        greeting = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', greeting).strip()
+    except:
+        name = (resume.get("candidate_name", "") or "").split()[0] if resume.get("candidate_name") else ""
+        greeting = f"Hi{' ' + name if name else ''}, thanks for joining. Tell me about yourself."
+
     if prev_sessions:
-        # Returning candidate — acknowledge without revealing score
-        greeting = f"Hi {name}, good to see you again. Let's start — please introduce yourself."
         session["is_returning"] = True
         session["previous_sessions"] = len(prev_sessions)
-        print(f"[Returning] {name} ({email}) — {len(prev_sessions)} previous session(s)")
-    else:
-        # New candidate — warm opening
-        greeting = f"Good morning {name}. Let's start with a quick introduction — tell me about yourself and what you've been working on recently."
 
     session["conversation"].append({"question": greeting, "answer": None, "turn": 0})
     return greeting
