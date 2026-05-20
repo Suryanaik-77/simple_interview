@@ -350,7 +350,14 @@ RULES:
 - If they speak another language: "Please answer in English."
 - If they pause: "Take your time."
 - If they repeat: "Got it. Let's move on."
-- Plain spoken text. No markdown. No bullets."""
+- Plain spoken text. No markdown. No bullets.
+
+ENDING THE INTERVIEW:
+When you have enough signal to assess the candidate, end naturally.
+To end, start your response with [END_INTERVIEW] then a brief closing.
+Example: "[END_INTERVIEW] That covers what I needed. Thank you for your time."
+End IF: enough topics covered, candidate consistently struggling, or strong depth shown.
+Do NOT end before turn 8."""
 
 # ── Level-specific behavior ──────────────────────────────────────────────
 
@@ -515,12 +522,9 @@ def _get_topics_covered(session) -> list[str]:
 
 
 def _should_end_interview(session) -> tuple[bool, str]:
-    """Decide if interview should auto-end. LLM handles pacing — we just set limits."""
-    turn = session.get("turn", 0)
-
-    if turn >= 20:
+    """Hard limit only. Early end decided by LLM via system prompt."""
+    if session.get("turn", 0) >= 25:
         return True, "That's all from my side. Thank you for your time."
-
     return False, ""
 
 
@@ -557,11 +561,17 @@ def generate_question(session, candidate_answer: str) -> dict:
     question = re.sub(r'`([^`]+)`', r'\1', question)
     question = re.sub(r'#{1,3}\s*', '', question)
 
+    # Check if LLM decided to end the interview
+    llm_end = "[END_INTERVIEW]" in question
+    if llm_end:
+        question = question.replace("[END_INTERVIEW]", "").strip()
+        session["phase"] = "ended"
+
     # Add to history
     session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
     session["turn"] += 1
 
-    return {"question": question, "should_end": False}
+    return {"question": question, "should_end": llm_end}
 
 
 def generate_greeting(session) -> str:
