@@ -799,7 +799,7 @@ def generate_greeting(session) -> str:
 
     # Get previous greetings to avoid repetition
     prev_greetings = []
-    for ps in prev_sessions[-3:]:
+    for ps in prev_sessions[-2:]:
         qs = ps.get("questions_asked", [])
         if qs:
             prev_greetings.append(qs[0])
