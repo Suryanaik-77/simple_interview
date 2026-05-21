@@ -919,6 +919,7 @@
         // Mark interview as completely ended
         interviewEnded = true;
         sessionOn = false;
+        releaseMic();  // Release mic stream on interview end
 
         // Tell the server to end the session
         if (sessionId) {
@@ -999,9 +1000,10 @@
     // ════════════════════════════════════════════════════════════
     let sessionId = null;
     let sessionData = null;
-    let mediaStream = null;
-    let audioContext = null;
-    let analyser = null;
+    let mediaStream = null;       // Kept alive for entire interview
+    let audioContext = null;       // Kept alive for entire interview
+    let analyser = null;           // Kept alive for entire interview
+    let micReady = false;          // True once mic is initialized
     let mediaRecorder = null;
     let audioChunks = [];
     let isRecording = false;
@@ -1011,7 +1013,37 @@
     let currentAudio = null;
     const SILENCE_THRESHOLD = 15;
     const SILENCE_TIMEOUT = 2000;
-    const MAX_CHUNK_MS = 30000;  // 30s auto-send
+    const MAX_CHUNK_MS = 30000;   // 30s auto-send
+    const NO_SPEECH_TIMEOUT = 10000;  // 10s no speech → prompt candidate
+
+    // Initialize mic once — kept open for the entire interview
+    async function initMic() {
+        if (micReady && mediaStream && mediaStream.active) return true;
+        try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+                audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true }
+            });
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            const source = audioContext.createMediaStreamSource(mediaStream);
+            source.connect(analyser);
+            micReady = true;
+            console.log('[Mic] Initialized — stream kept alive');
+            return true;
+        } catch (err) {
+            console.error('[Mic] Init failed:', err);
+            micReady = false;
+            return false;
+        }
+    }
+
+    function releaseMic() {
+        micReady = false;
+        if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+        if (audioContext && audioContext.state !== 'closed') { audioContext.close(); audioContext = null; }
+        analyser = null;
+    }
 
 
     // Get session ID from URL params
@@ -1072,8 +1104,9 @@
             console.log('Could not load session info:', e);
         }
 
-        // Start the interview
+        // Start the interview — init mic early so first recording is instant
         sessionOn = true;
+        initMic();
         document.getElementById('main-btn').textContent = 'end interview';
         document.getElementById('status-dot').classList.add('live');
         document.getElementById('live-badge').textContent = 'starting';
@@ -1311,6 +1344,7 @@
     function endSessionWithMessage(message) {
         interviewEnded = true;
         sessionOn = false;
+        releaseMic();
         if (ticker) { clearInterval(ticker); ticker = null; }
         forceStopAllAudio();
 
@@ -1337,104 +1371,93 @@
     async function startRecording() {
         if (isRecording || interviewEnded) return;
 
-        try {
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    channelCount: 1,
-                    sampleRate: 16000,
-                    echoCancellation: true,
-                    noiseSuppression: true
-                }
-            });
+        // Ensure mic is ready (first call initializes, subsequent calls are instant)
+        if (!micReady || !mediaStream || !mediaStream.active) {
+            const ok = await initMic();
+            if (!ok || interviewEnded) return;
+        }
 
-            if (interviewEnded) {
-                mediaStream.getTracks().forEach(t => t.stop());
+        // Resume audio context if suspended (browser policy)
+        if (audioContext && audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        mediaRecorder = new MediaRecorder(mediaStream, {
+            mimeType: 'audio/webm;codecs=opus'
+        });
+
+        audioChunks = [];
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = sendAudioForTranscription;
+
+        mediaRecorder.start(100);
+        isRecording = true;
+        recordingStartTime = Date.now();
+        speechDetected = false;
+        silenceStart = null;
+
+        setOrb('listening');
+        document.getElementById('status-txt').textContent = 'listening';
+        document.getElementById('main-label').textContent = 'Listening...';
+        document.getElementById('sub-label').textContent = 'speak now...';
+
+        // Audio level monitoring with silence detection
+        const checkAudio = () => {
+            if (!isRecording || interviewEnded) return;
+
+            analyser.getByteFrequencyData(dataArray);
+            const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+
+            const isSilent = avg < SILENCE_THRESHOLD;
+
+            // 30s auto-send — send current chunk, keep recording
+            const elapsed = Date.now() - recordingStartTime;
+            if (elapsed >= MAX_CHUNK_MS && speechDetected) {
+                document.getElementById('sub-label').textContent = 'sending chunk...';
+                mediaRecorder._autoChunk = true;
+                stopRecording();
                 return;
             }
 
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            analyser = audioContext.createAnalyser();
-            analyser.fftSize = 256;
-            const source = audioContext.createMediaStreamSource(mediaStream);
-            source.connect(analyser);
+            if (!isSilent) {
+                speechDetected = true;
+                silenceStart = null;
+                document.getElementById('sub-label').textContent = `speaking... (${avg.toFixed(0)})`;
+            } else {
+                if (speechDetected) {
+                    if (silenceStart === null) {
+                        silenceStart = Date.now();
+                    } else {
+                        const silenceDuration = Date.now() - silenceStart;
+                        document.getElementById('sub-label').textContent = `pause ${(silenceDuration/1000).toFixed(1)}s... (${avg.toFixed(0)}/255)`;
 
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-            mediaRecorder = new MediaRecorder(mediaStream, {
-                mimeType: 'audio/webm;codecs=opus'
-            });
-
-            audioChunks = [];
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunks.push(event.data);
-                }
-            };
-
-            mediaRecorder.onstop = sendAudioForTranscription;
-
-            mediaRecorder.start(100);
-            isRecording = true;
-            recordingStartTime = Date.now();
-            speechDetected = false;
-            silenceStart = null;
-
-
-            setOrb('listening');
-            document.getElementById('status-txt').textContent = 'listening';
-            document.getElementById('main-label').textContent = 'Listening...';
-            document.getElementById('sub-label').textContent = 'speak now...';
-
-            // Audio level monitoring with silence detection
-            const checkAudio = () => {
-                if (!isRecording || interviewEnded) return;
-
-                analyser.getByteFrequencyData(dataArray);
-                const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-
-                const isSilent = avg < SILENCE_THRESHOLD;
-
-                // 30s auto-send — send current chunk, keep recording
-                const elapsed = Date.now() - recordingStartTime;
-                if (elapsed >= MAX_CHUNK_MS && speechDetected) {
-                    document.getElementById('sub-label').textContent = 'sending chunk...';
-                    // Stop current recorder — onstop will send audio and restart
-                    mediaRecorder._autoChunk = true;
-                    stopRecording();
-                    return;
-                }
-
-                if (!isSilent) {
-                    speechDetected = true;
-                    silenceStart = null;
-                    document.getElementById('sub-label').textContent = `speaking... (${avg.toFixed(0)})`;
-                } else {
-                    if (speechDetected) {
-                        if (silenceStart === null) {
-                            silenceStart = Date.now();
-                        } else {
-                            const silenceDuration = Date.now() - silenceStart;
-                            document.getElementById('sub-label').textContent = `pause ${(silenceDuration/1000).toFixed(1)}s... (${avg.toFixed(0)}/255)`;
-
-                            if (silenceDuration >= SILENCE_TIMEOUT) {
-                                document.getElementById('sub-label').textContent = 'processing...';
-                                stopRecording();
-                                return;
-                            }
+                        if (silenceDuration >= SILENCE_TIMEOUT) {
+                            document.getElementById('sub-label').textContent = 'processing...';
+                            stopRecording();
+                            return;
                         }
+                    }
+                } else {
+                    const waitTime = Date.now() - recordingStartTime;
+                    if (waitTime >= NO_SPEECH_TIMEOUT) {
+                        document.getElementById('sub-label').textContent = 'Please speak your answer...';
+                        document.getElementById('main-label').textContent = 'Waiting for you...';
                     } else {
                         document.getElementById('sub-label').textContent = `waiting for speech... (${avg.toFixed(0)}/255)`;
                     }
                 }
+            }
 
-                requestAnimationFrame(checkAudio);
-            };
-            checkAudio();
-
-        } catch (err) {
-            console.error('Microphone error:', err);
-            document.getElementById('sub-label').textContent = 'mic error: ' + err.message;
-        }
+            requestAnimationFrame(checkAudio);
+        };
+        checkAudio();
     }
 
     function stopRecording() {
@@ -1444,16 +1467,9 @@
         speechDetected = false;
         silenceStart = null;
 
+        // Only stop the recorder — keep mic stream alive for next turn
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             mediaRecorder.stop();
-        }
-
-        if (mediaStream) {
-            mediaStream.getTracks().forEach(track => track.stop());
-        }
-
-        if (audioContext && audioContext.state !== 'closed') {
-            audioContext.close();
         }
 
         setOrb('idle');
@@ -1496,10 +1512,10 @@
                 _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
             }
 
-            // If auto-chunk: restart recording, don't submit yet
+            // If auto-chunk: restart recording immediately, don't submit yet
             if (_wasAutoChunk) {
                 document.getElementById('sub-label').textContent = 'continue speaking...';
-                if (!interviewEnded) setTimeout(startRecording, 50);
+                if (!interviewEnded) startRecording();  // zero-gap restart (mic already alive)
                 return;
             }
 
