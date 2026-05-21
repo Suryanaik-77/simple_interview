@@ -772,15 +772,17 @@ def generate_question(session, candidate_answer: str) -> dict:
         reply = question.replace("[PERSONAL]", "").strip()
         session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
         session["turn"] += 1
-        return {"question": reply, "should_end": False}
+        session.setdefault("obs_log", []).append({"step": "LLM_question", "model": RUNTIME_CONFIG["qgen_model"], "latency_ms": llm_ms, "status": "success"})
+        return {"question": reply, "should_end": False, "llm_ms": llm_ms}
 
     if "[ABUSIVE]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
         reply = question.replace("[ABUSIVE]", "").strip()
         session["phase"] = "ended"
         session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
+        session.setdefault("obs_log", []).append({"step": "LLM_question", "model": RUNTIME_CONFIG["qgen_model"], "latency_ms": llm_ms, "status": "success"})
         if ANTICHEAT_FEATURES.get("abuse_email_alert", {}).get("enabled", True):
             threading.Thread(target=send_abuse_email, args=(session, candidate_answer), daemon=True).start()
-        return {"question": reply, "should_end": True}
+        return {"question": reply, "should_end": True, "llm_ms": llm_ms}
 
     # Check if LLM decided to end the interview
     llm_end = "[END_INTERVIEW]" in question
@@ -1038,7 +1040,7 @@ async def submit_answer(data: dict):
 
     total_ms = round((time.time() - t0_total) * 1000)
     llm_ms = result.get("llm_ms", 0)
-    print(f"[Turn {session['turn']-1}] Total: {total_ms}ms (LLM: {llm_ms}ms + TTS: {tts_ms}ms)")
+    print(f"[Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms + TTS: {tts_ms}ms)")
 
     return {
         "question": result["question"], "question_type": "interview",
