@@ -1063,6 +1063,7 @@
     let currentAudio = null;
     const SILENCE_THRESHOLD = 15;
     const SILENCE_TIMEOUT = 2000;
+    const MAX_CHUNK_MS = 30000;  // 30s auto-send
 
 
     // Get session ID from URL params
@@ -1445,6 +1446,16 @@
 
                 const isSilent = avg < SILENCE_THRESHOLD;
 
+                // 30s auto-send — send current chunk, keep recording
+                const elapsed = Date.now() - recordingStartTime;
+                if (elapsed >= MAX_CHUNK_MS && speechDetected) {
+                    document.getElementById('sub-label').textContent = 'sending chunk...';
+                    // Stop current recorder — onstop will send audio and restart
+                    mediaRecorder._autoChunk = true;
+                    stopRecording();
+                    return;
+                }
+
                 if (!isSilent) {
                     speechDetected = true;
                     silenceStart = null;
@@ -1501,8 +1512,15 @@
         document.getElementById('status-txt').textContent = 'processing';
     }
 
+    // Accumulate transcripts from chunked recordings
+    let _accumulatedTranscript = '';
+    let _wasAutoChunk = false;
+
     async function sendAudioForTranscription() {
         if (interviewEnded) return;
+
+        // Check if this was a 30s auto-chunk
+        _wasAutoChunk = mediaRecorder && mediaRecorder._autoChunk;
 
         if (audioChunks.length === 0) {
             document.getElementById('sub-label').textContent = 'no audio recorded';
@@ -1518,14 +1536,30 @@
         form.append('session_id', sessionId);
 
         try {
-            // Transcribe
+            // Transcribe this chunk
+            document.getElementById('sub-label').textContent = 'transcribing...';
             const tr = await fetch('/api/transcribe', { method: 'POST', body: form });
             const td = await tr.json();
             const txt = (td.transcript || '').trim();
 
             if (interviewEnded) return;
 
-            if (!txt) {
+            if (txt) {
+                _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
+            }
+
+            // If auto-chunk: restart recording, don't submit yet
+            if (_wasAutoChunk) {
+                document.getElementById('sub-label').textContent = 'continue speaking...';
+                if (!interviewEnded) setTimeout(startRecording, 50);
+                return;
+            }
+
+            // Final chunk (silence detected) — submit accumulated transcript
+            const finalText = _accumulatedTranscript.trim();
+            _accumulatedTranscript = '';
+
+            if (!finalText) {
                 document.getElementById('sub-label').textContent = 'could not hear, try again...';
                 if (!interviewEnded) setTimeout(startRecording, 1500);
                 return;
@@ -1534,19 +1568,19 @@
             document.getElementById('sub-label').textContent = 'sending answer...';
 
             // Submit answer
-            const wc = txt.split(/\s+/).filter(Boolean).length;
+            const wc = finalText.split(/\s+/).filter(Boolean).length;
             const ar = await fetch('/api/submit-answer', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     session_id: sessionId,
-                    answer: txt,
+                    answer: finalText,
                     turn: qCount,
                     answer_duration_sec: dur,
                     word_count: wc,
                     thinking_pause_sec: 0,
                     input_mode: 'voice',
-                    whisper_confidence: td.avg_confidence || 1.0
+                    whisper_confidence: 1.0
                 })
             });
 
