@@ -797,6 +797,17 @@ def generate_greeting(session) -> str:
         # Skip parts that look like surnames (first part) or suffixes (last part)
         call_name = parts[1] if len(parts) > 2 else parts[0]
 
+    # Get previous greetings to avoid repetition
+    prev_greetings = []
+    for ps in prev_sessions[-3:]:
+        qs = ps.get("questions_asked", [])
+        if qs:
+            prev_greetings.append(qs[0])
+
+    no_repeat = ""
+    if prev_greetings:
+        no_repeat = "\n\nDo NOT repeat or rephrase these previous greetings:\n" + "\n".join(f'- "{g}"' for g in prev_greetings) + "\nSay something COMPLETELY different this time."
+
     context = f"""Generate a natural, warm opening greeting for a technical interview.
 
 Time: {time_of_day}
@@ -811,7 +822,7 @@ Rules:
 - Do NOT ask technical questions yet
 - Do NOT mention scoring or evaluation
 - If returning: acknowledge briefly, don't reveal previous scores
-- Sound like a real person, not a script"""
+- Sound like a real person, not a script{no_repeat}"""
 
     try:
         greeting = call_llm([{"role": "user", "content": context}], temperature=0.8, max_tokens=60)
