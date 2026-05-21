@@ -6,8 +6,10 @@ question pipeline, evaluation pipeline, evaluation validator.
 Question generation: conversation history + resume → LLM → next question.
 That's it. No complex routing.
 """
-import os, time, json, re, secrets, tempfile, base64, threading
+import os, time, json, re, secrets, tempfile, base64, threading, smtplib
 from datetime import datetime, timedelta, timezone
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -35,6 +37,11 @@ CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
 JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASS = os.getenv("ADMIN_PASS", "admin123")
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "gsuryanaik7@gmail.com")
 
 from openai import OpenAI
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
@@ -532,12 +539,110 @@ def _should_end_interview(session) -> tuple[bool, str]:
     return False, ""
 
 
+# ── Candidate Behavior Guard ───────────────────────────────────────────
+
+def classify_candidate_answer(answer: str) -> str:
+    """Classify candidate answer as normal, personal_question, or abusive.
+    Uses LLM to detect across all languages."""
+    prompt = f"""Classify this candidate's message in an interview context.
+Return ONLY one word: normal, personal_question, or abusive
+
+Rules:
+- personal_question: candidate asks personal things about the interviewer (age, marital status, location, appearance, personal life, etc.)
+- abusive: candidate uses abusive, offensive, insulting, or scolding language in ANY language (English, Hindi, Telugu, Tamil, etc.)
+- normal: everything else (technical answers, "I don't know", greetings, etc.)
+
+Candidate said: "{answer}"
+
+Classification:"""
+    try:
+        result = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=10)
+        result = result.strip().lower().replace(".", "")
+        if result in ("personal_question", "abusive"):
+            return result
+    except Exception as e:
+        print(f"[Guard] Classification failed: {e}")
+    return "normal"
+
+
+def send_abuse_email(session, answer: str):
+    """Send email to admin reporting abusive candidate behavior."""
+    if not SMTP_USER or not SMTP_PASS or not ADMIN_EMAIL:
+        print("[Guard] SMTP not configured — skipping abuse email")
+        return
+
+    resume = session.get("resume", {})
+    candidate_name = resume.get("candidate_name", "Unknown")
+    candidate_email = resume.get("email", "Not provided")
+    domain = resume.get("domain", "Not specified")
+    level = resume.get("level", "Not specified")
+    session_id = session.get("id", "Unknown")
+    turn = session.get("turn", 0)
+
+    subject = f"[ALERT] Abusive Candidate — {candidate_name} — Session {session_id[:8]}"
+    body = f"""ABUSIVE BEHAVIOR REPORTED — Interview Terminated
+
+Candidate Details:
+  Name:    {candidate_name}
+  Email:   {candidate_email}
+  Domain:  {domain}
+  Level:   {level}
+
+Session:
+  ID:      {session_id}
+  Turn:    {turn}
+  Time:    {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+
+Abusive Message:
+  "{answer}"
+
+Action Taken:
+  Interview was immediately terminated.
+  Candidate was warned that a complaint has been raised.
+
+---
+VLSI Interview Agent (Automated Alert)
+"""
+
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = SMTP_USER
+        msg["To"] = ADMIN_EMAIL
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, ADMIN_EMAIL, msg.as_string())
+        print(f"[Guard] Abuse email sent to {ADMIN_EMAIL} for candidate {candidate_name}")
+    except Exception as e:
+        print(f"[Guard] Failed to send abuse email: {e}")
+
+
 def generate_question(session, candidate_answer: str) -> dict:
     """Send conversation + answer to LLM, get next question. LLM handles all intelligence."""
 
     # Add candidate's answer to history
     if session["conversation"]:
         session["conversation"][-1]["answer"] = candidate_answer
+
+    # ── Behavior guard: personal questions & abusive language ──
+    behavior = classify_candidate_answer(candidate_answer)
+
+    if behavior == "personal_question":
+        reply = "Don't go personal, let's focus on the interview."
+        session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
+        session["turn"] += 1
+        return {"question": reply, "should_end": False}
+
+    if behavior == "abusive":
+        reply = "Your behaviour is not good. I will raise a complaint on you."
+        session["phase"] = "ended"
+        session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
+        # Send email to admin in background (don't block the response)
+        threading.Thread(target=send_abuse_email, args=(session, candidate_answer), daemon=True).start()
+        return {"question": reply, "should_end": True}
 
     # Check auto-end
     should_end, end_msg = _should_end_interview(session)
