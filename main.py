@@ -7,7 +7,7 @@ Question generation: conversation history + resume → LLM → next question.
 That's it. No complex routing.
 """
 import os, time, json, re, secrets, tempfile, base64, threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -94,7 +94,7 @@ def save_candidate_session(session):
         return
     summary = {
         "session_id": session["id"],
-        "date": datetime.utcnow().isoformat(),
+        "date": datetime.now(tz=timezone.utc).isoformat(),
         "domain": session.get("resume", {}).get("domain", ""),
         "turns": session.get("turn", 0),
         "topics_asked": [e.get("topic", "") for e in session.get("conversation", []) if e.get("question")],
@@ -117,7 +117,7 @@ def get_candidate_previous(email: str) -> list[dict]:
 security = HTTPBearer(auto_error=False)
 
 def create_token(sub: str, role: str = "admin"):
-    return jwt.encode({"sub": sub, "role": role, "exp": datetime.utcnow() + timedelta(hours=8)}, JWT_SECRET, algorithm="HS256")
+    return jwt.encode({"sub": sub, "role": role, "exp": datetime.now(tz=timezone.utc) + timedelta(hours=8)}, JWT_SECRET, algorithm="HS256")
 
 async def require_admin(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = None
@@ -868,7 +868,7 @@ async def set_llm_config(data: dict, _=Depends(require_admin)):
 
 @app.get("/api/admin/llm-prompts")
 async def get_llm_prompts(_=Depends(require_admin)):
-    return {"eval_prompt": "", "qgen_rules": "", "qgen_prompt": INTERVIEWER_PROMPT}
+    return {"eval_prompt": "", "qgen_rules": "", "qgen_prompt": _BASE}
 
 @app.post("/api/admin/llm-prompts")
 async def set_llm_prompts(data: dict, _=Depends(require_admin)):
@@ -876,7 +876,7 @@ async def set_llm_prompts(data: dict, _=Depends(require_admin)):
 
 @app.get("/api/admin/qgen-prompt")
 async def get_qgen_prompt(domain: str = "physical_design", level: str = "trained_fresher", name: str = "Sample", _=Depends(require_admin)):
-    return {"prompt": INTERVIEWER_PROMPT}
+    return {"prompt": _BASE}
 
 
 # ── Admin: Voice Config ──────────────────────────────────────────────────
