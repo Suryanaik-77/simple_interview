@@ -1479,6 +1479,7 @@
     // Accumulate transcripts from chunked recordings
     let _accumulatedTranscript = '';
     let _wasAutoChunk = false;
+    let _lastSttMs = 0;
 
     async function sendAudioForTranscription() {
         if (interviewEnded) return;
@@ -1505,6 +1506,7 @@
             const tr = await fetch('/api/transcribe', { method: 'POST', body: form });
             const td = await tr.json();
             const txt = (td.transcript || '').trim();
+            _lastSttMs = td.stt_ms || 0;
 
             if (interviewEnded) return;
 
@@ -1591,11 +1593,13 @@
                 document.getElementById('live-badge').classList.add('active');
             }
 
-            // Log timing
+            // Log timing — STT + LLM + TTS combined
             if (ad.timing) {
                 const t = ad.timing;
-                console.log(`[Turn ${ad.turn}] LLM: ${t.llm_ms}ms | TTS: ${t.tts_ms}ms | Total: ${t.total_ms}ms`);
-                document.getElementById('footer-tag').textContent = `LLM ${t.llm_ms}ms | TTS ${t.tts_ms}ms`;
+                const stt = _lastSttMs || 0;
+                const total = stt + (t.llm_ms || 0) + (t.tts_ms || 0);
+                console.log(`[Turn ${ad.turn}] STT: ${stt}ms | LLM: ${t.llm_ms}ms | TTS: ${t.tts_ms}ms | Total: ${total}ms`);
+                document.getElementById('footer-tag').textContent = `STT ${stt}ms + LLM ${t.llm_ms}ms + TTS ${t.tts_ms}ms = ${total}ms`;
             }
 
             // Display next question
