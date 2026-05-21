@@ -1922,7 +1922,7 @@ const AC_CATEGORIES = {
   ai_detect: { label: 'AI Detection', icon: '&#129302;', color: 'var(--red)' },
   behavioral:{ label: 'Behavioral Analysis', icon: '&#128200;', color: 'var(--purple)' },
 };
-const AC_TOGGLABLE = ['face_detect','head_turn','eye_away'];
+const AC_TOGGLABLE = ['behavior_guard','abuse_email_alert','tab_switch','window_blur','paste_detect','screen_share','dom_overlay','canary_trigger','phone_detect','face_detect','eye_away'];
 let _acFeatures = {};
 
 async function loadAcConfig() {
@@ -2258,7 +2258,7 @@ function renderAcDetail(d) {
 
   // Anti-cheat events
   const ac_events = d.anticheat_log || [];
-  const ac_types  = ['tab_switch','window_blur','paste_event','dom_overlay','screen_share','canary_triggered','head_turned','eye_away','split_screen','keyboard_activity','ai_answer_overlay','ai_extension_detected','phone_detected'];
+  const ac_types  = ['tab_switch','window_blur','paste_event','dom_overlay','screen_share','canary_triggered','eye_away','split_screen','keyboard_activity','ai_answer_overlay','ai_extension_detected','phone_detected'];
   const eventsHtml = ac_types.map(t => {
     const matching = ac_events.filter(e => e.event_type === t);
     const count = matching.length;
@@ -2344,7 +2344,6 @@ function renderAcDetail(d) {
   const acColors = {
     tab_switch: {bg:'var(--rb)',bd:'var(--rbd)'},
     paste_event: {bg:'var(--rb)',bd:'var(--rbd)'},
-    head_turned: {bg:'#FFF7ED',bd:'#FED7AA'},
     eye_away: {bg:'#F5F3FF',bd:'#DDD6FE'},
     window_blur: {bg:'#FFF7ED',bd:'#FED7AA'},
     split_screen: {bg:'#FFF7ED',bd:'#FED7AA'},

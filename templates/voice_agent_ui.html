@@ -501,16 +501,16 @@
     let sessionOn = false, secs = 0, qCount = 0, ticker = null, orbState = 'idle';
 
     // Anti-cheat feature toggles (loaded from server .env settings)
-    let headTurnEnabled = true;
     let eyeAwayEnabled = true;
     let faceDetectEnabled = true;
+    let phoneDetectEnabled = true;
 
     // Load settings from server
     fetch('/api/anticheat-settings').then(r => r.json()).then(data => {
-        headTurnEnabled = data.head_turn_enabled !== false;
-        eyeAwayEnabled = data.eye_away_enabled !== false;
-        faceDetectEnabled = data.face_detect_enabled !== false;
-        console.log(`[Settings] head_turn=${headTurnEnabled} eye_away=${eyeAwayEnabled} face_detect=${faceDetectEnabled}`);
+        eyeAwayEnabled = data.eye_away !== false;
+        faceDetectEnabled = data.face_detect !== false;
+        phoneDetectEnabled = data.phone_detect !== false;
+        console.log(`[Settings] eye_away=${eyeAwayEnabled} face_detect=${faceDetectEnabled} phone_detect=${phoneDetectEnabled}`);
     }).catch(() => {});
     let interviewEnded = false;  // Flag to completely stop interview
 
@@ -579,11 +579,6 @@
         let detecting = false;
         const CHECK_INTERVAL = 1500;      // Check every 1.5 seconds
         const NO_FACE_LIMIT = 2;          // 2 consecutive checks (3 seconds) = warning
-
-        // Head turn detection state
-        let headTurnCount = 0;
-        let headTurnWarnings = 0;
-        const HEAD_TURN_LIMIT = 3;        // 3 consecutive checks (~4.5 seconds) = 1 warning
 
         // Eye looking away detection (eyes fixed left/right while head straight)
         let eyeReadCount = 0;
@@ -662,23 +657,6 @@
         });
 
         // Head turn warning
-        const headTurnOverlay = document.createElement('div');
-        headTurnOverlay.id = 'head-turn-overlay';
-        headTurnOverlay.style.cssText = warnStyle;
-        headTurnOverlay.innerHTML = warnCard(
-            '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l2 2"/></svg>',
-            '#f59e0b',
-            'Please Face the Screen',
-            'We noticed you\'re looking away from the screen.<br>Please face the camera during the interview.<br><strong id="head-turn-warn-text" style="color:#f59e0b;">Warning <span id="head-turn-warn-num">1</span> of 2</strong>',
-            'head-turn-btn',
-            'I\'m Facing the Screen — Continue'
-        );
-        document.body.appendChild(headTurnOverlay);
-        document.getElementById('head-turn-btn').addEventListener('click', () => {
-            headTurnOverlay.style.display = 'none';
-            headTurnCount = 0;
-        });
-
         // Eyes off screen warning
         const eyeReadOverlay = document.createElement('div');
         eyeReadOverlay.id = 'eye-read-overlay';
@@ -886,36 +864,6 @@
                     }
                     noFaceCount = 0;
                 }
-            }
-
-            // --- Head turn check (can be disabled via .env HEAD_TURN_ENABLED=false) ---
-            if (headTurnEnabled && present && headTurned) {
-                headTurnCount++;
-                console.log(`[HeadPose] Head turned ${direction} (${headTurnCount}/${HEAD_TURN_LIMIT})`);
-
-                if (headTurnCount >= HEAD_TURN_LIMIT) {
-                    headTurnWarnings++;
-                    sendAntiCheat('head_turned', `warnings:${headTurnWarnings},direction:${direction}`);
-
-                    if (headTurnWarnings <= 2) {
-                        document.getElementById('head-turn-warn-num').textContent = headTurnWarnings;
-                        if (headTurnWarnings === 2) {
-                            document.getElementById('head-turn-warn-text').innerHTML =
-                                '<span style="color:#c44;font-weight:700;">Final warning — looking away again will end the interview.</span>';
-                        }
-                        headTurnOverlay.style.display = 'flex';
-                    }
-
-                    if (headTurnWarnings >= 3) {
-                        headTurnOverlay.style.display = 'none';
-                        sendAntiCheat('head_turn_termination', `looked_away_${headTurnWarnings}_times`);
-                        endSessionWithMessage('Interview ended — you looked away from the screen repeatedly.');
-                    }
-
-                    headTurnCount = 0;
-                }
-            } else if (present && !headTurned) {
-                headTurnCount = 0;
             }
 
             // --- Eye away check (can be disabled via .env EYE_AWAY_ENABLED=false) ---
@@ -2065,9 +2013,9 @@
             if (flaggedElements.has(el)) return;    // Already flagged
 
             // Skip our own elements
-            const ownIds = ['canary-element','cam-warning-overlay','head-turn-overlay','eye-read-overlay','tab-warning-overlay','cam-warning-btn','head-turn-btn','eye-read-btn','tab-warning-btn'];
+            const ownIds = ['canary-element','cam-warning-overlay','eye-read-overlay','tab-warning-overlay','cam-warning-btn','eye-read-btn','tab-warning-btn'];
             if (ownIds.includes(el.id)) return;
-            if (el.closest && (el.closest('#cam-warning-overlay') || el.closest('#head-turn-overlay') || el.closest('#eye-read-overlay') || el.closest('#tab-warning-overlay'))) return;
+            if (el.closest && (el.closest('#cam-warning-overlay') || el.closest('#eye-read-overlay') || el.closest('#tab-warning-overlay'))) return;
 
             const tag = el.tagName || '';
             const st = window.getComputedStyle(el);
@@ -2185,9 +2133,9 @@
         }
 
         async function scanForPhone() {
-            if (!phoneModel || !sessionOn || interviewEnded) return;
-            const video = document.querySelector('video');
-            if (!video || video.readyState < 2) return;
+            if (!phoneDetectEnabled || !phoneModel || !sessionOn || interviewEnded) return;
+            const video = document.getElementById('cam-video');
+            if (!video || !video.srcObject || video.readyState < 2) return;
 
             try {
                 const predictions = await phoneModel.detect(video);

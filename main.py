@@ -628,21 +628,23 @@ def generate_question(session, candidate_answer: str) -> dict:
         session["conversation"][-1]["answer"] = candidate_answer
 
     # ── Behavior guard: personal questions & abusive language ──
-    behavior = classify_candidate_answer(candidate_answer)
+    if ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
+        behavior = classify_candidate_answer(candidate_answer)
 
-    if behavior == "personal_question":
-        reply = "Don't go personal, let's focus on the interview."
-        session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
-        session["turn"] += 1
-        return {"question": reply, "should_end": False}
+        if behavior == "personal_question":
+            reply = "Don't go personal, let's focus on the interview."
+            session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
+            session["turn"] += 1
+            return {"question": reply, "should_end": False}
 
-    if behavior == "abusive":
-        reply = "Your behaviour is not good. I will raise a complaint on you."
-        session["phase"] = "ended"
-        session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
-        # Send email to admin in background (don't block the response)
-        threading.Thread(target=send_abuse_email, args=(session, candidate_answer), daemon=True).start()
-        return {"question": reply, "should_end": True}
+        if behavior == "abusive":
+            reply = "Your behaviour is not good. I will raise a complaint on you."
+            session["phase"] = "ended"
+            session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
+            # Send email to admin in background if enabled
+            if ANTICHEAT_FEATURES.get("abuse_email_alert", {}).get("enabled", True):
+                threading.Thread(target=send_abuse_email, args=(session, candidate_answer), daemon=True).start()
+            return {"question": reply, "should_end": True}
 
     # Check auto-end
     should_end, end_msg = _should_end_interview(session)
@@ -935,15 +937,104 @@ async def generate_report(data: dict):
     return {"report": "Interview completed.", "session_id": sid, "turns": session["turn"]}
 
 
-# ── Anti-cheat stubs (templates call these) ──────────────────────────────
+# ── Anti-cheat Config ──────────────────────────────────────────────────
+
+ANTICHEAT_FEATURES = {
+    "behavior_guard": {
+        "label": "Behavior Guard",
+        "description": "Detects personal questions and abusive language from candidates using LLM classification",
+        "category": "behavioral",
+        "enabled": True,
+    },
+    "abuse_email_alert": {
+        "label": "Abuse Email Alert",
+        "description": "Sends email to admin when abusive language is detected and interview is terminated",
+        "category": "behavioral",
+        "enabled": True,
+    },
+    "tab_switch": {
+        "label": "Tab Switch Detection",
+        "description": "Logs when candidate switches browser tabs during the interview",
+        "category": "browser",
+        "enabled": True,
+    },
+    "window_blur": {
+        "label": "Window Blur Detection",
+        "description": "Logs when the interview window loses focus",
+        "category": "browser",
+        "enabled": True,
+    },
+    "paste_detect": {
+        "label": "Paste Detection",
+        "description": "Logs when candidate pastes text into the answer field",
+        "category": "browser",
+        "enabled": True,
+    },
+    "screen_share": {
+        "label": "Screen Share Detection",
+        "description": "Detects if candidate starts screen sharing during the interview",
+        "category": "browser",
+        "enabled": True,
+    },
+    "dom_overlay": {
+        "label": "AI Extension Detection",
+        "description": "Detects high-z-index overlays from AI browser extensions (copilots, assistants)",
+        "category": "ai_detect",
+        "enabled": True,
+    },
+    "canary_trigger": {
+        "label": "Canary Element Monitor",
+        "description": "Hidden DOM element that detects if AI tools read or modify page content",
+        "category": "ai_detect",
+        "enabled": True,
+    },
+    "phone_detect": {
+        "label": "Mobile Phone Detection",
+        "description": "Uses COCO-SSD model to detect mobile phones in webcam feed during interview",
+        "category": "camera",
+        "enabled": True,
+    },
+    "face_detect": {
+        "label": "Face Detection",
+        "description": "Verify candidate face is visible on camera throughout the interview",
+        "category": "camera",
+        "enabled": False,
+    },
+"eye_away": {
+        "label": "Eye Tracking",
+        "description": "Track if candidate is reading from another screen or notes",
+        "category": "camera",
+        "enabled": False,
+    },
+}
 
 @app.post("/api/anticheat-event")
 async def anticheat_event(data: dict):
+    event_type = data.get("event_type", "")
+    # Check if this event type's feature is enabled
+    feature_map = {
+        "tab_switch": "tab_switch", "window_blur": "window_blur",
+        "paste_event": "paste_detect", "screen_share": "screen_share",
+        "dom_overlay": "dom_overlay", "canary_triggered": "canary_trigger",
+    }
+    feature_key = feature_map.get(event_type)
+    if feature_key and not ANTICHEAT_FEATURES.get(feature_key, {}).get("enabled", True):
+        return {"ok": True, "ignored": True}
+    # Log the event
+    sid = data.get("session_id", "")
+    session = sessions.get(sid)
+    if session:
+        session.setdefault("anticheat_log", []).append({
+            "event_type": event_type,
+            "turn": data.get("turn", 0),
+            "timestamp": data.get("timestamp", time.time()),
+            "metadata": data.get("metadata", ""),
+        })
     return {"ok": True}
 
 @app.get("/api/anticheat-settings")
 async def anticheat_settings():
-    return {"face_detect": False, "head_turn": False, "eye_away": False}
+    return {k: v["enabled"] for k, v in ANTICHEAT_FEATURES.items()}
 
 @app.post("/api/sim/ai-done")
 async def sim_ai_done(data: dict):
@@ -953,12 +1044,27 @@ async def sim_ai_done(data: dict):
 # ── Admin: LLM Config ───────────────────────────────────────────────────
 
 AVAILABLE_MODELS = [
+    # Fast tier
     {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "tier": "fast", "input_cost": "$0.15/1M", "output_cost": "$0.60/1M", "latency": "~1-2s", "context": "128K", "best_for": "Fast, cheap"},
     {"id": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "name": "Claude Haiku 4.5", "tier": "fast", "input_cost": "$1.00/1M", "output_cost": "$5.00/1M", "latency": "~0.5-1s", "context": "200K", "best_for": "Question generation"},
-    {"id": "us.anthropic.claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "tier": "balanced", "input_cost": "$3.00/1M", "output_cost": "$15.00/1M", "latency": "~1-2s", "context": "200K", "best_for": "Evaluation"},
-    {"id": "grok-4-1-fast-non-reasoning", "name": "Grok 4.1 Fast", "tier": "fast", "input_cost": "$0.20/1M", "output_cost": "$0.50/1M", "latency": "~0.3-0.5s", "context": "2M", "best_for": "Fastest"},
-    {"id": "us.meta.llama4-maverick-17b-instruct-v1:0", "name": "Llama 4 Maverick", "tier": "fast", "input_cost": "$0.17/1M", "output_cost": "$0.17/1M", "latency": "~0.5-1s", "context": "128K", "best_for": "Cheapest"},
-    {"id": "us.amazon.nova-lite-v1:0", "name": "Amazon Nova Lite", "tier": "fast", "input_cost": "$0.06/1M", "output_cost": "$0.24/1M", "latency": "~0.5s", "context": "300K", "best_for": "AWS native"},
+    {"id": "grok-4-1-fast-non-reasoning", "name": "Grok 4.1 Fast", "tier": "fast", "input_cost": "$0.20/1M", "output_cost": "$0.50/1M", "latency": "~0.3-0.5s", "context": "2M", "best_for": "Fastest response"},
+    {"id": "us.meta.llama4-maverick-17b-instruct-v1:0", "name": "Llama 4 Maverick 17B", "tier": "fast", "input_cost": "$0.17/1M", "output_cost": "$0.17/1M", "latency": "~0.5-1s", "context": "128K", "best_for": "Cheapest"},
+    {"id": "us.meta.llama4-scout-17b-instruct-v1:0", "name": "Llama 4 Scout 17B", "tier": "fast", "input_cost": "$0.17/1M", "output_cost": "$0.17/1M", "latency": "~0.5-1s", "context": "128K", "best_for": "Fast, cheap"},
+    {"id": "us.amazon.nova-lite-v1:0", "name": "Amazon Nova Lite", "tier": "fast", "input_cost": "$0.06/1M", "output_cost": "$0.24/1M", "latency": "~0.5s", "context": "300K", "best_for": "AWS native, cheapest"},
+    {"id": "us.amazon.nova-micro-v1:0", "name": "Amazon Nova Micro", "tier": "fast", "input_cost": "$0.035/1M", "output_cost": "$0.14/1M", "latency": "~0.3s", "context": "128K", "best_for": "Ultra-cheap"},
+    # Balanced tier
+    {"id": "us.anthropic.claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "tier": "balanced", "input_cost": "$3.00/1M", "output_cost": "$15.00/1M", "latency": "~1-2s", "context": "200K", "best_for": "Evaluation, best balance"},
+    {"id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "name": "Claude Sonnet 4.5", "tier": "balanced", "input_cost": "$3.00/1M", "output_cost": "$15.00/1M", "latency": "~1-2s", "context": "200K", "best_for": "Evaluation"},
+    {"id": "grok-4-1-fast-reasoning", "name": "Grok 4.1 Fast Reasoning", "tier": "balanced", "input_cost": "$0.20/1M", "output_cost": "$0.50/1M", "latency": "~1-2s", "context": "2M", "best_for": "Reasoning tasks"},
+    {"id": "us.amazon.nova-pro-v1:0", "name": "Amazon Nova Pro", "tier": "balanced", "input_cost": "$0.80/1M", "output_cost": "$3.20/1M", "latency": "~1-2s", "context": "300K", "best_for": "AWS balanced"},
+    {"id": "us.meta.llama3-3-70b-instruct-v1:0", "name": "Llama 3.3 70B", "tier": "balanced", "input_cost": "$0.72/1M", "output_cost": "$0.72/1M", "latency": "~1-2s", "context": "128K", "best_for": "Open source, strong"},
+    {"id": "us.deepseek.r1-v1:0", "name": "DeepSeek R1", "tier": "balanced", "input_cost": "$1.35/1M", "output_cost": "$5.40/1M", "latency": "~2-4s", "context": "128K", "best_for": "Deep reasoning"},
+    {"id": "us.mistral.pixtral-large-2502-v1:0", "name": "Mistral Pixtral Large", "tier": "balanced", "input_cost": "$2.00/1M", "output_cost": "$6.00/1M", "latency": "~1-2s", "context": "128K", "best_for": "Multimodal"},
+    # Premium tier
+    {"id": "us.anthropic.claude-opus-4-6-v1", "name": "Claude Opus 4.6", "tier": "premium", "input_cost": "$15.00/1M", "output_cost": "$75.00/1M", "latency": "~3-5s", "context": "200K", "best_for": "Highest accuracy"},
+    {"id": "us.anthropic.claude-opus-4-5-20251101-v1:0", "name": "Claude Opus 4.5", "tier": "premium", "input_cost": "$15.00/1M", "output_cost": "$75.00/1M", "latency": "~3-5s", "context": "200K", "best_for": "Premium evaluation"},
+    {"id": "us.amazon.nova-premier-v1:0", "name": "Amazon Nova Premier", "tier": "premium", "input_cost": "$2.50/1M", "output_cost": "$10.00/1M", "latency": "~2-4s", "context": "300K", "best_for": "AWS premium"},
+    {"id": "us.writer.palmyra-x5-v1:0", "name": "Writer Palmyra X5", "tier": "premium", "input_cost": "$5.00/1M", "output_cost": "$25.00/1M", "latency": "~2-3s", "context": "128K", "best_for": "Enterprise writing"},
 ]
 
 @app.get("/api/admin/llm-config")
@@ -971,17 +1077,58 @@ async def set_llm_config(data: dict, _=Depends(require_admin)):
     if "eval_model" in data: RUNTIME_CONFIG["eval_model"] = data["eval_model"]
     return {"status": "success", "qgen_model": RUNTIME_CONFIG["qgen_model"], "eval_model": RUNTIME_CONFIG["eval_model"]}
 
+EDITABLE_PROMPTS = {
+    "qgen_rules": """- Ask ONE question at a time. Max 2 sentences.
+- React to the candidate's answer before asking the next question.
+- Start with basic questions, increase difficulty if they answer well.
+- Be conversational and natural, like a real interview.
+- If they don't know, give a small hint and move on.
+- Never teach or explain. Just ask and react.""",
+    "eval_prompt": """You are a senior VLSI interview evaluator. Score this candidate's answer.
+
+CANDIDATE: {domain} | {level} | {years} years experience
+QUESTION ({question_type}, {difficulty}): {question}
+ANSWER: {answer}
+
+Score 0-10 and return ONLY valid JSON:
+{{"score": 0, "quality": "strong|adequate|weak|honest_admission", "accuracy": "correct|partial|incorrect|not_applicable",
+"quadrant": "genuine_expert|genuine_nervous|honest_confused|dangerous_fake",
+"score_reasoning": "1-2 sentence explanation",
+"expected_points": ["point1", "point2"],
+"missing_points": ["missed1"],
+"level_gap": 0,
+"notes": "brief evaluator note"}}
+
+Rules:
+- Score relative to candidate's level (fresh grad scored differently than senior)
+- "I don't know" = honest_admission, score 5-6 (shows integrity)
+- Textbook-perfect answers from freshers = suspicious, note it
+- Partial but genuine answers score higher than memorized-sounding complete ones
+- 0-3: wrong/no answer, 4-5: partial, 6-7: adequate, 8-9: strong, 10: exceptional""",
+}
+
 @app.get("/api/admin/llm-prompts")
 async def get_llm_prompts(_=Depends(require_admin)):
-    return {"eval_prompt": "", "qgen_rules": "", "qgen_prompt": _BASE}
+    return {"eval_prompt": EDITABLE_PROMPTS["eval_prompt"], "qgen_rules": EDITABLE_PROMPTS["qgen_rules"], "qgen_prompt": _BASE}
 
 @app.post("/api/admin/llm-prompts")
 async def set_llm_prompts(data: dict, _=Depends(require_admin)):
+    if data.get("reset_eval"):
+        EDITABLE_PROMPTS["eval_prompt"] = EDITABLE_PROMPTS["eval_prompt"]  # already default
+    elif "eval_prompt" in data:
+        EDITABLE_PROMPTS["eval_prompt"] = data["eval_prompt"]
+    if data.get("reset_qgen"):
+        EDITABLE_PROMPTS["qgen_rules"] = EDITABLE_PROMPTS["qgen_rules"]
+    elif "qgen_rules" in data:
+        EDITABLE_PROMPTS["qgen_rules"] = data["qgen_rules"]
     return {"status": "success"}
 
 @app.get("/api/admin/qgen-prompt")
 async def get_qgen_prompt(domain: str = "physical_design", level: str = "trained_fresher", name: str = "Sample", _=Depends(require_admin)):
-    return {"prompt": _BASE}
+    level_prompt = _LEVEL.get(level, _LEVEL["trained_fresher"])
+    domain_prompt = _DOMAIN.get(domain, _DOMAIN["physical_design"])
+    full_prompt = _BASE + level_prompt + domain_prompt + f"\nCANDIDATE: {name} | {level.replace('_',' ')} | Tools: not specified"
+    return {"prompt": full_prompt}
 
 
 # ── Admin: Voice Config ──────────────────────────────────────────────────
@@ -1033,32 +1180,49 @@ async def playground_tts(data: dict):
 @app.post("/api/admin/prompt-playground")
 async def prompt_playground(data: dict, _=Depends(require_admin)):
     prompt_text = data.get("prompt", "")
+    messages = data.get("messages", [])
     model_id = data.get("model_id", RUNTIME_CONFIG["qgen_model"])
     temperature = data.get("temperature", 0.3)
     max_tokens = data.get("max_tokens", 600)
     system_prompt = data.get("system_prompt", "")
 
     msgs = []
-    if system_prompt: msgs.append({"role": "system", "content": system_prompt})
-    msgs.append({"role": "user", "content": prompt_text})
+    if system_prompt:
+        msgs.append({"role": "system", "content": system_prompt})
+
+    # Multi-turn chat mode: frontend sends messages array
+    if messages:
+        msgs.extend(messages)
+    elif prompt_text:
+        msgs.append({"role": "user", "content": prompt_text})
+    else:
+        return {"status": "error", "error": "No prompt or messages provided", "latency_ms": 0, "model": model_id}
 
     t0 = time.time()
     try:
         raw = call_llm(msgs, model_id=model_id, temperature=temperature, max_tokens=max_tokens)
-        return {"status": "success", "raw_response": raw, "latency_ms": round((time.time() - t0) * 1000), "model": model_id}
+        # Try to parse as JSON for eval prompts
+        parsed = safe_json(raw)
+        result = {"status": "success", "raw_response": raw, "latency_ms": round((time.time() - t0) * 1000), "model": model_id}
+        if parsed:
+            result["parsed_json"] = parsed
+        return result
     except Exception as e:
         return {"status": "error", "error": str(e), "latency_ms": round((time.time() - t0) * 1000), "model": model_id}
 
 
-# ── Admin: Anti-cheat Config (stubs) ─────────────────────────────────────
+# ── Admin: Anti-cheat Config ────────────────────────────────────────────
 
 @app.get("/api/admin/anticheat-config")
 async def get_anticheat_config(_=Depends(require_admin)):
-    return {"features": {}}
+    return {"features": ANTICHEAT_FEATURES}
 
 @app.post("/api/admin/anticheat-config")
 async def set_anticheat_config(data: dict, _=Depends(require_admin)):
-    return {"status": "success"}
+    for key, enabled in data.items():
+        if key in ANTICHEAT_FEATURES and isinstance(enabled, bool):
+            ANTICHEAT_FEATURES[key]["enabled"] = enabled
+    return {"status": "success", "features": ANTICHEAT_FEATURES}
 
 
 # ── Admin: Sessions ──────────────────────────────────────────────────────
