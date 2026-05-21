@@ -42,6 +42,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "gsuryanaik7@gmail.com")
+SAPLING_API_KEY = os.getenv("SAPLING_API_KEY", "")
 
 from openai import OpenAI
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
@@ -363,6 +364,13 @@ RULES:
 - If they repeat: "Got it. Let's move on."
 - Plain spoken text. No markdown. No bullets.
 
+CANDIDATE BEHAVIOR:
+- If the candidate asks PERSONAL questions (your age, location, marital status, appearance, personal life):
+  Respond with EXACTLY: "[PERSONAL] Don't go personal, let's focus on the interview."
+- If the candidate uses ABUSIVE, OFFENSIVE, or SCOLDING language in ANY language:
+  Respond with EXACTLY: "[ABUSIVE] Your behaviour is not good. I will raise a complaint on you."
+- These are the ONLY cases where you use [PERSONAL] or [ABUSIVE] tags. Normal interview answers never get these tags.
+
 ENDING THE INTERVIEW:
 When you have enough signal to assess the candidate, end naturally.
 To end, start your response with [END_INTERVIEW] then a brief closing.
@@ -620,31 +628,98 @@ VLSI Interview Agent (Automated Alert)
         print(f"[Guard] Failed to send abuse email: {e}")
 
 
+# ── AI Answer Detection ────────────────────────────────────────────────
+
+def detect_ai_answer(answer: str, session: dict, turn_index: int):
+    """Check if candidate answer is AI-generated. Runs in background thread.
+    Uses Sapling API if available, falls back to LLM-based detection."""
+    if not ANTICHEAT_FEATURES.get("ai_answer_detect", {}).get("enabled", True):
+        return
+    if not answer or len(answer.split()) < 10:
+        return  # Too short to detect
+
+    result = {"checked": True, "is_ai": False, "score": 0.0, "method": "", "sapling": None, "llm": None}
+
+    # Method 1: Sapling API (if available)
+    if SAPLING_API_KEY:
+        try:
+            r = http_requests.post("https://api.sapling.ai/api/v1/aidetect",
+                json={"key": SAPLING_API_KEY, "text": answer[:2000]}, timeout=10)
+            if r.ok:
+                data = r.json()
+                sap_score = data.get("score", 0)
+                result["sapling"] = {"score": sap_score, "sentence_scores": data.get("sentence_scores", [])}
+                result["method"] = "sapling"
+                if sap_score > 0.7:
+                    result["is_ai"] = True
+                    result["score"] = sap_score
+                    print(f"[AI Detect] Sapling: {sap_score:.2f} — AI detected (turn {turn_index})")
+                else:
+                    print(f"[AI Detect] Sapling: {sap_score:.2f} — Human (turn {turn_index})")
+        except Exception as e:
+            print(f"[AI Detect] Sapling failed: {e}")
+
+    # Method 2: LLM-based detection (fallback or cross-check)
+    if not SAPLING_API_KEY or (result["sapling"] and result["sapling"]["score"] > 0.4):
+        try:
+            prompt = f"""Analyze if this interview answer was written by AI or a human.
+Return ONLY valid JSON: {{"is_ai": true/false, "confidence": 0.0-1.0, "signals": ["signal1"]}}
+
+Signs of AI-generated text:
+- Unnaturally structured (intro, body, conclusion for a verbal answer)
+- Perfect grammar and punctuation in a spoken interview
+- Generic phrases like "It's important to note", "In summary", "There are several key aspects"
+- Lists with parallel structure (a spoken answer would be messier)
+- No filler words, hesitation, or personal experience references
+- Covers too many points perfectly for a timed verbal response
+
+Signs of human answer:
+- Conversational tone, incomplete sentences
+- Personal references ("In my project...", "I used to...")
+- Filler words, self-corrections
+- Focused on 1-2 points rather than comprehensive coverage
+- Domain-specific jargon used naturally (not textbook definitions)
+
+ANSWER: "{answer[:1500]}"
+
+JSON:"""
+            raw = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=150)
+            parsed = safe_json(raw)
+            if parsed:
+                llm_is_ai = parsed.get("is_ai", False)
+                llm_conf = parsed.get("confidence", 0)
+                result["llm"] = {"is_ai": llm_is_ai, "confidence": llm_conf, "signals": parsed.get("signals", [])}
+                if not result["sapling"]:
+                    result["method"] = "llm"
+                    result["is_ai"] = llm_is_ai and llm_conf > 0.7
+                    result["score"] = llm_conf
+                else:
+                    result["method"] = "sapling+llm"
+                    # Both agree = high confidence
+                    if result["sapling"]["score"] > 0.5 and llm_is_ai:
+                        result["is_ai"] = True
+                        result["score"] = max(result["sapling"]["score"], llm_conf)
+                print(f"[AI Detect] LLM: is_ai={llm_is_ai} conf={llm_conf:.2f} (turn {turn_index})")
+        except Exception as e:
+            print(f"[AI Detect] LLM detection failed: {e}")
+
+    # Store result in conversation entry
+    if turn_index < len(session.get("conversation", [])):
+        session["conversation"][turn_index]["ai_detection"] = result
+
+    if result["is_ai"]:
+        print(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
+
+
 def generate_question(session, candidate_answer: str) -> dict:
     """Send conversation + answer to LLM, get next question. LLM handles all intelligence."""
 
     # Add candidate's answer to history
     if session["conversation"]:
         session["conversation"][-1]["answer"] = candidate_answer
-
-    # ── Behavior guard: personal questions & abusive language ──
-    if ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
-        behavior = classify_candidate_answer(candidate_answer)
-
-        if behavior == "personal_question":
-            reply = "Don't go personal, let's focus on the interview."
-            session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
-            session["turn"] += 1
-            return {"question": reply, "should_end": False}
-
-        if behavior == "abusive":
-            reply = "Your behaviour is not good. I will raise a complaint on you."
-            session["phase"] = "ended"
-            session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
-            # Send email to admin in background if enabled
-            if ANTICHEAT_FEATURES.get("abuse_email_alert", {}).get("enabled", True):
-                threading.Thread(target=send_abuse_email, args=(session, candidate_answer), daemon=True).start()
-            return {"question": reply, "should_end": True}
+        # Run AI detection in background (non-blocking)
+        turn_idx = len(session["conversation"]) - 1
+        threading.Thread(target=detect_ai_answer, args=(candidate_answer, session, turn_idx), daemon=True).start()
 
     # Check auto-end
     should_end, end_msg = _should_end_interview(session)
@@ -664,13 +739,28 @@ def generate_question(session, candidate_answer: str) -> dict:
 
     messages.append({"role": "user", "content": candidate_answer + pacing})
 
-    # Call LLM
+    # Single LLM call — handles question generation + behavior detection
     question = call_llm(messages, temperature=0.7, max_tokens=120)
 
     # Clean markdown
     question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', question)
     question = re.sub(r'`([^`]+)`', r'\1', question)
     question = re.sub(r'#{1,3}\s*', '', question)
+
+    # Check behavior tags from LLM
+    if "[PERSONAL]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
+        reply = question.replace("[PERSONAL]", "").strip()
+        session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
+        session["turn"] += 1
+        return {"question": reply, "should_end": False}
+
+    if "[ABUSIVE]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
+        reply = question.replace("[ABUSIVE]", "").strip()
+        session["phase"] = "ended"
+        session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
+        if ANTICHEAT_FEATURES.get("abuse_email_alert", {}).get("enabled", True):
+            threading.Thread(target=send_abuse_email, args=(session, candidate_answer), daemon=True).start()
+        return {"question": reply, "should_end": True}
 
     # Check if LLM decided to end the interview
     llm_end = "[END_INTERVIEW]" in question
@@ -988,6 +1078,12 @@ ANTICHEAT_FEATURES = {
         "category": "ai_detect",
         "enabled": True,
     },
+    "ai_answer_detect": {
+        "label": "AI Answer Detection",
+        "description": "Checks if candidate answers are AI-generated using Sapling API and LLM analysis",
+        "category": "ai_detect",
+        "enabled": True,
+    },
     "phone_detect": {
         "label": "Mobile Phone Detection",
         "description": "Uses COCO-SSD model to detect mobile phones in webcam feed during interview",
@@ -1271,6 +1367,7 @@ async def admin_session_detail(sid: str, _=Depends(require_admin)):
             "missing_points": [],
             "level_gap": 0,
             "behavioral_flags": [],
+            "ai_detection": entry.get("ai_detection", {}),
         })
     return {
         "session_id": sid,
