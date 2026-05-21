@@ -1512,10 +1512,21 @@
                 _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
             }
 
-            // If auto-chunk: restart recording immediately, don't submit yet
+            // If auto-chunk: restart recording FIRST (zero gap), transcribe in background
             if (_wasAutoChunk) {
-                document.getElementById('sub-label').textContent = 'continue speaking...';
-                if (!interviewEnded) startRecording();  // zero-gap restart (mic already alive)
+                if (!interviewEnded) startRecording();  // restart immediately — zero gap
+                // Transcribe chunk in background (non-blocking)
+                const chunkForm = new FormData();
+                chunkForm.append('audio', blob, 'chunk.webm');
+                chunkForm.append('session_id', sessionId);
+                fetch('/api/transcribe', { method: 'POST', body: chunkForm })
+                    .then(r => r.json())
+                    .then(td => {
+                        const txt = (td.transcript || '').trim();
+                        if (txt) _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
+                        console.log(`[Chunk STT] ${td.stt_ms || '?'}ms — "${txt.substring(0, 50)}..."`);
+                    })
+                    .catch(e => console.error('[Chunk STT] Error:', e));
                 return;
             }
 
@@ -1578,6 +1589,13 @@
             if (ad.phase === 'interview') {
                 document.getElementById('live-badge').textContent = 'interview';
                 document.getElementById('live-badge').classList.add('active');
+            }
+
+            // Log timing
+            if (ad.timing) {
+                const t = ad.timing;
+                console.log(`[Turn ${ad.turn}] LLM: ${t.llm_ms}ms | TTS: ${t.tts_ms}ms | Total: ${t.total_ms}ms`);
+                document.getElementById('footer-tag').textContent = `LLM ${t.llm_ms}ms | TTS ${t.tts_ms}ms`;
             }
 
             // Display next question

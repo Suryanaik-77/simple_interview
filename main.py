@@ -286,8 +286,10 @@ JSON:"""
 
 # ── STT ──────────────────────────────────────────────────────────────────
 
-def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> str:
+def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
+    """Returns (transcript, latency_ms)."""
     tmp_path = None
+    t0 = time.time()
     try:
         with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as f:
             f.write(audio_bytes); tmp_path = f.name
@@ -295,10 +297,13 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> str:
             response = openai_client.audio.transcriptions.create(
                 model="gpt-4o-mini-transcribe", file=audio_file, language="en",
             )
-        return response.text.strip() if hasattr(response, "text") else str(response).strip()
+        latency = round((time.time() - t0) * 1000)
+        text = response.text.strip() if hasattr(response, "text") else str(response).strip()
+        print(f"[STT] {latency}ms — {len(text)} chars")
+        return text, latency
     except Exception as e:
         print(f"[STT] Error: {e}")
-        return ""
+        return "", round((time.time() - t0) * 1000)
     finally:
         if tmp_path:
             try: os.unlink(tmp_path)
@@ -307,12 +312,13 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> str:
 
 # ── TTS ──────────────────────────────────────────────────────────────────
 
-def synthesize_speech(text: str) -> str:
-    """Returns base64 encoded audio."""
+def synthesize_speech(text: str) -> tuple[str, int]:
+    """Returns (base64_audio, latency_ms)."""
     if not RUNTIME_CONFIG.get("tts_enabled", True) or not text:
-        return ""
+        return "", 0
     provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
     voice = RUNTIME_CONFIG.get("tts_voice", "aura-asteria-en")
+    t0 = time.time()
 
     # Deepgram
     if provider == "deepgram" and DEEPGRAM_API_KEY:
@@ -321,7 +327,9 @@ def synthesize_speech(text: str) -> str:
                 headers={"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": "application/json"},
                 json={"text": text[:2000]}, timeout=15)
             r.raise_for_status()
-            return base64.b64encode(r.content).decode()
+            latency = round((time.time() - t0) * 1000)
+            print(f"[TTS] Deepgram {latency}ms — {len(text)} chars")
+            return base64.b64encode(r.content).decode(), latency
         except Exception as e:
             print(f"[TTS] Deepgram error: {e}")
 
@@ -332,9 +340,11 @@ def synthesize_speech(text: str) -> str:
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
                 json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
+            latency = round((time.time() - t0) * 1000)
+            print(f"[TTS] Inworld {latency}ms — {len(text)} chars")
             data = r.json() if "json" in r.headers.get("content-type", "") else None
-            if data: return data.get("audioContent", base64.b64encode(r.content).decode())
-            return base64.b64encode(r.content).decode()
+            if data: return data.get("audioContent", base64.b64encode(r.content).decode()), latency
+            return base64.b64encode(r.content).decode(), latency
         except Exception as e:
             print(f"[TTS] Inworld error: {e}")
 
@@ -342,11 +352,13 @@ def synthesize_speech(text: str) -> str:
     if OPENAI_API_KEY:
         try:
             response = openai_client.audio.speech.create(model="tts-1", voice=voice or "nova", input=text[:2000])
-            return base64.b64encode(response.content).decode()
+            latency = round((time.time() - t0) * 1000)
+            print(f"[TTS] OpenAI {latency}ms — {len(text)} chars")
+            return base64.b64encode(response.content).decode(), latency
         except Exception as e:
             print(f"[TTS] OpenAI error: {e}")
 
-    return ""
+    return "", round((time.time() - t0) * 1000)
 
 
 # ── Dynamic Interview Prompts ────────────────────────────────────────────
@@ -745,7 +757,10 @@ def generate_question(session, candidate_answer: str) -> dict:
     messages.append({"role": "user", "content": candidate_answer + pacing})
 
     # Single LLM call — handles question generation + behavior detection
+    t0_llm = time.time()
     question = call_llm(messages, temperature=0.7, max_tokens=120)
+    llm_ms = round((time.time() - t0_llm) * 1000)
+    print(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {session['turn']}")
 
     # Clean markdown
     question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', question)
@@ -777,7 +792,10 @@ def generate_question(session, candidate_answer: str) -> dict:
     session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
     session["turn"] += 1
 
-    return {"question": question, "should_end": llm_end}
+    # Store LLM timing
+    session.setdefault("obs_log", []).append({"step": "LLM_question", "model": RUNTIME_CONFIG["qgen_model"], "latency_ms": llm_ms, "status": "success"})
+
+    return {"question": question, "should_end": llm_end, "llm_ms": llm_ms}
 
 
 def generate_greeting(session) -> str:
@@ -977,13 +995,14 @@ async def start_interview(data: dict):
     if not session: raise HTTPException(404, "Session not found")
 
     greeting = generate_greeting(session)
-    audio = synthesize_speech(greeting)
+    audio, tts_ms = synthesize_speech(greeting)
     session["phase"] = "interview"
 
     return {
         "question": greeting, "question_type": "greeting", "turn": session["turn"],
         "phase": session["phase"], "audio": audio, "difficulty": "basic",
         "should_end": False, "resume": session.get("resume", {}),
+        "timing": {"tts_ms": tts_ms},
     }
 
 
@@ -991,8 +1010,12 @@ async def start_interview(data: dict):
 async def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form("")):
     audio_bytes = await audio.read()
     ext = audio.filename.rsplit(".", 1)[-1] if audio.filename else "webm"
-    transcript = transcribe_audio(audio_bytes, ext)
-    return {"transcript": transcript}
+    transcript, stt_ms = transcribe_audio(audio_bytes, ext)
+    # Store STT timing in session
+    session = sessions.get(session_id)
+    if session:
+        session.setdefault("obs_log", []).append({"step": "STT", "model": "gpt-4o-mini-transcribe", "latency_ms": stt_ms, "status": "success" if transcript else "failure"})
+    return {"transcript": transcript, "stt_ms": stt_ms}
 
 
 @app.post("/api/submit-answer")
@@ -1002,18 +1025,27 @@ async def submit_answer(data: dict):
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
 
+    t0_total = time.time()
     result = generate_question(session, answer)
-    audio = synthesize_speech(result["question"])
+    audio, tts_ms = synthesize_speech(result["question"])
+
+    # Store TTS timing
+    session.setdefault("obs_log", []).append({"step": "TTS", "model": RUNTIME_CONFIG.get("tts_provider", "deepgram"), "latency_ms": tts_ms, "status": "success" if audio else "failure"})
 
     if result["should_end"]:
         session["phase"] = "ended"
         save_candidate_session(session)
+
+    total_ms = round((time.time() - t0_total) * 1000)
+    llm_ms = result.get("llm_ms", 0)
+    print(f"[Turn {session['turn']-1}] Total: {total_ms}ms (LLM: {llm_ms}ms + TTS: {tts_ms}ms)")
 
     return {
         "question": result["question"], "question_type": "interview",
         "turn": session["turn"], "phase": session["phase"],
         "audio": audio, "difficulty": "basic",
         "should_end": result["should_end"],
+        "timing": {"llm_ms": llm_ms, "tts_ms": tts_ms, "total_ms": total_ms},
     }
 
 
@@ -1268,9 +1300,9 @@ async def test_tts(data: dict, _=Depends(require_admin)):
     old_p, old_v = RUNTIME_CONFIG["tts_provider"], RUNTIME_CONFIG["tts_voice"]
     RUNTIME_CONFIG["tts_provider"], RUNTIME_CONFIG["tts_voice"] = provider, voice
     t0 = time.time()
-    audio = synthesize_speech(text)
+    audio, tts_ms = synthesize_speech(text)
     RUNTIME_CONFIG["tts_provider"], RUNTIME_CONFIG["tts_voice"] = old_p, old_v
-    return {"audio": audio, "latency_ms": int((time.time() - t0) * 1000)}
+    return {"audio": audio, "latency_ms": tts_ms}
 
 @app.get("/api/admin/voice-library")
 async def voice_library(_=Depends(require_admin)):
@@ -1283,8 +1315,8 @@ async def clone_voice(_=Depends(require_admin)):
 @app.post("/api/playground/tts")
 async def playground_tts(data: dict):
     text = data.get("text", "")
-    audio = synthesize_speech(text)
-    return {"audio": audio}
+    audio, tts_ms = synthesize_speech(text)
+    return {"audio": audio, "tts_ms": tts_ms}
 
 
 # ── Admin: Prompt Playground ─────────────────────────────────────────────
@@ -1356,6 +1388,19 @@ async def admin_sessions(_=Depends(require_admin)):
     return session_list
 
 
+def _build_session_obs(sid, session):
+    """Build observability summary for a single session."""
+    logs = session.get("obs_log", [])
+    total = len(logs)
+    success = sum(1 for l in logs if l.get("status") == "success")
+    latencies = [l["latency_ms"] for l in logs if l.get("latency_ms")]
+    avg_lat = round(sum(latencies) / len(latencies)) if latencies else 0
+    by_step = {}
+    for step in ["LLM_question", "STT", "TTS"]:
+        step_lats = [l["latency_ms"] for l in logs if l.get("step") == step and l.get("latency_ms")]
+        by_step[step] = {"calls": len(step_lats), "avg_ms": round(sum(step_lats) / len(step_lats)) if step_lats else 0, "cost_usd": 0}
+    return {"session_id": sid, "total_calls": total, "success_calls": success, "failure_calls": total - success, "total_cost_usd": 0, "avg_latency_ms": avg_lat, "step_breakdown": by_step}
+
 @app.get("/api/admin/session/{sid}")
 async def admin_session_detail(sid: str, _=Depends(require_admin)):
     session = sessions.get(sid)
@@ -1393,7 +1438,7 @@ async def admin_session_detail(sid: str, _=Depends(require_admin)):
         "difficulty_level": session.get("difficulty_level", 1),
         "trajectory": "unknown",
         "turn_log": turn_log,
-        "anticheat_log": [],
+        "anticheat_log": session.get("anticheat_log", []),
         "contradiction_log": [],
         "recovery_log": [],
         "notable_moments": [],
@@ -1404,7 +1449,7 @@ async def admin_session_detail(sid: str, _=Depends(require_admin)):
         "expert_reviews": [],
         "eval_model": RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini"),
         "qgen_model": RUNTIME_CONFIG.get("qgen_model", "gpt-4o-mini"),
-        "observability": {"session_id": sid, "total_calls": 0, "logs": []},
+        "observability": _build_session_obs(sid, session),
     }
 
 
@@ -1412,15 +1457,61 @@ async def admin_session_detail(sid: str, _=Depends(require_admin)):
 
 @app.get("/api/observability/summary")
 async def obs_summary(window: int = 86400, _=Depends(require_admin)):
+    cutoff = time.time() - window
+    all_logs = []
+    for s in sessions.values():
+        if s.get("started_at", 0) >= cutoff:
+            all_logs.extend(s.get("obs_log", []))
+
+    total = len(all_logs)
+    success = sum(1 for l in all_logs if l.get("status") == "success")
+    failures = total - success
+    latencies = [l["latency_ms"] for l in all_logs if l.get("latency_ms")]
+    avg_lat = round(sum(latencies) / len(latencies)) if latencies else 0
+
+    # Step breakdown
+    by_step = {}
+    for step in ["LLM_question", "STT", "TTS"]:
+        step_logs = [l for l in all_logs if l.get("step") == step]
+        step_lats = sorted([l["latency_ms"] for l in step_logs if l.get("latency_ms")])
+        if step_lats:
+            p50 = step_lats[len(step_lats) // 2]
+            p95 = step_lats[min(len(step_lats) - 1, int(len(step_lats) * 0.95))]
+            avg = round(sum(step_lats) / len(step_lats))
+        else:
+            p50 = p95 = avg = 0
+        by_step[step] = {
+            "calls": len(step_logs),
+            "failures": sum(1 for l in step_logs if l.get("status") != "success"),
+            "p50": p50, "p95": p95, "avg": avg,
+            "cost_usd": 0,
+        }
+
     return {
-        "total_calls": 0, "success_calls": 0, "failure_calls": 0,
-        "total_cost_usd": 0, "avg_latency_ms": 0,
-        "step_breakdown": {},
+        "total_calls": total, "success_calls": success, "failure_calls": failures,
+        "total_cost_usd": 0, "avg_latency_ms": avg_lat,
+        "success_rate_pct": round(success / total * 100, 1) if total else 100,
+        "by_step": by_step,
+        "recent_errors": [],
     }
 
 @app.get("/api/observability/logs")
 async def obs_logs(limit: int = 500, _=Depends(require_admin)):
-    return []
+    all_logs = []
+    for sid, s in sessions.items():
+        for log in s.get("obs_log", []):
+            all_logs.append({
+                "ts_str": datetime.fromtimestamp(s.get("started_at", 0)).strftime("%H:%M:%S"),
+                "session_id": sid,
+                "step": log.get("step", ""),
+                "model": log.get("model", ""),
+                "latency_ms": log.get("latency_ms"),
+                "total_tokens": None,
+                "cost_usd": None,
+                "status": log.get("status", "success"),
+                "error": None,
+            })
+    return all_logs[-limit:]
 
 
 # ── Admin: Expert Review ─────────────────────────────────────────────────
