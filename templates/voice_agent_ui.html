@@ -1480,6 +1480,7 @@
     let _accumulatedTranscript = '';
     let _wasAutoChunk = false;
     let _lastSttMs = 0;
+    let _pendingChunkSTT = null;  // Promise for background chunk transcription
 
     async function sendAudioForTranscription() {
         if (interviewEnded) return;
@@ -1501,7 +1502,28 @@
         form.append('session_id', sessionId);
 
         try {
-            // Transcribe this chunk
+            // If auto-chunk (30s): restart recording FIRST, transcribe in background
+            if (_wasAutoChunk) {
+                if (!interviewEnded) startRecording();  // restart immediately — zero gap
+                _pendingChunkSTT = fetch('/api/transcribe', { method: 'POST', body: form })
+                    .then(r => r.json())
+                    .then(td => {
+                        const txt = (td.transcript || '').trim();
+                        if (txt) _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
+                        console.log(`[Chunk STT] ${td.stt_ms || '?'}ms — "${txt.substring(0, 50)}..."`);
+                    })
+                    .catch(e => console.error('[Chunk STT] Error:', e))
+                    .finally(() => { _pendingChunkSTT = null; });
+                return;
+            }
+
+            // Wait for any pending background chunk STT to finish before combining
+            if (_pendingChunkSTT) {
+                document.getElementById('sub-label').textContent = 'waiting for chunk...';
+                await _pendingChunkSTT;
+            }
+
+            // Final chunk (silence detected) — transcribe and submit
             document.getElementById('sub-label').textContent = 'transcribing...';
             const tr = await fetch('/api/transcribe', { method: 'POST', body: form });
             const td = await tr.json();
@@ -1514,25 +1536,7 @@
                 _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
             }
 
-            // If auto-chunk: restart recording FIRST (zero gap), transcribe in background
-            if (_wasAutoChunk) {
-                if (!interviewEnded) startRecording();  // restart immediately — zero gap
-                // Transcribe chunk in background (non-blocking)
-                const chunkForm = new FormData();
-                chunkForm.append('audio', blob, 'chunk.webm');
-                chunkForm.append('session_id', sessionId);
-                fetch('/api/transcribe', { method: 'POST', body: chunkForm })
-                    .then(r => r.json())
-                    .then(td => {
-                        const txt = (td.transcript || '').trim();
-                        if (txt) _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
-                        console.log(`[Chunk STT] ${td.stt_ms || '?'}ms — "${txt.substring(0, 50)}..."`);
-                    })
-                    .catch(e => console.error('[Chunk STT] Error:', e));
-                return;
-            }
-
-            // Final chunk (silence detected) — submit accumulated transcript
+            // Combine all chunks into final text
             const finalText = _accumulatedTranscript.trim();
             _accumulatedTranscript = '';
 
