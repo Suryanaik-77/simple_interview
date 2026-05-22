@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -174,6 +174,83 @@ def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
         temperature=temperature, max_tokens=max_tokens,
     )
     return resp.choices[0].message.content.strip()
+
+
+def stream_llm(messages, model_id="", temperature=0.5, max_tokens=500):
+    """Stream LLM tokens. Yields text chunks. Works with OpenAI and Grok."""
+    model = model_id or RUNTIME_CONFIG["qgen_model"]
+
+    # Grok streaming
+    if model.startswith("grok-") and xai_client:
+        import httpx
+        stream = xai_client.chat.completions.create(
+            model=model, messages=messages,
+            temperature=temperature, max_tokens=max_tokens,
+            stream=True, timeout=httpx.Timeout(15.0),
+        )
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+        return
+
+    # Bedrock — no streaming support in current code, fall back to full response
+    if bedrock_client and (model.startswith("us.") or "anthropic" in model or "amazon" in model or "meta" in model):
+        full = _call_bedrock(messages, model, temperature, max_tokens)
+        # Simulate streaming by yielding sentence by sentence
+        for sent in re.split(r'(?<=[.?!])\s+', full):
+            if sent.strip():
+                yield sent.strip() + " "
+        return
+
+    # OpenAI streaming
+    stream = openai_client.chat.completions.create(
+        model=model, messages=messages,
+        temperature=temperature, max_tokens=max_tokens,
+        stream=True,
+    )
+    for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
+
+def tts_chunk(text: str) -> bytes:
+    """Generate TTS audio bytes for a text chunk. Returns raw audio bytes."""
+    if not RUNTIME_CONFIG.get("tts_enabled", True) or not text.strip():
+        return b""
+    provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
+    voice = RUNTIME_CONFIG.get("tts_voice", "aura-asteria-en")
+
+    if provider == "deepgram" and DEEPGRAM_API_KEY:
+        try:
+            r = http_requests.post(f"https://api.deepgram.com/v1/speak?model={voice}",
+                headers={"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": "application/json"},
+                json={"text": text[:2000]}, timeout=15)
+            r.raise_for_status()
+            return r.content
+        except Exception as e:
+            print(f"[TTS Stream] Deepgram error: {e}")
+
+    if provider == "inworld" and INWORLD_API_KEY:
+        try:
+            r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
+                headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
+                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
+            r.raise_for_status()
+            data = r.json() if "json" in r.headers.get("content-type", "") else None
+            if data and data.get("audioContent"):
+                return base64.b64decode(data["audioContent"])
+            return r.content
+        except Exception as e:
+            print(f"[TTS Stream] Inworld error: {e}")
+
+    if OPENAI_API_KEY:
+        try:
+            response = openai_client.audio.speech.create(model="tts-1", voice=voice or "nova", input=text[:2000])
+            return response.content
+        except Exception as e:
+            print(f"[TTS Stream] OpenAI error: {e}")
+
+    return b""
 
 
 def _call_bedrock(messages, model_id, temperature, max_tokens):
@@ -1058,6 +1135,119 @@ async def submit_answer(data: dict):
         "should_end": result["should_end"],
         "timing": {"llm_ms": llm_ms, "tts_ms": tts_ms, "total_ms": total_ms},
     }
+
+
+@app.post("/api/stream-answer")
+async def stream_answer(data: dict):
+    """SSE endpoint: LLM streams tokens → sentence buffer → TTS per sentence → audio chunks to client."""
+    sid = data.get("session_id")
+    answer = data.get("answer", "")
+    session = sessions.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    def event_stream():
+        t0 = time.time()
+
+        # Add candidate's answer to history
+        if session["conversation"]:
+            session["conversation"][-1]["answer"] = answer
+            turn_idx = len(session["conversation"]) - 1
+            threading.Thread(target=detect_ai_answer, args=(answer, session, turn_idx), daemon=True).start()
+
+        # Check auto-end
+        should_end, end_msg = _should_end_interview(session)
+        if should_end:
+            session["phase"] = "ended"
+            audio_bytes = tts_chunk(end_msg)
+            yield f"data: {json.dumps({'type': 'text', 'content': end_msg, 'done': True, 'should_end': True})}\n\n"
+            if audio_bytes:
+                yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended'})}\n\n"
+            return
+
+        # Build prompt
+        messages = build_interview_prompt(session)
+        phase = _get_interview_phase(session["turn"])
+        topics_covered = _get_topics_covered(session)
+        pacing = f"\nPHASE: {phase} | Turn: {session['turn']}"
+        if topics_covered:
+            pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
+        messages.append({"role": "user", "content": answer + pacing})
+
+        # Stream LLM tokens, buffer into sentences
+        t0_llm = time.time()
+        full_text = ""
+        sentence_buffer = ""
+        sentence_count = 0
+
+        for token in stream_llm(messages, temperature=0.7, max_tokens=120):
+            full_text += token
+            sentence_buffer += token
+
+            # Send text token to frontend immediately (for typewriter)
+            yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+
+            # Check for sentence boundary
+            if re.search(r'[.?!]\s*$', sentence_buffer) or len(sentence_buffer) > 150:
+                sentence = sentence_buffer.strip()
+                sentence_buffer = ""
+                if sentence:
+                    sentence_count += 1
+                    # Generate TTS for this sentence
+                    t0_tts = time.time()
+                    audio_bytes = tts_chunk(sentence)
+                    tts_ms = round((time.time() - t0_tts) * 1000)
+                    if audio_bytes:
+                        yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
+                    print(f"[Stream] Sentence {sentence_count}: TTS {tts_ms}ms — \"{sentence[:50]}...\"")
+
+        # Flush remaining buffer
+        if sentence_buffer.strip():
+            sentence = sentence_buffer.strip()
+            t0_tts = time.time()
+            audio_bytes = tts_chunk(sentence)
+            tts_ms = round((time.time() - t0_tts) * 1000)
+            if audio_bytes:
+                yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
+
+        llm_ms = round((time.time() - t0_llm) * 1000)
+
+        # Clean the full text
+        question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', full_text)
+        question = re.sub(r'`([^`]+)`', r'\1', question)
+        question = re.sub(r'#{1,3}\s*', '', question).strip()
+
+        # Check behavior tags
+        is_end = False
+        if "[PERSONAL]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
+            question = question.replace("[PERSONAL]", "").strip()
+        elif "[ABUSIVE]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
+            question = question.replace("[ABUSIVE]", "").strip()
+            session["phase"] = "ended"
+            is_end = True
+            if ANTICHEAT_FEATURES.get("abuse_email_alert", {}).get("enabled", True):
+                threading.Thread(target=send_abuse_email, args=(session, answer), daemon=True).start()
+        elif "[END_INTERVIEW]" in question:
+            question = question.replace("[END_INTERVIEW]", "").strip()
+            session["phase"] = "ended"
+            is_end = True
+
+        # Update session
+        session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
+        session["turn"] += 1
+        session.setdefault("obs_log", []).append({"step": "LLM_question", "model": RUNTIME_CONFIG["qgen_model"], "latency_ms": llm_ms, "status": "success"})
+
+        if is_end:
+            save_candidate_session(session)
+
+        total_ms = round((time.time() - t0) * 1000)
+        print(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks)")
+
+        # Final done event
+        yield f"data: {json.dumps({'type': 'done', 'question': question, 'turn': session['turn'], 'phase': session['phase'], 'should_end': is_end, 'timing': {'llm_ms': llm_ms, 'total_ms': total_ms}})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/api/end-session")
