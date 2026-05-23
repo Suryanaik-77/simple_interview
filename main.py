@@ -338,7 +338,15 @@ def parse_resume(resume_text: str) -> dict:
 Rules:
 - email: extract email address if present, empty string if not found
 - phone: extract phone number if present, empty string if not found
-- level: 0 years = fresh_graduate, 0-1 year = trained_fresher, 1-3 = experienced_junior, 3+ = experienced_senior
+- years_experience
+  Convert ALL experience into decimal years
+  Examples:
+  - 6 months = 0.5
+  - 10 months = 0.8
+  - 1 year 6 months = 1.5
+  - 2 years 3 months = 2.25
+  NEVER confuse months with years
+  Freshers = 0
 - skills: VLSI/EDA specific only
 - tools: EDA tool names (ICC2, PrimeTime, Calibre, Virtuoso, VCS, etc.)
 - key_projects: max 5
