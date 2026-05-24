@@ -77,7 +77,7 @@ body { font-family: 'Inter', sans-serif; }
         <img src="https://sumedhait.com/SITW.png" alt="Logo" class="h-7">
       </div>
       <div>
-        <h1 class="text-text-primary font-bold text-sm tracking-tight leading-none">VoxInterview</h1>
+        <h1 class="text-text-primary font-bold text-sm tracking-tight leading-none">MockInterview</h1>
         <p class="text-text-tertiary text-[9px] uppercase tracking-[0.12em] mt-0.5">Platform</p>
       </div>
     </div>
@@ -420,7 +420,6 @@ async function processResume(file) {
     document.getElementById('p-level').textContent = lm[p.level] || p.level;
     document.getElementById('p-skills').textContent = (p.skills||[]).slice(0,5).join(', ') || 'N/A';
     document.getElementById('p-tools').textContent = (p.tools||[]).slice(0,4).join(', ') || 'N/A';
-    document.getElementById('p-edu').textContent = p.education || 'N/A';
     document.getElementById('resume-parsed').classList.remove('hidden');
 
     const name = p.candidate_name || 'Candidate';
