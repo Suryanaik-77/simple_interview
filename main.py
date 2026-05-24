@@ -872,15 +872,15 @@ Rules:
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return open("templates/index.html").read()
+    return open("templates/index.html", encoding="utf-8").read()
 
 @app.get("/interview", response_class=HTMLResponse)
 async def interview_page():
-    return open("templates/voice_agent_ui.html").read()
+    return open("templates/voice_agent_ui.html", encoding="utf-8").read()
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page():
-    return open("templates/admin.html").read()
+    return open("templates/admin.html", encoding="utf-8").read()
 
 @app.get("/health")
 async def health():
