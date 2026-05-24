@@ -252,27 +252,75 @@ body { font-family: 'Inter', sans-serif; }
               <p class="text-xs text-text-secondary">Anti-cheat features active during interview</p>
             </div>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <!-- Eye Tracking -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <!-- Face Detection -->
             <div class="bg-surface-dim rounded-xl p-4 border border-outline">
-              <div class="flex items-center gap-2.5 mb-2">
-                <span class="material-symbols-outlined text-brand text-lg">visibility</span>
-                <h4 class="text-sm font-semibold text-text-primary">Eye & Screen Monitoring</h4>
+              <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-brand text-base">face</span>
+                <h4 class="text-xs font-semibold text-text-primary">Face Detection</h4>
               </div>
-              <p class="text-xs text-text-secondary leading-relaxed">Detects if you look away from screen. Phone detection via webcam. Head position tracking.</p>
-              <div class="flex items-center gap-1.5 mt-3">
+              <p class="text-[11px] text-text-secondary leading-relaxed">Verifies your face is visible on camera throughout the interview.</p>
+              <div class="flex items-center gap-1.5 mt-2.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
                 <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
               </div>
             </div>
-            <!-- AI Detection -->
+            <!-- Eye Tracking -->
             <div class="bg-surface-dim rounded-xl p-4 border border-outline">
-              <div class="flex items-center gap-2.5 mb-2">
-                <span class="material-symbols-outlined text-brand text-lg">psychology</span>
-                <h4 class="text-sm font-semibold text-text-primary">AI Browser Detection</h4>
+              <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-brand text-base">visibility</span>
+                <h4 class="text-xs font-semibold text-text-primary">Eye Tracking</h4>
               </div>
-              <p class="text-xs text-text-secondary leading-relaxed">Monitors tab switching, AI browser extensions, screen sharing, and clipboard activity.</p>
-              <div class="flex items-center gap-1.5 mt-3">
+              <p class="text-[11px] text-text-secondary leading-relaxed">Detects if you are reading from another screen or looking away.</p>
+              <div class="flex items-center gap-1.5 mt-2.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
+                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
+              </div>
+            </div>
+            <!-- Mobile Phone Detection -->
+            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-brand text-base">phone_android</span>
+                <h4 class="text-xs font-semibold text-text-primary">Mobile Phone Detection</h4>
+              </div>
+              <p class="text-[11px] text-text-secondary leading-relaxed">AI model detects mobile phones visible in your webcam feed.</p>
+              <div class="flex items-center gap-1.5 mt-2.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
+                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
+              </div>
+            </div>
+            <!-- Split Screen Detection -->
+            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-brand text-base">splitscreen</span>
+                <h4 class="text-xs font-semibold text-text-primary">Split Screen Detection</h4>
+              </div>
+              <p class="text-[11px] text-text-secondary leading-relaxed">Detects if browser window is resized or split-screened with other apps.</p>
+              <div class="flex items-center gap-1.5 mt-2.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
+                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
+              </div>
+            </div>
+            <!-- Window Blur / Tab Switch -->
+            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-brand text-base">tab_unselected</span>
+                <h4 class="text-xs font-semibold text-text-primary">Window & Tab Monitor</h4>
+              </div>
+              <p class="text-[11px] text-text-secondary leading-relaxed">Logs every tab switch, window blur, and focus loss during interview.</p>
+              <div class="flex items-center gap-1.5 mt-2.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
+                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
+              </div>
+            </div>
+            <!-- AI Browser Detection -->
+            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-brand text-base">psychology</span>
+                <h4 class="text-xs font-semibold text-text-primary">AI Tool Detection</h4>
+              </div>
+              <p class="text-[11px] text-text-secondary leading-relaxed">Detects AI browser extensions, copilot overlays, and AI-generated answers.</p>
+              <div class="flex items-center gap-1.5 mt-2.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
                 <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
               </div>
