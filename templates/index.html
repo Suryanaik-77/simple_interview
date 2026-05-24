@@ -12,28 +12,31 @@ tailwind.config = {
   theme: {
     extend: {
       colors: {
-        'brand': '#1a237e',
-        'brand-light': '#e8eaf6',
-        'brand-dark': '#000051',
-        'accent': '#2979ff',
-        'accent-light': '#e3f2fd',
-        'success': '#00c853',
-        'success-light': '#e8f5e9',
-        'warn': '#ff9100',
-        'warn-light': '#fff3e0',
-        'danger': '#f44336',
-        'danger-light': '#ffebee',
+        'brand': '#ea580c',
+        'brand-dark': '#c2410c',
+        'brand-darker': '#9a3412',
+        'brand-light': '#fff7ed',
+        'brand-surface': '#fed7aa',
+        'accent': '#f97316',
+        'accent-light': '#fff7ed',
+        'success': '#16a34a',
+        'success-light': '#f0fdf4',
+        'warn': '#d97706',
+        'warn-light': '#fffbeb',
+        'danger': '#dc2626',
+        'danger-light': '#fef2f2',
         'surface': '#ffffff',
-        'surface-dim': '#f5f5f5',
-        'surface-container': '#fafafa',
-        'outline': '#e0e0e0',
-        'outline-dark': '#bdbdbd',
-        'text-primary': '#212121',
-        'text-secondary': '#757575',
-        'text-tertiary': '#9e9e9e',
-        'sidebar': '#0d1117',
-        'sidebar-hover': '#161b22',
-        'sidebar-active': '#1a237e',
+        'surface-dim': '#f9fafb',
+        'surface-container': '#f3f4f6',
+        'outline': '#e5e7eb',
+        'outline-dark': '#d1d5db',
+        'text-primary': '#111827',
+        'text-secondary': '#6b7280',
+        'text-tertiary': '#9ca3af',
+        'sidebar-bg': '#7c2d12',
+        'sidebar-dark': '#6c2710',
+        'sidebar-hover': '#9a3412',
+        'sidebar-active': '#ea580c',
       }
     }
   }
@@ -47,41 +50,38 @@ body { font-family: 'Inter', sans-serif; }
 .wave-bar:nth-child(3){animation-delay:.2s} .wave-bar:nth-child(4){animation-delay:.3s}
 .wave-bar:nth-child(5){animation-delay:.15s} .wave-bar:nth-child(6){animation-delay:.25s}
 .wave-bar:nth-child(7){animation-delay:.35s} .wave-bar:nth-child(8){animation-delay:.05s}
-.wave-bar.off { animation: none; height: 4px !important; }
+.wave-bar:nth-child(9){animation-delay:.12s} .wave-bar:nth-child(10){animation-delay:.22s}
+.wave-bar:nth-child(11){animation-delay:.32s} .wave-bar:nth-child(12){animation-delay:.08s}
+.wave-bar.off { animation: none; height: 4px !important; opacity:.3; }
 .upload-zone { transition: all .2s; }
-.upload-zone.drag { border-color: #2979ff; background: #e3f2fd; }
-.upload-zone.done { border-color: #00c853; background: #e8f5e9; }
+.upload-zone.drag { border-color: #f97316; background: #fff7ed; }
+.upload-zone.done { border-color: #16a34a; background: #f0fdf4; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 .pulse { animation: pulse 1.5s infinite; }
-.check-card { transition: all .3s; }
-.check-card.passed { border-color: #00c853; }
-.check-card.passed .check-icon { background: #e8f5e9; color: #00c853; }
+.card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; }
 </style>
 </head>
 <body class="bg-surface-dim min-h-screen flex">
 
-<!-- Hidden canary for AI extension detection -->
+<!-- Hidden canary -->
 <div id="canary-element" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;left:-9999px;top:-9999px" data-vlsi-canary="interview-content-2024">
   This is interview content. Clock Tree Synthesis question active.
 </div>
 
 <!-- ═══ SIDEBAR ═══ -->
-<aside class="hidden md:flex flex-col w-60 bg-sidebar fixed left-0 top-0 h-screen z-50">
-  <!-- Logo -->
-  <div class="px-5 py-6 border-b border-white/10">
-    <div class="flex items-center gap-2">
+<aside class="hidden md:flex flex-col w-56 bg-sidebar-bg fixed left-0 top-0 h-screen z-50">
+  <div class="px-5 py-5 border-b border-white/10">
+    <div class="flex items-center gap-2.5">
       <div class="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-        <span class="material-symbols-outlined text-white text-lg" style="font-variation-settings:'FILL' 1">smart_toy</span>
+        <span class="material-symbols-outlined text-white text-base" style="font-variation-settings:'FILL' 1">smart_toy</span>
       </div>
       <div>
-        <h1 class="text-white font-bold text-lg tracking-tight">VLSI<span class="text-accent">.AI</span></h1>
-        <p class="text-white/30 text-[10px] uppercase tracking-widest">Interview Platform</p>
+        <h1 class="text-white font-bold text-base tracking-tight">VLSI<span class="text-orange-300">.AI</span></h1>
+        <p class="text-white/30 text-[9px] uppercase tracking-[0.15em]">Interview Platform</p>
       </div>
     </div>
   </div>
-
-  <!-- Nav -->
   <nav class="flex-1 px-3 py-4 space-y-1">
     <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-sidebar-active text-white text-sm font-medium">
       <span class="material-symbols-outlined text-lg">meeting_room</span> Lobby
@@ -93,345 +93,275 @@ body { font-family: 'Inter', sans-serif; }
       <span class="material-symbols-outlined text-lg">history</span> History
     </a>
   </nav>
-
-  <!-- Profile -->
   <div class="px-4 py-4 border-t border-white/10">
     <div class="flex items-center gap-3">
-      <div class="w-9 h-9 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center text-accent text-xs font-bold" id="sb-avatar">--</div>
+      <div class="w-9 h-9 rounded-full bg-orange-400/20 border border-orange-400/30 flex items-center justify-center text-orange-300 text-xs font-bold" id="sb-avatar">--</div>
       <div class="flex-1 min-w-0">
         <p class="text-white/80 text-sm font-medium truncate" id="sb-name">Candidate</p>
-        <p class="text-white/30 text-xs" id="sb-role">Interview Session</p>
+        <p class="text-white/30 text-xs">Interview Session</p>
       </div>
     </div>
   </div>
 </aside>
 
 <!-- ═══ MOBILE HEADER ═══ -->
-<header class="md:hidden fixed top-0 left-0 w-full bg-sidebar h-14 flex items-center justify-between px-4 z-50">
+<header class="md:hidden fixed top-0 left-0 w-full bg-sidebar-bg h-14 flex items-center justify-between px-4 z-50">
   <div class="flex items-center gap-2">
     <div class="w-7 h-7 rounded-md bg-accent flex items-center justify-center">
       <span class="material-symbols-outlined text-white text-sm" style="font-variation-settings:'FILL' 1">smart_toy</span>
     </div>
-    <h1 class="text-white font-bold text-base">VLSI<span class="text-accent">.AI</span></h1>
+    <h1 class="text-white font-bold text-base">VLSI<span class="text-orange-300">.AI</span></h1>
   </div>
-  <span class="text-xs font-semibold text-white/40 uppercase tracking-wider">Lobby</span>
+  <span class="text-[10px] font-semibold text-white/40 uppercase tracking-wider">Lobby</span>
 </header>
 
 <!-- ═══ MAIN CONTENT ═══ -->
-<main class="flex-1 md:ml-60 pt-16 md:pt-0 min-h-screen">
-  <div class="max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-10">
+<main class="flex-1 md:ml-56 pt-16 md:pt-0 min-h-screen pb-20 md:pb-0">
+  <div class="max-w-[1040px] mx-auto px-4 md:px-8 py-5 md:py-8">
 
-    <!-- Header -->
-    <div class="mb-8">
-      <h2 class="text-2xl md:text-3xl font-bold text-text-primary tracking-tight">Interview Lobby</h2>
-      <p class="text-text-secondary text-sm mt-1">Complete all checks before starting your interview session.</p>
-    </div>
-
-    <!-- Status Bar -->
-    <div class="flex items-center gap-3 mb-6 flex-wrap">
-      <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" id="check-resume">
-        <span class="w-2 h-2 rounded-full bg-outline-dark"></span> Resume
+    <!-- ── Top Bar: Welcome + Status ── -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
+      <div>
+        <h2 class="text-xl md:text-2xl font-bold text-text-primary tracking-tight" id="welcome-text">Welcome! <span class="inline-block">&#128075;</span></h2>
+        <p class="text-sm text-text-secondary mt-0.5">Let's get you all set for your AI interview.</p>
       </div>
-      <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" id="check-mic">
-        <span class="w-2 h-2 rounded-full bg-outline-dark"></span> Microphone
-      </div>
-      <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" id="check-cam">
-        <span class="w-2 h-2 rounded-full bg-outline-dark"></span> Camera
-      </div>
-      <div class="flex-1"></div>
-      <div class="text-xs text-text-tertiary" id="ready-status">0 / 3 checks passed</div>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-      <!-- ═══ LEFT COLUMN (2/3) ═══ -->
-      <div class="lg:col-span-2 space-y-5">
-
-        <!-- 1. Resume Upload -->
-        <div class="bg-surface rounded-2xl shadow-sm border border-outline p-5 check-card" id="card-resume">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-accent-light flex items-center justify-center check-icon">
-              <span class="material-symbols-outlined text-accent">description</span>
-            </div>
-            <div>
-              <h3 class="text-base font-semibold text-text-primary">Upload Resume</h3>
-              <p class="text-xs text-text-secondary">AI will parse your resume to customize the interview</p>
-            </div>
-          </div>
-          <div id="upload-zone" class="upload-zone border-2 border-dashed border-outline-dark rounded-xl p-8 text-center cursor-pointer hover:border-accent"
-               onclick="document.getElementById('resume-input').click()"
-               ondragover="event.preventDefault();this.classList.add('drag')"
-               ondrop="event.preventDefault();this.classList.remove('drag');if(event.dataTransfer.files[0])processResume(event.dataTransfer.files[0])"
-               ondragleave="this.classList.remove('drag')">
-            <span class="material-symbols-outlined text-4xl text-text-tertiary mb-2">cloud_upload</span>
-            <p class="text-sm font-medium text-text-primary">Click to upload or drag & drop</p>
-            <p class="text-xs text-text-tertiary mt-1">PDF, DOCX - Max 5MB</p>
-            <p id="ufn" class="text-sm font-semibold text-success mt-2 hidden"></p>
-          </div>
-          <input type="file" id="resume-input" accept=".pdf,.docx,.doc,.txt" class="hidden" onchange="if(this.files[0])processResume(this.files[0])">
-
-          <!-- Parsed Profile -->
-          <div id="pbox" class="mt-4 hidden">
-            <div id="pldr" class="text-center py-4">
-              <div class="w-6 h-6 border-2 border-outline-dark border-t-accent rounded-full mx-auto mb-2" style="animation:spin .7s linear infinite"></div>
-              <p class="text-sm text-text-secondary">Analyzing resume...</p>
-            </div>
-            <div id="pdata" class="hidden bg-surface-dim rounded-xl p-4 space-y-2.5">
-              <div class="flex justify-between text-sm"><span class="text-text-secondary">Name</span><span class="font-semibold text-text-primary" id="p-name">-</span></div>
-              <div class="flex justify-between text-sm"><span class="text-text-secondary">Domain</span><span class="font-semibold text-accent" id="p-domain">-</span></div>
-              <div class="flex justify-between text-sm"><span class="text-text-secondary">Level</span><span class="font-semibold text-text-primary" id="p-level">-</span></div>
-              <div class="flex justify-between text-sm"><span class="text-text-secondary">Skills</span><span class="font-medium text-text-primary text-right max-w-[220px] truncate" id="p-skills">-</span></div>
-              <div class="flex justify-between text-sm"><span class="text-text-secondary">Tools</span><span class="font-medium text-text-primary" id="p-tools">-</span></div>
-              <div class="flex justify-between text-sm"><span class="text-text-secondary">Education</span><span class="font-medium text-text-primary text-right max-w-[220px] truncate" id="p-edu">-</span></div>
-            </div>
-          </div>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 px-3 py-1.5 bg-surface rounded-full border border-outline text-xs">
+          <span class="w-2 h-2 rounded-full" id="status-dot"></span>
+          <span id="status-text" class="text-text-secondary font-medium">Checks pending</span>
         </div>
-
-        <!-- 2. Microphone Test -->
-        <div class="bg-surface rounded-2xl shadow-sm border border-outline p-5 check-card" id="card-mic">
-          <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl bg-accent-light flex items-center justify-center check-icon">
-                <span class="material-symbols-outlined text-accent">mic</span>
-              </div>
-              <div>
-                <h3 class="text-base font-semibold text-text-primary">Microphone Test</h3>
-                <p class="text-xs text-text-secondary" id="mic-status">Not tested yet</p>
-              </div>
-            </div>
-            <button onclick="testMic()" class="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90 transition-colors" id="mic-btn">
-              Test Mic
-            </button>
-          </div>
-          <div class="h-16 bg-surface-dim rounded-xl flex items-center justify-center gap-1 px-6 relative overflow-hidden">
-            <div class="wave-bar off w-1.5 bg-accent rounded-full"></div>
-            <div class="wave-bar off w-1.5 bg-accent rounded-full"></div>
-            <div class="wave-bar off w-1.5 bg-accent rounded-full"></div>
-            <div class="wave-bar off w-1.5 bg-accent rounded-full"></div>
-            <div class="wave-bar off w-1.5 bg-accent rounded-full"></div>
-            <div class="wave-bar off w-1.5 bg-accent rounded-full"></div>
-            <div class="wave-bar off w-1.5 bg-accent rounded-full"></div>
-            <div class="wave-bar off w-1.5 bg-accent rounded-full"></div>
-            <div class="absolute bottom-1.5 left-4 text-[10px] text-text-tertiary" id="mic-label">Click "Test Mic" to begin</div>
-          </div>
-        </div>
-
-        <!-- 3. Camera Verification -->
-        <div class="bg-surface rounded-2xl shadow-sm border border-outline p-5 check-card" id="card-cam">
-          <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl bg-accent-light flex items-center justify-center check-icon">
-                <span class="material-symbols-outlined text-accent">videocam</span>
-              </div>
-              <div>
-                <h3 class="text-base font-semibold text-text-primary">Camera Verification</h3>
-                <p class="text-xs text-text-secondary" id="cam-status">Required for interview</p>
-              </div>
-            </div>
-            <button onclick="enableCamera()" class="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90 transition-colors" id="cam-btn">
-              Enable
-            </button>
-          </div>
-          <div class="h-40 bg-surface-dim rounded-xl overflow-hidden relative">
-            <video id="cam-preview" autoplay muted playsinline class="w-full h-full object-cover scale-x-[-1] hidden"></video>
-            <div id="cam-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-text-tertiary">
-              <span class="material-symbols-outlined text-4xl opacity-30 mb-2">videocam_off</span>
-              <p class="text-xs">Enable camera to continue</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- 4. Anti-Cheat Features -->
-        <div class="bg-surface rounded-2xl shadow-sm border border-outline p-5">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-danger-light flex items-center justify-center">
-              <span class="material-symbols-outlined text-danger">shield</span>
-            </div>
-            <div>
-              <h3 class="text-base font-semibold text-text-primary">Security Verification</h3>
-              <p class="text-xs text-text-secondary">Anti-cheat features active during interview</p>
-            </div>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <!-- Face Detection -->
-            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-brand text-base">face</span>
-                <h4 class="text-xs font-semibold text-text-primary">Face Detection</h4>
-              </div>
-              <p class="text-[11px] text-text-secondary leading-relaxed">Verifies your face is visible on camera throughout the interview.</p>
-              <div class="flex items-center gap-1.5 mt-2.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
-                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
-              </div>
-            </div>
-            <!-- Eye Tracking -->
-            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-brand text-base">visibility</span>
-                <h4 class="text-xs font-semibold text-text-primary">Eye Tracking</h4>
-              </div>
-              <p class="text-[11px] text-text-secondary leading-relaxed">Detects if you are reading from another screen or looking away.</p>
-              <div class="flex items-center gap-1.5 mt-2.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
-                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
-              </div>
-            </div>
-            <!-- Mobile Phone Detection -->
-            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-brand text-base">phone_android</span>
-                <h4 class="text-xs font-semibold text-text-primary">Mobile Phone Detection</h4>
-              </div>
-              <p class="text-[11px] text-text-secondary leading-relaxed">AI model detects mobile phones visible in your webcam feed.</p>
-              <div class="flex items-center gap-1.5 mt-2.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
-                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
-              </div>
-            </div>
-            <!-- Split Screen Detection -->
-            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-brand text-base">splitscreen</span>
-                <h4 class="text-xs font-semibold text-text-primary">Split Screen Detection</h4>
-              </div>
-              <p class="text-[11px] text-text-secondary leading-relaxed">Detects if browser window is resized or split-screened with other apps.</p>
-              <div class="flex items-center gap-1.5 mt-2.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
-                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
-              </div>
-            </div>
-            <!-- Window Blur / Tab Switch -->
-            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-brand text-base">tab_unselected</span>
-                <h4 class="text-xs font-semibold text-text-primary">Window & Tab Monitor</h4>
-              </div>
-              <p class="text-[11px] text-text-secondary leading-relaxed">Logs every tab switch, window blur, and focus loss during interview.</p>
-              <div class="flex items-center gap-1.5 mt-2.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
-                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
-              </div>
-            </div>
-            <!-- AI Browser Detection -->
-            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-brand text-base">psychology</span>
-                <h4 class="text-xs font-semibold text-text-primary">AI Tool Detection</h4>
-              </div>
-              <p class="text-[11px] text-text-secondary leading-relaxed">Detects AI browser extensions, copilot overlays, and AI-generated answers.</p>
-              <div class="flex items-center gap-1.5 mt-2.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span>
-                <span class="text-[10px] font-semibold text-success uppercase tracking-wider">Active</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Start Button -->
         <button id="btn-start" disabled onclick="startInterview()"
-                class="w-full bg-brand text-white font-semibold text-base py-4 rounded-2xl shadow-lg hover:bg-brand-dark transition-all flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none">
-          <span id="btn-text">Complete all checks to start</span>
-          <span class="material-symbols-outlined text-lg" id="btn-arrow" style="display:none">arrow_forward</span>
+                class="px-5 py-2 bg-brand text-white text-sm font-semibold rounded-full hover:bg-brand-dark transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5">
+          <span id="btn-text">I'm Ready</span>
+          <span class="material-symbols-outlined text-sm" id="btn-arrow" style="display:none">arrow_forward</span>
         </button>
       </div>
+    </div>
 
-      <!-- ═══ RIGHT COLUMN (1/3) ═══ -->
-      <div class="space-y-5">
+    <!-- ── Row 1: Mic + Camera ── -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
 
-        <!-- Interview Info -->
-        <div class="bg-surface rounded-2xl shadow-sm border border-outline p-5">
-          <h3 class="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
-            <span class="material-symbols-outlined text-accent text-lg">info</span>
-            Session Details
-          </h3>
-          <div class="space-y-3">
-            <div class="flex justify-between items-center">
-              <span class="text-xs text-text-secondary">Duration</span>
-              <span class="text-xs font-semibold text-text-primary bg-surface-dim px-2.5 py-1 rounded-md">~30 min</span>
+      <!-- Microphone Test -->
+      <div class="card" id="card-mic">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-accent-light flex items-center justify-center">
+              <span class="material-symbols-outlined text-brand text-lg">mic</span>
             </div>
-            <div class="flex justify-between items-center">
-              <span class="text-xs text-text-secondary">Questions</span>
-              <span class="text-xs font-semibold text-text-primary bg-surface-dim px-2.5 py-1 rounded-md">15-20</span>
+            <div>
+              <h3 class="text-sm font-semibold text-text-primary">Test Microphone</h3>
+              <p class="text-xs text-text-secondary">Speak a few words and check the input level</p>
             </div>
-            <div class="flex justify-between items-center">
-              <span class="text-xs text-text-secondary">Format</span>
-              <span class="text-xs font-semibold text-text-primary bg-surface-dim px-2.5 py-1 rounded-md">Voice + Text</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-outline-dark" id="dot-mic"></span>
+            <span class="text-[10px] font-semibold text-text-tertiary" id="mic-chip">Pending</span>
+          </div>
+        </div>
+        <div class="h-20 bg-surface-dim rounded-xl flex items-center justify-center gap-[3px] px-6 relative overflow-hidden mb-3">
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+          <div class="wave-bar off w-1 bg-success rounded-full"></div>
+        </div>
+        <div class="flex items-center justify-between">
+          <p class="text-xs text-text-tertiary" id="mic-label">Click "Test Mic" to begin</p>
+          <button onclick="testMic()" class="px-4 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors" id="mic-btn">Test Mic</button>
+        </div>
+      </div>
+
+      <!-- Camera Access -->
+      <div class="card" id="card-cam">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-accent-light flex items-center justify-center">
+              <span class="material-symbols-outlined text-brand text-lg">videocam</span>
             </div>
-            <div class="flex justify-between items-center">
-              <span class="text-xs text-text-secondary">Domains</span>
-              <span class="text-xs font-semibold text-text-primary bg-surface-dim px-2.5 py-1 rounded-md">PD / AL / DV</span>
+            <div>
+              <h3 class="text-sm font-semibold text-text-primary">Camera Access</h3>
+              <p class="text-xs text-text-secondary">Ensure your camera is enabled and working</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-outline-dark" id="dot-cam"></span>
+            <span class="text-[10px] font-semibold text-text-tertiary" id="cam-chip">Pending</span>
+          </div>
+        </div>
+        <div class="h-36 bg-surface-dim rounded-xl overflow-hidden relative mb-3">
+          <video id="cam-preview" autoplay muted playsinline class="w-full h-full object-cover scale-x-[-1] hidden"></video>
+          <div id="cam-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-text-tertiary">
+            <span class="material-symbols-outlined text-3xl opacity-30 mb-1">person</span>
+            <p class="text-xs">Enable camera to preview</p>
+          </div>
+        </div>
+        <div class="flex items-center justify-end">
+          <button onclick="enableCamera()" class="px-4 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors" id="cam-btn">Enable Camera</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Row 2: Resume Parsing (full width) ── -->
+    <div class="card mb-5" id="card-resume">
+      <div class="flex items-center gap-2.5 mb-4">
+        <div class="w-9 h-9 rounded-xl bg-accent-light flex items-center justify-center">
+          <span class="material-symbols-outlined text-brand text-lg">description</span>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-text-primary">Resume Parsing</h3>
+          <p class="text-xs text-text-secondary">Upload your resume to help our AI personalize your interview</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Upload Zone -->
+        <div id="upload-zone" class="upload-zone border-2 border-dashed border-outline-dark rounded-xl p-8 text-center cursor-pointer hover:border-brand"
+             onclick="document.getElementById('resume-input').click()"
+             ondragover="event.preventDefault();this.classList.add('drag')"
+             ondrop="event.preventDefault();this.classList.remove('drag');if(event.dataTransfer.files[0])processResume(event.dataTransfer.files[0])"
+             ondragleave="this.classList.remove('drag')">
+          <span class="material-symbols-outlined text-3xl text-text-tertiary mb-2">cloud_upload</span>
+          <p class="text-sm font-medium text-text-primary">Drag & drop your resume here</p>
+          <p class="text-xs text-text-tertiary mt-1">PDF, DOCX - Max 5MB</p>
+        </div>
+        <input type="file" id="resume-input" accept=".pdf,.docx,.doc,.txt" class="hidden" onchange="if(this.files[0])processResume(this.files[0])">
+
+        <!-- Parsed Result -->
+        <div id="resume-result" class="flex items-center justify-center">
+          <div id="resume-empty" class="text-center text-text-tertiary">
+            <span class="material-symbols-outlined text-4xl opacity-20 mb-1">folder_open</span>
+            <p class="text-xs">No resume uploaded yet</p>
+          </div>
+          <div id="resume-loading" class="text-center hidden">
+            <div class="w-6 h-6 border-2 border-outline-dark border-t-brand rounded-full mx-auto mb-2" style="animation:spin .7s linear infinite"></div>
+            <p class="text-xs text-text-secondary">Analyzing resume...</p>
+          </div>
+          <div id="resume-parsed" class="hidden w-full">
+            <div class="bg-surface-dim rounded-xl p-4 border border-outline">
+              <div class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 rounded-lg bg-brand-light flex items-center justify-center">
+                  <span class="material-symbols-outlined text-brand">picture_as_pdf</span>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-semibold text-text-primary truncate" id="p-filename">resume.pdf</p>
+                  <p class="text-xs text-success font-medium" id="p-parse-status">Parsed successfully</p>
+                </div>
+              </div>
+              <div class="space-y-1.5 text-xs">
+                <div class="flex justify-between"><span class="text-text-secondary">Name</span><span class="font-semibold text-text-primary" id="p-name">-</span></div>
+                <div class="flex justify-between"><span class="text-text-secondary">Domain</span><span class="font-semibold text-brand" id="p-domain">-</span></div>
+                <div class="flex justify-between"><span class="text-text-secondary">Level</span><span class="font-semibold text-text-primary" id="p-level">-</span></div>
+                <div class="flex justify-between"><span class="text-text-secondary">Skills</span><span class="font-medium text-text-primary text-right max-w-[180px] truncate" id="p-skills">-</span></div>
+                <div class="flex justify-between"><span class="text-text-secondary">Tools</span><span class="font-medium text-text-primary" id="p-tools">-</span></div>
+                <div class="flex justify-between"><span class="text-text-secondary">Education</span><span class="font-medium text-text-primary text-right max-w-[180px] truncate" id="p-edu">-</span></div>
+              </div>
             </div>
           </div>
         </div>
+      </div>
+    </div>
 
-        <!-- Tips -->
-        <div class="bg-surface rounded-2xl shadow-sm border border-outline p-5">
-          <h3 class="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
-            <span class="material-symbols-outlined text-warn text-lg">lightbulb</span>
-            Tips for Success
-          </h3>
-          <ul class="space-y-4">
-            <li class="flex gap-3 items-start">
-              <div class="w-7 h-7 rounded-lg bg-accent-light flex items-center justify-center shrink-0 mt-0.5">
-                <span class="material-symbols-outlined text-accent text-sm">volume_off</span>
-              </div>
-              <div>
-                <p class="text-xs font-medium text-text-primary">Find a quiet place</p>
-                <p class="text-[11px] text-text-tertiary mt-0.5">Background noise affects voice recognition</p>
-              </div>
-            </li>
-            <li class="flex gap-3 items-start">
-              <div class="w-7 h-7 rounded-lg bg-accent-light flex items-center justify-center shrink-0 mt-0.5">
-                <span class="material-symbols-outlined text-accent text-sm">wifi</span>
-              </div>
-              <div>
-                <p class="text-xs font-medium text-text-primary">Stable internet</p>
-                <p class="text-[11px] text-text-tertiary mt-0.5">Prevents audio drops and lag</p>
-              </div>
-            </li>
-            <li class="flex gap-3 items-start">
-              <div class="w-7 h-7 rounded-lg bg-accent-light flex items-center justify-center shrink-0 mt-0.5">
-                <span class="material-symbols-outlined text-accent text-sm">headset_mic</span>
-              </div>
-              <div>
-                <p class="text-xs font-medium text-text-primary">Use headphones</p>
-                <p class="text-[11px] text-text-tertiary mt-0.5">Prevents echo, improves audio quality</p>
-              </div>
-            </li>
-            <li class="flex gap-3 items-start">
-              <div class="w-7 h-7 rounded-lg bg-danger-light flex items-center justify-center shrink-0 mt-0.5">
-                <span class="material-symbols-outlined text-danger text-sm">tab_unselected</span>
-              </div>
-              <div>
-                <p class="text-xs font-medium text-text-primary">Don't switch tabs</p>
-                <p class="text-[11px] text-text-tertiary mt-0.5">Tab switching is monitored and logged</p>
-              </div>
-            </li>
-            <li class="flex gap-3 items-start">
-              <div class="w-7 h-7 rounded-lg bg-success-light flex items-center justify-center shrink-0 mt-0.5">
-                <span class="material-symbols-outlined text-success text-sm">timer</span>
-              </div>
-              <div>
-                <p class="text-xs font-medium text-text-primary">Speak naturally</p>
-                <p class="text-[11px] text-text-tertiary mt-0.5">2 seconds of silence auto-submits</p>
-              </div>
-            </li>
-          </ul>
+    <!-- ── Row 3: Anti-Cheat + Tips ── -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
+
+      <!-- Anti-Cheat (2/3) -->
+      <div class="md:col-span-2 card">
+        <div class="flex items-center gap-2.5 mb-4">
+          <div class="w-9 h-9 rounded-xl bg-danger-light flex items-center justify-center">
+            <span class="material-symbols-outlined text-danger text-lg">shield</span>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-text-primary">Anti-Cheat Features</h3>
+            <p class="text-xs text-text-secondary">Our AI creates a fair and secure interview experience</p>
+          </div>
         </div>
-
-        <!-- Powered by -->
-        <div class="text-center text-[10px] text-text-tertiary uppercase tracking-widest py-2">
-          Powered by VLSI.AI
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div class="bg-surface-dim rounded-xl p-3 border border-outline">
+            <span class="material-symbols-outlined text-brand text-base mb-1.5">face</span>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Face Detection</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">Verifies face is visible on camera</p>
+            <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
+          </div>
+          <div class="bg-surface-dim rounded-xl p-3 border border-outline">
+            <span class="material-symbols-outlined text-brand text-base mb-1.5">visibility</span>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Eye Tracking</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">Detects reading from other screens</p>
+            <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
+          </div>
+          <div class="bg-surface-dim rounded-xl p-3 border border-outline">
+            <span class="material-symbols-outlined text-brand text-base mb-1.5">phone_android</span>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Phone Detection</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">AI detects phones in webcam</p>
+            <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
+          </div>
+          <div class="bg-surface-dim rounded-xl p-3 border border-outline">
+            <span class="material-symbols-outlined text-brand text-base mb-1.5">splitscreen</span>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Split Screen</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">Detects window resize or split</p>
+            <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
+          </div>
+          <div class="bg-surface-dim rounded-xl p-3 border border-outline">
+            <span class="material-symbols-outlined text-brand text-base mb-1.5">tab_unselected</span>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Tab Monitor</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">Logs tab switches and blur events</p>
+            <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
+          </div>
+          <div class="bg-surface-dim rounded-xl p-3 border border-outline">
+            <span class="material-symbols-outlined text-brand text-base mb-1.5">psychology</span>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">AI Detection</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">Detects AI extensions and copilots</p>
+            <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
+          </div>
         </div>
       </div>
+
+      <!-- Tips (1/3) -->
+      <div class="card">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="material-symbols-outlined text-warn text-lg">lightbulb</span>
+          <h3 class="text-sm font-semibold text-text-primary">Tips for Success</h3>
+        </div>
+        <ol class="space-y-3">
+          <li class="flex gap-2.5 items-start">
+            <span class="w-5 h-5 rounded-full bg-brand text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+            <p class="text-xs text-text-secondary leading-relaxed">Find a quiet place with minimal background noise</p>
+          </li>
+          <li class="flex gap-2.5 items-start">
+            <span class="w-5 h-5 rounded-full bg-brand text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+            <p class="text-xs text-text-secondary leading-relaxed">Ensure a stable internet connection</p>
+          </li>
+          <li class="flex gap-2.5 items-start">
+            <span class="w-5 h-5 rounded-full bg-brand text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+            <p class="text-xs text-text-secondary leading-relaxed">Keep camera and microphone enabled</p>
+          </li>
+          <li class="flex gap-2.5 items-start">
+            <span class="w-5 h-5 rounded-full bg-brand text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">4</span>
+            <p class="text-xs text-text-secondary leading-relaxed">Avoid switching tabs during the interview</p>
+          </li>
+          <li class="flex gap-2.5 items-start">
+            <span class="w-5 h-5 rounded-full bg-brand text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">5</span>
+            <p class="text-xs text-text-secondary leading-relaxed">Following these tips helps create a smooth AI interview experience</p>
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="text-center text-[10px] text-text-tertiary py-3">
+      By continuing you agree to our <a href="#" class="underline">Terms of Service</a> and <a href="#" class="underline">Privacy Policy</a>
     </div>
   </div>
 </main>
 
 <!-- ═══ MOBILE BOTTOM NAV ═══ -->
 <nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-2 bg-white border-t border-outline shadow-lg">
-  <a href="/" class="flex flex-col items-center gap-0.5 text-accent">
+  <a href="/" class="flex flex-col items-center gap-0.5 text-brand">
     <span class="material-symbols-outlined text-xl">meeting_room</span>
     <span class="text-[10px] font-semibold">Lobby</span>
   </a>
@@ -446,97 +376,81 @@ body { font-family: 'Inter', sans-serif; }
 </nav>
 
 <script>
-// ══════════════════════════════════════════════════
-// STATE
-// ══════════════════════════════════════════════════
 const S = { sessionId:null, resumeParsed:null, mediaStream:null, micPassed:false, camPassed:false, resumePassed:false };
 
 function updateChecks() {
-  const checks = [
-    { id:'check-resume', passed:S.resumePassed },
-    { id:'check-mic', passed:S.micPassed },
-    { id:'check-cam', passed:S.camPassed },
-  ];
-  let count = 0;
-  checks.forEach(c => {
-    const el = document.getElementById(c.id);
-    const dot = el.querySelector('span');
-    if (c.passed) {
-      count++;
-      el.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-success-light text-success';
-      dot.className = 'w-2 h-2 rounded-full bg-success';
-    } else {
-      el.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-surface-dim text-text-tertiary';
-      dot.className = 'w-2 h-2 rounded-full bg-outline-dark';
-    }
-  });
-  document.getElementById('ready-status').textContent = count + ' / 3 checks passed';
-  const btn = document.getElementById('btn-start');
+  const count = [S.resumePassed, S.micPassed, S.camPassed].filter(Boolean).length;
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
   if (count === 3) {
-    btn.disabled = false;
-    document.getElementById('btn-text').textContent = 'Start Interview';
+    dot.className = 'w-2 h-2 rounded-full bg-success';
+    txt.textContent = 'All systems go!';
+    txt.className = 'text-success font-semibold text-xs';
+    document.getElementById('btn-start').disabled = false;
+    document.getElementById('btn-text').textContent = "I'm Ready";
     document.getElementById('btn-arrow').style.display = '';
+  } else {
+    dot.className = 'w-2 h-2 rounded-full bg-warn';
+    txt.textContent = count + ' of 3 checks complete';
+    txt.className = 'text-text-secondary font-medium text-xs';
   }
 }
 
-// ══════════════════════════════════════════════════
-// RESUME
-// ══════════════════════════════════════════════════
+// ── RESUME ──
 async function processResume(file) {
   const zone = document.getElementById('upload-zone');
-  const fn = document.getElementById('ufn');
-  fn.textContent = file.name; fn.classList.remove('hidden');
   zone.classList.add('done');
-  document.getElementById('pbox').classList.remove('hidden');
-  document.getElementById('pldr').style.display = 'block';
-  document.getElementById('pdata').classList.add('hidden');
+  document.getElementById('resume-empty').classList.add('hidden');
+  document.getElementById('resume-loading').classList.remove('hidden');
+  document.getElementById('resume-parsed').classList.add('hidden');
 
   const form = new FormData(); form.append('file', file);
   try {
     const r = await fetch('/api/parse-resume', {method:'POST', body:form});
     const p = await r.json(); S.resumeParsed = p;
-    document.getElementById('pldr').style.display = 'none';
-    document.getElementById('pdata').classList.remove('hidden');
+    document.getElementById('resume-loading').classList.add('hidden');
 
     if (!p.is_vlsi_suitable) {
-      document.getElementById('pdata').innerHTML = '<div class="text-center py-4"><span class="material-symbols-outlined text-4xl text-danger mb-2">warning</span><p class="text-sm font-semibold text-danger mb-1">Resume Not Suitable</p><p class="text-xs text-text-secondary">' + (p.rejection_reason || 'Not VLSI/Semiconductor related.') + '</p></div>';
+      document.getElementById('resume-empty').classList.remove('hidden');
+      document.getElementById('resume-empty').innerHTML = '<span class="material-symbols-outlined text-3xl text-danger mb-1">warning</span><p class="text-xs text-danger font-semibold">Not VLSI related</p><p class="text-[10px] text-text-tertiary mt-1">' + (p.rejection_reason||'') + '</p>';
       return;
     }
 
     const dm = {analog_layout:'Analog Layout', physical_design:'Physical Design', design_verification:'Design Verification'};
-    const lm = {fresh_graduate:'Fresh Graduate', trained_fresher:'Trained Fresher', experienced_junior:'Exp. Junior (1-3yr)', experienced_senior:'Exp. Senior (3+yr)'};
+    const lm = {fresh_graduate:'Fresh Graduate', trained_fresher:'Trained Fresher', experienced_junior:'Exp. Junior', experienced_senior:'Exp. Senior'};
+    document.getElementById('p-filename').textContent = file.name;
     document.getElementById('p-name').textContent = p.candidate_name || 'Candidate';
     document.getElementById('p-domain').textContent = dm[p.domain] || p.domain;
     document.getElementById('p-level').textContent = lm[p.level] || p.level;
     document.getElementById('p-skills').textContent = (p.skills||[]).slice(0,5).join(', ') || 'N/A';
     document.getElementById('p-tools').textContent = (p.tools||[]).slice(0,4).join(', ') || 'N/A';
     document.getElementById('p-edu').textContent = p.education || 'N/A';
+    document.getElementById('resume-parsed').classList.remove('hidden');
 
-    // Update sidebar
     const name = p.candidate_name || 'Candidate';
     document.getElementById('sb-name').textContent = name;
     document.getElementById('sb-avatar').textContent = name.slice(0,2).toUpperCase();
+    document.getElementById('welcome-text').innerHTML = 'Welcome back, ' + name.split(' ')[0] + '! <span class="inline-block">&#128075;</span>';
 
     S.resumePassed = true;
-    document.getElementById('card-resume').classList.add('passed');
     updateChecks();
   } catch(e) {
-    document.getElementById('pldr').innerHTML = '<p class="text-sm text-danger text-center">Error parsing. Try again.</p>';
+    document.getElementById('resume-loading').classList.add('hidden');
+    document.getElementById('resume-empty').classList.remove('hidden');
+    document.getElementById('resume-empty').innerHTML = '<span class="material-symbols-outlined text-3xl text-danger mb-1">error</span><p class="text-xs text-danger">Parsing failed. Try again.</p>';
   }
 }
 
-// ══════════════════════════════════════════════════
-// MIC TEST
-// ══════════════════════════════════════════════════
+// ── MIC TEST ──
 async function testMic() {
-  const status = document.getElementById('mic-status');
-  const label = document.getElementById('mic-label');
   const btn = document.getElementById('mic-btn');
+  const label = document.getElementById('mic-label');
+  const chip = document.getElementById('mic-chip');
+  const dot = document.getElementById('dot-mic');
   const bars = document.querySelectorAll('.wave-bar');
 
   btn.disabled = true; btn.textContent = 'Testing...';
-  status.textContent = 'Listening for 3 seconds...';
-  label.textContent = 'Speak now...';
+  label.textContent = 'Listening for 3 seconds...';
   bars.forEach(b => b.classList.remove('off'));
 
   try {
@@ -550,35 +464,33 @@ async function testMic() {
       clearInterval(iv); stream.getTracks().forEach(t => t.stop()); ac.close();
       btn.disabled = false;
       if (max > 10) {
-        status.textContent = 'Microphone working';
-        label.textContent = 'Peak level: ' + max;
-        btn.textContent = 'Passed';
-        btn.className = 'px-4 py-2 rounded-lg bg-success text-white text-sm font-medium';
+        label.textContent = 'Microphone is working properly';
+        btn.textContent = 'Test Again'; btn.className = 'px-4 py-1.5 rounded-lg bg-success text-white text-xs font-semibold';
+        chip.textContent = 'Passed'; chip.className = 'text-[10px] font-semibold text-success';
+        dot.className = 'w-2 h-2 rounded-full bg-success';
         S.micPassed = true;
-        document.getElementById('card-mic').classList.add('passed');
       } else {
-        status.textContent = 'No audio detected';
-        label.textContent = 'Check your microphone settings';
-        btn.textContent = 'Retry';
-        btn.className = 'px-4 py-2 rounded-lg bg-danger text-white text-sm font-medium hover:bg-danger/90 transition-colors';
+        label.textContent = 'No audio detected. Check your mic.';
+        btn.textContent = 'Retry'; btn.className = 'px-4 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors';
+        chip.textContent = 'Failed'; chip.className = 'text-[10px] font-semibold text-danger';
+        dot.className = 'w-2 h-2 rounded-full bg-danger';
         bars.forEach(b => b.classList.add('off'));
       }
       updateChecks();
     }, 3000);
   } catch(e) {
-    status.textContent = 'Mic access denied';
-    label.textContent = 'Allow microphone permission';
+    label.textContent = 'Microphone access denied';
     btn.disabled = false; btn.textContent = 'Retry';
+    chip.textContent = 'Denied'; chip.className = 'text-[10px] font-semibold text-danger';
     bars.forEach(b => b.classList.add('off'));
   }
 }
 
-// ══════════════════════════════════════════════════
-// CAMERA
-// ══════════════════════════════════════════════════
+// ── CAMERA ──
 async function enableCamera() {
-  const status = document.getElementById('cam-status');
   const btn = document.getElementById('cam-btn');
+  const chip = document.getElementById('cam-chip');
+  const dot = document.getElementById('dot-cam');
   const video = document.getElementById('cam-preview');
   const placeholder = document.getElementById('cam-placeholder');
   try {
@@ -586,50 +498,41 @@ async function enableCamera() {
     video.srcObject = S.mediaStream;
     video.classList.remove('hidden');
     placeholder.classList.add('hidden');
-    status.textContent = 'Camera active';
-    btn.textContent = 'Enabled';
-    btn.className = 'px-4 py-2 rounded-lg bg-success text-white text-sm font-medium';
-    btn.disabled = true;
+    btn.textContent = 'Enabled'; btn.className = 'px-4 py-1.5 rounded-lg bg-success text-white text-xs font-semibold'; btn.disabled = true;
+    chip.textContent = 'Active'; chip.className = 'text-[10px] font-semibold text-success';
+    dot.className = 'w-2 h-2 rounded-full bg-success';
     S.camPassed = true;
-    document.getElementById('card-cam').classList.add('passed');
     updateChecks();
   } catch(e) {
-    status.textContent = 'Camera access denied';
-    btn.textContent = 'Retry';
-    btn.className = 'px-4 py-2 rounded-lg bg-danger text-white text-sm font-medium hover:bg-danger/90 transition-colors';
+    chip.textContent = 'Denied'; chip.className = 'text-[10px] font-semibold text-danger';
+    dot.className = 'w-2 h-2 rounded-full bg-danger';
+    btn.textContent = 'Retry'; btn.className = 'px-4 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors';
   }
 }
 
-// ══════════════════════════════════════════════════
-// START INTERVIEW
-// ══════════════════════════════════════════════════
+// ── START INTERVIEW ──
 async function startInterview() {
   if (!S.resumeParsed) return;
   const btn = document.getElementById('btn-start');
   btn.disabled = true;
-  document.getElementById('btn-text').textContent = 'Preparing interview...';
+  document.getElementById('btn-text').textContent = 'Preparing...';
   document.getElementById('btn-arrow').style.display = 'none';
-
   try {
     const r = await fetch('/api/create-session', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({resume_text: JSON.stringify(S.resumeParsed), mode: 'mock'})
     });
     const d = await r.json();
-    S.sessionId = d.session_id;
-    window.location.href = '/interview?session_id=' + S.sessionId;
+    window.location.href = '/interview?session_id=' + d.session_id;
   } catch(e) {
     btn.disabled = false;
-    document.getElementById('btn-text').textContent = 'Start Interview';
+    document.getElementById('btn-text').textContent = "I'm Ready";
     document.getElementById('btn-arrow').style.display = '';
-    alert('Error starting interview. Please try again.');
+    alert('Error starting interview.');
   }
 }
 
-// ══════════════════════════════════════════════════
-// ANTI-CHEAT (silent)
-// ══════════════════════════════════════════════════
+// ── ANTI-CHEAT (silent) ──
 (function() {
   const canary = document.getElementById('canary-element');
   if (!canary || !window.MutationObserver) return;
