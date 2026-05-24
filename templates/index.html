@@ -33,10 +33,10 @@ tailwind.config = {
         'text-primary': '#111827',
         'text-secondary': '#6b7280',
         'text-tertiary': '#9ca3af',
-        'sidebar-bg': '#7c2d12',
-        'sidebar-dark': '#6c2710',
-        'sidebar-hover': '#9a3412',
-        'sidebar-active': '#ea580c',
+        'sidebar-bg': '#ffffff',
+        'sidebar-dark': '#f9fafb',
+        'sidebar-hover': '#f3f4f6',
+        'sidebar-active': '#fff7ed',
       }
     }
   }
@@ -70,49 +70,40 @@ body { font-family: 'Inter', sans-serif; }
 </div>
 
 <!-- ═══ SIDEBAR ═══ -->
-<aside class="hidden md:flex flex-col w-56 bg-sidebar-bg fixed left-0 top-0 h-screen z-50">
-  <div class="px-5 py-5 border-b border-white/10">
+<aside class="hidden md:flex flex-col w-56 bg-sidebar-bg border-r border-outline fixed left-0 top-0 h-screen z-50">
+  <div class="px-5 py-5 border-b border-outline">
     <div class="flex items-center gap-2.5">
-      <div class="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-        <span class="material-symbols-outlined text-white text-base" style="font-variation-settings:'FILL' 1">smart_toy</span>
-      </div>
-      <div>
-        <h1 class="text-white font-bold text-base tracking-tight">VLSI<span class="text-orange-300">.AI</span></h1>
-        <p class="text-white/30 text-[9px] uppercase tracking-[0.15em]">Interview Platform</p>
-      </div>
+      <img src="https://sumedhait.com/SITW.png" alt="Logo" class="h-9">
     </div>
   </div>
   <nav class="flex-1 px-3 py-4 space-y-1">
-    <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-sidebar-active text-white text-sm font-medium">
+    <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-sidebar-active text-brand text-sm font-semibold">
       <span class="material-symbols-outlined text-lg">meeting_room</span> Lobby
     </a>
-    <a href="/admin" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-white/50 hover:bg-sidebar-hover hover:text-white/80 text-sm transition-colors">
+    <a href="/admin" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-secondary hover:bg-sidebar-hover hover:text-text-primary text-sm transition-colors">
       <span class="material-symbols-outlined text-lg">dashboard</span> Dashboard
     </a>
-    <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-white/50 hover:bg-sidebar-hover hover:text-white/80 text-sm transition-colors">
+    <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-secondary hover:bg-sidebar-hover hover:text-text-primary text-sm transition-colors">
       <span class="material-symbols-outlined text-lg">history</span> History
     </a>
   </nav>
-  <div class="px-4 py-4 border-t border-white/10">
+  <div class="px-4 py-4 border-t border-outline">
     <div class="flex items-center gap-3">
-      <div class="w-9 h-9 rounded-full bg-orange-400/20 border border-orange-400/30 flex items-center justify-center text-orange-300 text-xs font-bold" id="sb-avatar">--</div>
+      <div class="w-9 h-9 rounded-full bg-brand-light border border-brand-surface flex items-center justify-center text-brand text-xs font-bold" id="sb-avatar">--</div>
       <div class="flex-1 min-w-0">
-        <p class="text-white/80 text-sm font-medium truncate" id="sb-name">Candidate</p>
-        <p class="text-white/30 text-xs">Interview Session</p>
+        <p class="text-text-primary text-sm font-medium truncate" id="sb-name">Candidate</p>
+        <p class="text-text-tertiary text-xs">Interview Session</p>
       </div>
     </div>
   </div>
 </aside>
 
 <!-- ═══ MOBILE HEADER ═══ -->
-<header class="md:hidden fixed top-0 left-0 w-full bg-sidebar-bg h-14 flex items-center justify-between px-4 z-50">
+<header class="md:hidden fixed top-0 left-0 w-full bg-white border-b border-outline h-14 flex items-center justify-between px-4 z-50">
   <div class="flex items-center gap-2">
-    <div class="w-7 h-7 rounded-md bg-accent flex items-center justify-center">
-      <span class="material-symbols-outlined text-white text-sm" style="font-variation-settings:'FILL' 1">smart_toy</span>
-    </div>
-    <h1 class="text-white font-bold text-base">VLSI<span class="text-orange-300">.AI</span></h1>
+    <img src="https://sumedhait.com/SITW.png" alt="Logo" class="h-8">
   </div>
-  <span class="text-[10px] font-semibold text-white/40 uppercase tracking-wider">Lobby</span>
+  <span class="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Lobby</span>
 </header>
 
 <!-- ═══ MAIN CONTENT ═══ -->
