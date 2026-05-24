@@ -161,33 +161,29 @@ body { font-family: 'Inter', sans-serif; }
           </div>
         </div>
 
-        <!-- Camera (Optional) -->
-        <div class="bg-surface-container-low rounded-xl p-5 flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-surface-variant text-on-surface flex items-center justify-center">
-              <span class="material-symbols-outlined" id="cam-icon">videocam_off</span>
+        <!-- Camera (Required) -->
+        <div class="bg-surface-container-low rounded-xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center">
+                <span class="material-symbols-outlined">videocam</span>
+              </div>
+              <div>
+                <h3 class="text-base font-semibold text-on-surface">Camera</h3>
+                <p class="text-sm text-on-surface-variant" id="cam-status">Required for interview</p>
+              </div>
             </div>
-            <div>
-              <h3 class="text-base font-semibold text-on-surface">Camera (Optional)</h3>
-              <p class="text-sm text-on-surface-variant">Voice-first interview</p>
+            <div class="flex items-center gap-2">
+              <div class="w-3 h-3 rounded-full bg-surface-variant" id="dot-cam"></div>
+              <button onclick="enableCamera()" class="text-sm font-medium text-primary hover:underline">Enable</button>
             </div>
           </div>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" class="sr-only peer" id="cam-toggle" onchange="toggleCamera()"/>
-            <div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-          </label>
-        </div>
-
-        <!-- Mode Selection -->
-        <div class="bg-surface-container-low rounded-xl p-5">
-          <p class="text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-3">Interview Mode</p>
-          <div class="grid grid-cols-2 gap-3">
-            <button id="mbtn-mock" onclick="selMode('mock')" class="py-3 px-4 rounded-xl border-2 border-primary bg-primary/5 text-primary font-medium text-sm text-center transition-all">
-              Mock (Practice)
-            </button>
-            <button id="mbtn-real" onclick="selMode('real')" class="py-3 px-4 rounded-xl border-2 border-outline-variant bg-surface text-on-surface-variant font-medium text-sm text-center transition-all hover:border-outline">
-              Real (Assessment)
-            </button>
+          <div class="h-32 bg-surface-container-highest rounded-lg overflow-hidden relative">
+            <video id="cam-preview" autoplay muted playsinline class="w-full h-full object-cover scale-x-[-1] hidden"></video>
+            <div id="cam-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-on-surface-variant">
+              <span class="material-symbols-outlined text-3xl opacity-40 mb-1">videocam_off</span>
+              <p class="text-xs">Click "Enable" to start camera</p>
+            </div>
           </div>
         </div>
 
@@ -286,7 +282,7 @@ body { font-family: 'Inter', sans-serif; }
 // ══════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════
-const S = { sessionId:null, mode:'mock', resumeParsed:null, mediaStream:null };
+const S = { sessionId:null, resumeParsed:null, mediaStream:null };
 
 // ══════════════════════════════════════════════════
 // RESUME UPLOAD & PARSING
@@ -391,38 +387,23 @@ async function testMic() {
 }
 
 // ══════════════════════════════════════════════════
-// CAMERA TOGGLE
+// CAMERA (Required)
 // ══════════════════════════════════════════════════
-async function toggleCamera() {
-  const on = document.getElementById('cam-toggle').checked;
-  const icon = document.getElementById('cam-icon');
-  if (on) {
-    try {
-      S.mediaStream = await navigator.mediaDevices.getUserMedia({video:true});
-      icon.textContent = 'videocam';
-    } catch(e) {
-      document.getElementById('cam-toggle').checked = false;
-      icon.textContent = 'videocam_off';
-    }
-  } else {
-    if (S.mediaStream) { S.mediaStream.getTracks().forEach(t => t.stop()); S.mediaStream = null; }
-    icon.textContent = 'videocam_off';
-  }
-}
-
-// ══════════════════════════════════════════════════
-// MODE SELECTION
-// ══════════════════════════════════════════════════
-function selMode(m) {
-  S.mode = m;
-  const mock = document.getElementById('mbtn-mock');
-  const real = document.getElementById('mbtn-real');
-  if (m === 'mock') {
-    mock.className = 'py-3 px-4 rounded-xl border-2 border-primary bg-primary/5 text-primary font-medium text-sm text-center transition-all';
-    real.className = 'py-3 px-4 rounded-xl border-2 border-outline-variant bg-surface text-on-surface-variant font-medium text-sm text-center transition-all hover:border-outline';
-  } else {
-    real.className = 'py-3 px-4 rounded-xl border-2 border-primary bg-primary/5 text-primary font-medium text-sm text-center transition-all';
-    mock.className = 'py-3 px-4 rounded-xl border-2 border-outline-variant bg-surface text-on-surface-variant font-medium text-sm text-center transition-all hover:border-outline';
+async function enableCamera() {
+  const dot = document.getElementById('dot-cam');
+  const status = document.getElementById('cam-status');
+  const video = document.getElementById('cam-preview');
+  const placeholder = document.getElementById('cam-placeholder');
+  try {
+    S.mediaStream = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
+    video.srcObject = S.mediaStream;
+    video.classList.remove('hidden');
+    placeholder.classList.add('hidden');
+    dot.className = 'w-3 h-3 rounded-full bg-teal';
+    status.textContent = 'Camera active';
+  } catch(e) {
+    dot.className = 'w-3 h-3 rounded-full bg-error';
+    status.textContent = 'Camera access denied';
   }
 }
 
@@ -440,7 +421,7 @@ async function startInterview() {
     const r = await fetch('/api/create-session', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({resume_text: JSON.stringify(S.resumeParsed), mode: S.mode})
+      body: JSON.stringify({resume_text: JSON.stringify(S.resumeParsed), mode: 'mock'})
     });
     const d = await r.json();
     S.sessionId = d.session_id;
