@@ -187,7 +187,7 @@ body { font-family: 'Inter', sans-serif; }
           </div>
         </div>
         <div class="h-36 bg-surface-dim rounded-xl overflow-hidden relative mb-3">
-          <video id="cam-preview" autoplay muted playsinline class="w-full h-full object-cover scale-x-[-1] hidden"></video>
+          <video id="cam-preview" autoplay muted playsinline class="w-full h-full object-contain scale-x-[-1] hidden"></video>
           <div id="cam-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-text-tertiary">
             <span class="material-symbols-outlined text-3xl opacity-30 mb-1">person</span>
             <p class="text-xs">Enable camera to preview</p>
@@ -281,8 +281,8 @@ body { font-family: 'Inter', sans-serif; }
           </div>
           <div class="bg-surface-dim rounded-xl p-3 border border-outline">
             <span class="material-symbols-outlined text-brand text-base mb-1.5">visibility</span>
-            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Eye Tracking</h4>
-            <p class="text-[10px] text-text-tertiary leading-snug">Detects reading from other screens</p>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Eye Off-Screen</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">Detects when eyes move away from screen</p>
             <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
           </div>
           <div class="bg-surface-dim rounded-xl p-3 border border-outline">
