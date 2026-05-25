@@ -67,6 +67,8 @@ RUNTIME_CONFIG = {
     "tts_enabled": True,
     "tts_provider": "deepgram",
     "tts_voice": "aura-asteria-en",
+    "stt_provider": "openai",
+    "stt_model": "gpt-4o-mini-transcribe",
     "qgen_model": "gpt-4o-mini",
     "eval_model": "gpt-4o-mini",
 }
@@ -372,19 +374,40 @@ JSON:"""
 # ── STT ──────────────────────────────────────────────────────────────────
 
 def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
-    """Returns (transcript, latency_ms)."""
+    """Returns (transcript, latency_ms). Supports OpenAI and Deepgram STT."""
+    provider = RUNTIME_CONFIG.get("stt_provider", "openai")
+    model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
     tmp_path = None
     t0 = time.time()
+
+    # Deepgram STT
+    if provider == "deepgram" and DEEPGRAM_API_KEY:
+        try:
+            r = http_requests.post(
+                f"https://api.deepgram.com/v1/listen?model={model}&language=en&smart_format=true",
+                headers={"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": f"audio/{ext}"},
+                data=audio_bytes, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            text = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript", "").strip()
+            latency = round((time.time() - t0) * 1000)
+            print(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars")
+            return text, latency
+        except Exception as e:
+            print(f"[STT] Deepgram error: {e}, falling back to OpenAI")
+
+    # OpenAI STT (default / fallback)
     try:
         with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as f:
             f.write(audio_bytes); tmp_path = f.name
         with open(tmp_path, "rb") as audio_file:
             response = openai_client.audio.transcriptions.create(
-                model="gpt-4o-mini-transcribe", file=audio_file, language="en",
+                model=model if provider == "openai" else "gpt-4o-mini-transcribe",
+                file=audio_file, language="en",
             )
         latency = round((time.time() - t0) * 1000)
         text = response.text.strip() if hasattr(response, "text") else str(response).strip()
-        print(f"[STT] {latency}ms — {len(text)} chars")
+        print(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars")
         return text, latency
     except Exception as e:
         print(f"[STT] Error: {e}")
@@ -1403,6 +1426,28 @@ async def toggle_tts(data: dict):
 @app.get("/api/tts-status")
 async def tts_status():
     return {"tts_enabled": RUNTIME_CONFIG["tts_enabled"]}
+
+@app.get("/api/admin/stt-config")
+async def get_stt_config(_=Depends(require_admin)):
+    return {
+        "provider": RUNTIME_CONFIG["stt_provider"],
+        "model": RUNTIME_CONFIG["stt_model"],
+        "available": [
+            {"provider": "openai", "model": "gpt-4o-mini-transcribe", "name": "OpenAI Whisper (gpt-4o-mini-transcribe)", "latency": "~500-1300ms", "cost": "$0.006/min"},
+            {"provider": "openai", "model": "whisper-1", "name": "OpenAI Whisper-1", "latency": "~400-800ms", "cost": "$0.006/min"},
+            {"provider": "deepgram", "model": "nova-3", "name": "Deepgram Nova-3 (fastest)", "latency": "~200-500ms", "cost": "$0.0059/min"},
+            {"provider": "deepgram", "model": "nova-2", "name": "Deepgram Nova-2", "latency": "~300-600ms", "cost": "$0.0043/min"},
+        ],
+    }
+
+@app.post("/api/admin/stt-config")
+async def set_stt_config(data: dict, _=Depends(require_admin)):
+    if "provider" in data:
+        RUNTIME_CONFIG["stt_provider"] = data["provider"]
+    if "model" in data:
+        RUNTIME_CONFIG["stt_model"] = data["model"]
+    print(f"[STT Config] Changed to {RUNTIME_CONFIG['stt_provider']}/{RUNTIME_CONFIG['stt_model']}")
+    return {"status": "success", "provider": RUNTIME_CONFIG["stt_provider"], "model": RUNTIME_CONFIG["stt_model"]}
 
 @app.post("/api/admin/set-interview-voice")
 async def set_interview_voice(data: dict, _=Depends(require_admin)):

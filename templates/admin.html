@@ -529,6 +529,16 @@ textarea::placeholder{color:var(--t4)}
       <div>
         <div style="font-size:15px;font-weight:600;color:var(--t);margin-bottom:14px">Voice Settings</div>
 
+        <!-- STT Provider -->
+        <div style="margin-bottom:16px;padding:14px;background:var(--w);border:1px solid var(--b);border-radius:8px">
+          <div style="font-size:12px;font-weight:600;margin-bottom:8px">Speech-to-Text (STT)</div>
+          <select id="vc-stt-select" style="width:100%;padding:8px;border:1px solid var(--b);border-radius:6px;font-size:12px;font-family:inherit;background:var(--off)">
+          </select>
+          <div style="margin-top:8px;font-size:10px;color:var(--t3)" id="vc-stt-info"></div>
+          <button onclick="saveSttConfig()" style="width:100%;padding:8px;background:#111;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:500;cursor:pointer;font-family:inherit;margin-top:8px">Save STT Provider</button>
+          <div id="vc-stt-status" style="font-size:10px;color:var(--green);margin-top:4px"></div>
+        </div>
+
         <!-- TTS Toggle -->
         <div style="margin-bottom:16px;padding:14px;background:var(--w);border:1px solid var(--b);border-radius:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -1218,7 +1228,7 @@ function showSection(id, el) {
   if (id === 'review')       loadRevList();
   if (id === 'llmconfig')   loadLlmConfig();
   if (id === 'acconfig')   loadAcConfig();
-  if (id === 'voiceconfig') { onProviderChange(); loadVoiceLibrary(); loadTtsStatus(); }
+  if (id === 'voiceconfig') { onProviderChange(); loadVoiceLibrary(); loadTtsStatus(); loadSttConfig(); }
 }
 
 // ── PROMPT PLAYGROUND ────────────────────────────────────
@@ -1443,6 +1453,51 @@ async function setInterviewVoice() {
       status.textContent = 'Error: ' + (d.error || 'failed');
     }
   } catch(e) { status.textContent = 'Failed'; }
+}
+
+async function loadSttConfig() {
+  try {
+    const r = await fetch('/api/admin/stt-config', { credentials: 'include' });
+    const d = await r.json();
+    const sel = document.getElementById('vc-stt-select');
+    sel.innerHTML = '';
+    (d.available || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.provider + '|' + s.model;
+      opt.textContent = s.name;
+      if (s.provider === d.provider && s.model === d.model) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    // Show info for selected
+    const cur = (d.available || []).find(s => s.provider === d.provider && s.model === d.model);
+    if (cur) document.getElementById('vc-stt-info').textContent = 'Latency: ' + cur.latency + ' | Cost: ' + cur.cost;
+    sel.onchange = () => {
+      const [p, m] = sel.value.split('|');
+      const info = (d.available || []).find(s => s.provider === p && s.model === m);
+      if (info) document.getElementById('vc-stt-info').textContent = 'Latency: ' + info.latency + ' | Cost: ' + info.cost;
+    };
+  } catch(e) { console.error('Failed to load STT config:', e); }
+}
+
+async function saveSttConfig() {
+  const sel = document.getElementById('vc-stt-select');
+  const [provider, model] = sel.value.split('|');
+  const status = document.getElementById('vc-stt-status');
+  try {
+    const r = await fetch('/api/admin/stt-config', {
+      method: 'POST', credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider, model })
+    });
+    const d = await r.json();
+    if (d.status === 'success') {
+      status.textContent = 'Saved: ' + d.provider + '/' + d.model;
+      status.style.color = 'var(--green)';
+    } else {
+      status.textContent = 'Failed'; status.style.color = 'var(--red)';
+    }
+  } catch(e) { status.textContent = 'Error'; status.style.color = 'var(--red)'; }
+  setTimeout(() => { status.textContent = ''; }, 3000);
 }
 
 async function loadTtsStatus() {
