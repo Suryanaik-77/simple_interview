@@ -373,18 +373,65 @@ JSON:"""
 
 # ── STT ──────────────────────────────────────────────────────────────────
 
+# VLSI domain keywords for STT accuracy boosting
+VLSI_KEYWORDS = [
+    # Physical Design
+    "ICC2", "PrimeTime", "Calibre", "Innovus", "Genus", "Design Compiler",
+    "floorplan", "floorplanning", "placement", "routing", "CTS", "clock tree synthesis",
+    "STA", "static timing analysis", "DRC", "LVS", "DFM", "OPC",
+    "setup time", "hold time", "slack", "WNS", "TNS", "skew",
+    "IR drop", "EM", "electromigration", "decap", "power grid",
+    "OCV", "AOCV", "POCV", "MMMC", "MCMM", "signoff",
+    "ECO", "buffer insertion", "cell swapping", "useful skew",
+    "congestion", "utilization", "blockage", "macro", "standard cell",
+    "NDR", "antenna", "via", "metal layer", "GDSII", "LEF", "DEF",
+    "netlist", "synthesis", "tapeout", "PDK",
+    # Analog Layout
+    "Virtuoso", "Spectre", "Assura", "PEX", "Cadence",
+    "matching", "common centroid", "interdigitation", "guard ring",
+    "parasitic", "parasitic extraction", "LDE", "STI stress", "WPE",
+    "Pelgrom", "FinFET", "CMOS", "NMOS", "PMOS",
+    "current mirror", "OTA", "LDO", "bandgap", "PLL", "ADC", "DAC",
+    "latch-up", "ESD", "substrate noise", "shielding",
+    # Design Verification
+    "SystemVerilog", "UVM", "UVM RAL", "SVA", "assertions",
+    "VCS", "Questa", "Xcelium", "JasperGold",
+    "testbench", "driver", "monitor", "sequencer", "scoreboard",
+    "functional coverage", "code coverage", "coverpoint", "cross coverage",
+    "constrained random", "formal verification", "simulation",
+    "AXI", "AHB", "APB", "PCIe", "DDR", "AMBA",
+    "regression", "waveform", "debug",
+]
+
+# Deepgram keywords format: "word:boost" (boost 1-10)
+_DG_KEYWORDS = "&".join(f"keywords={k}:5" for k in VLSI_KEYWORDS[:50])
+
+# OpenAI prompt hint for VLSI domain
+_OPENAI_STT_PROMPT = (
+    "This is a VLSI semiconductor technical interview. "
+    "Common terms: ICC2, PrimeTime, Calibre, Innovus, Virtuoso, VCS, Questa, "
+    "CTS, STA, DRC, LVS, OCV, AOCV, POCV, MMMC, ECO, NDR, GDSII, LEF, DEF, "
+    "floorplanning, placement, routing, clock tree synthesis, static timing analysis, "
+    "setup time, hold time, slack, WNS, TNS, IR drop, electromigration, "
+    "SystemVerilog, UVM, UVM RAL, SVA, testbench, constrained random, "
+    "common centroid, interdigitation, guard ring, Pelgrom, FinFET, LDE, "
+    "parasitic extraction, bandgap, PLL, OTA, LDO, current mirror, "
+    "AXI, AHB, APB, PCIe, DDR, tapeout, PDK, signoff."
+)
+
+
 def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
-    """Returns (transcript, latency_ms). Supports OpenAI and Deepgram STT."""
+    """Returns (transcript, latency_ms). Supports OpenAI and Deepgram STT with VLSI keyword boosting."""
     provider = RUNTIME_CONFIG.get("stt_provider", "openai")
     model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
     tmp_path = None
     t0 = time.time()
 
-    # Deepgram STT
+    # Deepgram STT with keyword boosting
     if provider == "deepgram" and DEEPGRAM_API_KEY:
         try:
-            r = http_requests.post(
-                f"https://api.deepgram.com/v1/listen?model={model}&language=en&smart_format=true",
+            url = f"https://api.deepgram.com/v1/listen?model={model}&language=en&smart_format=true&{_DG_KEYWORDS}"
+            r = http_requests.post(url,
                 headers={"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": f"audio/{ext}"},
                 data=audio_bytes, timeout=15)
             r.raise_for_status()
@@ -396,7 +443,7 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
         except Exception as e:
             print(f"[STT] Deepgram error: {e}, falling back to OpenAI")
 
-    # OpenAI STT (default / fallback)
+    # OpenAI STT with VLSI domain prompt
     try:
         with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as f:
             f.write(audio_bytes); tmp_path = f.name
@@ -404,6 +451,7 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
             response = openai_client.audio.transcriptions.create(
                 model=model if provider == "openai" else "gpt-4o-mini-transcribe",
                 file=audio_file, language="en",
+                prompt=_OPENAI_STT_PROMPT,
             )
         latency = round((time.time() - t0) * 1000)
         text = response.text.strip() if hasattr(response, "text") else str(response).strip()
