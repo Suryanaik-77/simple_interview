@@ -1259,20 +1259,24 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 tmp.write(content); tmp_path = tmp.name
             text = ""
+            t0_pdf = time.time()
             print(f"[Resume] PDF upload: {len(content)} bytes, file={file.filename}")
-            # Try PyMuPDF first
+            # Try PyMuPDF — fast text extraction + scanned PDF detection
+            is_scanned = False
             try:
                 import fitz  # PyMuPDF
                 doc = fitz.open(tmp_path)
                 for page in doc:
                     text += (page.get_text() or "") + "\n"
+                if not text.strip():
+                    is_scanned = True
                 doc.close()
                 if text.strip():
-                    print(f"[Resume] PyMuPDF text extracted {len(text.strip())} chars")
+                    print(f"[Resume] PyMuPDF extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
             except ImportError:
                 pass
-            # Fallback to PyPDF
-            if not text.strip():
+            # Only try other text extractors if PyMuPDF not available (not for scanned PDFs)
+            if not text.strip() and not is_scanned:
                 try:
                     from pypdf import PdfReader
                     reader = PdfReader(tmp_path)
@@ -1282,18 +1286,7 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
                         print(f"[Resume] PyPDF extracted {len(text.strip())} chars")
                 except ImportError:
                     pass
-            # Fallback to pdfplumber
-            if not text.strip():
-                try:
-                    import pdfplumber
-                    with pdfplumber.open(tmp_path) as pdf:
-                        for page in pdf.pages:
-                            text += (page.extract_text() or "") + "\n"
-                    if text.strip():
-                        print(f"[Resume] pdfplumber extracted {len(text.strip())} chars")
-                except ImportError:
-                    pass
-            # Final fallback: Amazon Textract (render pages to images first)
+            # Amazon Textract for scanned/image PDFs — render pages to PNG
             if not text.strip():
                 try:
                     import fitz  # PyMuPDF — render PDF pages to PNG
@@ -1301,7 +1294,7 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
                         region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
                     doc = fitz.open(tmp_path)
                     for i, page in enumerate(doc):
-                        pix = page.get_pixmap(dpi=200)
+                        pix = page.get_pixmap(dpi=150)
                         img_bytes = pix.tobytes("png")
                         resp = textract_client.detect_document_text(Document={"Bytes": img_bytes})
                         lines = [b["Text"] for b in resp.get("Blocks", []) if b["BlockType"] == "LINE"]
@@ -1310,7 +1303,7 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
                             break
                     doc.close()
                     if text.strip():
-                        print(f"[Resume] Textract OCR extracted {len(text.strip())} chars")
+                        print(f"[Resume] Textract OCR extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
                     else:
                         print(f"[Resume] Textract returned 0 chars")
                 except Exception as e:
