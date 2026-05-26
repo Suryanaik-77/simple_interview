@@ -564,6 +564,10 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
             )
         latency = round((time.time() - t0) * 1000)
         text = response.text.strip() if hasattr(response, "text") else str(response).strip()
+        # Filter STT hallucinations — model echoes prompt hint when audio is silent
+        if text and ("VLSI semiconductor" in text or "Common terms:" in text or "floorplanning, placement, routing" in text):
+            print(f"[STT] OpenAI/{model} {latency}ms — HALLUCINATION filtered (prompt echo)")
+            return "", latency
         print(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars")
         return text, latency
     except Exception as e:
