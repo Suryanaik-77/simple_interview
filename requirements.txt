@@ -1,0 +1,21 @@
+# Core
+fastapi
+uvicorn[standard]
+python-dotenv
+python-jose[cryptography]
+requests
+pydantic
+openai
+
+# Resume parsing
+pdfplumber
+docx2txt
+
+# AWS Bedrock
+boto3
+
+# Grok (xAI)
+httpx
+
+# Optional: Silero VAD (reduces latency ~1000ms per turn)
+# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
