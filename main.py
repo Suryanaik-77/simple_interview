@@ -1256,17 +1256,47 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
     if ext == "pdf":
         if not content.startswith(b"%PDF-"):
             raise HTTPException(400, "Not a valid PDF.")
+        tmp_path = None
         try:
-            import pdfplumber
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 tmp.write(content); tmp_path = tmp.name
             text = ""
-            with pdfplumber.open(tmp_path) as pdf:
-                for page in pdf.pages:
-                    text += (page.extract_text() or "") + "\n"
-            os.unlink(tmp_path)
+            # Try PyMuPDF first (handles both text and scanned PDFs)
+            try:
+                import fitz  # PyMuPDF
+                doc = fitz.open(tmp_path)
+                for page in doc:
+                    text += (page.get_text() or "") + "\n"
+                doc.close()
+                print(f"[Resume] PyMuPDF extracted {len(text.strip())} chars")
+            except ImportError:
+                pass
+            # Fallback to PyPDF2 if PyMuPDF not available or extracted nothing
+            if not text.strip():
+                try:
+                    from pypdf import PdfReader
+                    reader = PdfReader(tmp_path)
+                    for page in reader.pages:
+                        text += (page.extract_text() or "") + "\n"
+                    print(f"[Resume] PyPDF extracted {len(text.strip())} chars")
+                except ImportError:
+                    pass
+            # Fallback to pdfplumber
+            if not text.strip():
+                try:
+                    import pdfplumber
+                    with pdfplumber.open(tmp_path) as pdf:
+                        for page in pdf.pages:
+                            text += (page.extract_text() or "") + "\n"
+                    print(f"[Resume] pdfplumber extracted {len(text.strip())} chars")
+                except ImportError:
+                    pass
         except Exception as e:
             raise HTTPException(400, f"PDF error: {e}")
+        finally:
+            if tmp_path:
+                try: os.unlink(tmp_path)
+                except: pass
     elif ext in ("docx", "doc"):
         try:
             import docx2txt
