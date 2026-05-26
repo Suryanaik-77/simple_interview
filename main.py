@@ -1271,24 +1271,28 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
                     print(f"[Resume] pdfplumber extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
             except Exception as e:
                 print(f"[Resume] pdfplumber failed: {e}")
-            # Amazon Textract for scanned/image PDFs — render pages to PNG
+            # Amazon Textract for scanned/image PDFs — send page-by-page as single-page PDFs
             if not text.strip():
                 try:
-                    import fitz  # PyMuPDF — render PDF pages to PNG
+                    import fitz  # PyMuPDF — split pages
                     textract_client = boto3.client("textract",
                         region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
                     doc = fitz.open(tmp_path)
-                    for i, page in enumerate(doc):
-                        pix = page.get_pixmap(dpi=150)
-                        img_bytes = pix.tobytes("png")
-                        resp = textract_client.detect_document_text(Document={"Bytes": img_bytes})
+                    num_pages = min(len(doc), 3)  # max 3 pages for resume
+                    for i in range(num_pages):
+                        single = fitz.open()
+                        single.insert_pdf(doc, from_page=i, to_page=i)
+                        pdf_bytes = single.tobytes()
+                        single.close()
+                        resp = textract_client.analyze_document(
+                            Document={"Bytes": pdf_bytes},
+                            FeatureTypes=["LAYOUT"])
                         lines = [b["Text"] for b in resp.get("Blocks", []) if b["BlockType"] == "LINE"]
                         text += "\n".join(lines) + "\n"
-                        if i >= 2:  # max 3 pages for resume
-                            break
+                        print(f"[Resume] Textract page {i+1}/{num_pages}: {len(lines)} lines ({len(pdf_bytes)//1024}KB)")
                     doc.close()
                     if text.strip():
-                        print(f"[Resume] Textract OCR extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
+                        print(f"[Resume] Textract extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
                     else:
                         print(f"[Resume] Textract returned 0 chars")
                 except Exception as e:
