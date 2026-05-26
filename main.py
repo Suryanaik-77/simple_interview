@@ -467,12 +467,14 @@ RESUME:
 {resume_text[:3000]}
 
 JSON:"""
+    haiku_model = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     for attempt in range(3):
         try:
-            raw = call_cerebras([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
+            raw, usage = call_llm([{"role": "user", "content": prompt}],
+                                  model_id=haiku_model, temperature=0.1, max_tokens=500)
             parsed = safe_json(raw)
             if parsed and parsed.get("candidate_name"):
-                print(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')}")
+                print(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')} | ${usage['cost_usd']:.4f}")
                 return parsed
             print(f"[Resume] Attempt {attempt+1}: empty result, retrying...")
         except Exception as e:
