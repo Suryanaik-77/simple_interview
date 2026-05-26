@@ -150,11 +150,111 @@ async def login(data: dict):
         return {"token": token, "user": ADMIN_USER}
     raise HTTPException(401, "Invalid credentials")
 
+# ── Cost Tracking ────────────────────────────────────────────────────────
+
+# Pricing per 1M tokens (input, output) — keep in sync with AVAILABLE_MODELS
+_LLM_PRICING = {
+    "gpt-4o-mini":                              (0.15, 0.60),
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0": (1.00, 5.00),
+    "grok-4-1-fast-non-reasoning":              (0.20, 0.50),
+    "us.meta.llama4-maverick-17b-instruct-v1:0":(0.17, 0.17),
+    "us.meta.llama4-scout-17b-instruct-v1:0":   (0.17, 0.17),
+    "us.amazon.nova-lite-v1:0":                 (0.06, 0.24),
+    "us.amazon.nova-micro-v1:0":                (0.035, 0.14),
+    "us.amazon.nova-pro-v1:0":                  (0.80, 3.20),
+    "us.meta.llama3-3-70b-instruct-v1:0":       (0.72, 0.72),
+    "us.anthropic.claude-sonnet-4-6":           (3.00, 15.00),
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0": (3.00, 15.00),
+    "us.anthropic.claude-opus-4-6-v1":          (15.00, 75.00),
+    "us.anthropic.claude-opus-4-5-20251101-v1:0": (15.00, 75.00),
+    "us.deepseek.r1-v1:0":                     (1.35, 5.40),
+    "grok-4-1-fast-reasoning":                  (0.20, 0.50),
+}
+
+# STT pricing per minute
+_STT_PRICING = {
+    "gpt-4o-mini-transcribe": 0.006,
+    "whisper-1": 0.006,
+    "nova-3": 0.0059,
+    "nova-2": 0.0043,
+}
+
+# TTS pricing per 1K characters (estimates)
+_TTS_PRICING = {
+    "deepgram": 0.015,
+    "inworld": 0.015,
+    "openai": 0.015,
+}
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~4 chars per token for English."""
+    return max(1, len(text) // 4)
+
+
+def _estimate_message_tokens(messages: list) -> int:
+    """Estimate input tokens from a message list."""
+    total = 0
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total += _estimate_tokens(content)
+        elif isinstance(content, list):
+            for block in content:
+                total += _estimate_tokens(block.get("text", ""))
+        total += 4  # role + formatting overhead
+    return total
+
+
+def _calc_llm_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Calculate LLM cost in USD."""
+    pricing = _LLM_PRICING.get(model, (0.15, 0.60))  # default to gpt-4o-mini
+    return (input_tokens * pricing[0] + output_tokens * pricing[1]) / 1_000_000
+
+
+def _calc_stt_cost(model: str, duration_ms: int) -> float:
+    """Calculate STT cost in USD. duration_ms is audio length, not latency."""
+    rate = _STT_PRICING.get(model, 0.006)
+    # We don't know exact audio duration, estimate from latency (rough: latency ≈ 0.5-1x audio length)
+    # Better: use actual audio duration if available
+    minutes = duration_ms / 60000
+    return minutes * rate
+
+
+def _calc_tts_cost(provider: str, chars: int) -> float:
+    """Calculate TTS cost in USD."""
+    rate = _TTS_PRICING.get(provider, 0.015)
+    return (chars / 1000) * rate
+
+
+def _obs_entry(step: str, model: str, latency_ms: int, status: str = "success",
+               input_tokens: int = 0, output_tokens: int = 0, chars: int = 0,
+               cost_usd: float = 0.0, error: str = "", **extra) -> dict:
+    """Build a standardized obs_log entry."""
+    entry = {
+        "step": step,
+        "model": model,
+        "latency_ms": latency_ms,
+        "status": status,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "chars": chars,
+        "cost_usd": round(cost_usd, 6),
+        "ts": time.time(),
+    }
+    if error:
+        entry["error"] = error
+    entry.update(extra)
+    return entry
+
+
 # ── LLM Routing ──────────────────────────────────────────────────────────
 
 def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
-    """Route to correct LLM: OpenAI, Bedrock, or Grok."""
+    """Route to correct LLM: OpenAI, Bedrock, or Grok.
+    Returns (text, usage_dict) where usage_dict has input_tokens, output_tokens, cost_usd."""
     model = model_id or RUNTIME_CONFIG["qgen_model"]
+    input_est = _estimate_message_tokens(messages)
 
     # Grok
     if model.startswith("grok-") and xai_client:
@@ -164,18 +264,26 @@ def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
             temperature=temperature, max_tokens=max_tokens,
             timeout=httpx.Timeout(15.0),
         )
-        return resp.choices[0].message.content.strip()
+        text = resp.choices[0].message.content.strip()
+        in_tok = getattr(resp.usage, "prompt_tokens", input_est) if resp.usage else input_est
+        out_tok = getattr(resp.usage, "completion_tokens", _estimate_tokens(text)) if resp.usage else _estimate_tokens(text)
+        return text, {"input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": _calc_llm_cost(model, in_tok, out_tok)}
 
     # Bedrock (Claude, Llama, Nova, etc.)
     if bedrock_client and (model.startswith("us.") or "anthropic" in model or "amazon" in model or "meta" in model):
-        return _call_bedrock(messages, model, temperature, max_tokens)
+        text = _call_bedrock(messages, model, temperature, max_tokens)
+        out_tok = _estimate_tokens(text)
+        return text, {"input_tokens": input_est, "output_tokens": out_tok, "cost_usd": _calc_llm_cost(model, input_est, out_tok)}
 
     # OpenAI (default)
     resp = openai_client.chat.completions.create(
         model=model, messages=messages,
         temperature=temperature, max_tokens=max_tokens,
     )
-    return resp.choices[0].message.content.strip()
+    text = resp.choices[0].message.content.strip()
+    in_tok = resp.usage.prompt_tokens if resp.usage else input_est
+    out_tok = resp.usage.completion_tokens if resp.usage else _estimate_tokens(text)
+    return text, {"input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": _calc_llm_cost(model, in_tok, out_tok)}
 
 
 def stream_llm(messages, model_id="", temperature=0.5, max_tokens=500):
@@ -313,7 +421,8 @@ def call_cerebras(messages, temperature=0.5, max_tokens=1000):
             return resp.choices[0].message.content.strip()
         except Exception as e:
             print(f"[Cerebras] Failed, falling back: {e}")
-    return call_llm(messages, temperature=temperature, max_tokens=max_tokens)
+    text, _usage = call_llm(messages, temperature=temperature, max_tokens=max_tokens)
+    return text
 
 
 def safe_json(text: str):
@@ -780,7 +889,7 @@ Candidate said: "{answer}"
 
 Classification:"""
     try:
-        result = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=10)
+        result, _usage = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=10)
         result = result.strip().lower().replace(".", "")
         if result in ("personal_question", "abusive"):
             return result
@@ -899,7 +1008,9 @@ Signs of human answer:
 ANSWER: "{answer[:1500]}"
 
 JSON:"""
-            raw = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=150)
+            t0_ai = time.time()
+            raw, ai_usage = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=150)
+            ai_ms = round((time.time() - t0_ai) * 1000)
             parsed = safe_json(raw)
             if parsed:
                 llm_is_ai = parsed.get("is_ai", False)
@@ -915,7 +1026,12 @@ JSON:"""
                     if result["sapling"]["score"] > 0.5 and llm_is_ai:
                         result["is_ai"] = True
                         result["score"] = max(result["sapling"]["score"], llm_conf)
-                print(f"[AI Detect] LLM: is_ai={llm_is_ai} conf={llm_conf:.2f} (turn {turn_index})")
+                print(f"[AI Detect] LLM: is_ai={llm_is_ai} conf={llm_conf:.2f} (turn {turn_index}) | ${ai_usage['cost_usd']:.4f}")
+            # Track AI detection cost
+            session.setdefault("obs_log", []).append(
+                _obs_entry("LLM_ai_detect", RUNTIME_CONFIG["qgen_model"], ai_ms, "success",
+                           input_tokens=ai_usage["input_tokens"], output_tokens=ai_usage["output_tokens"],
+                           cost_usd=ai_usage["cost_usd"]))
         except Exception as e:
             print(f"[AI Detect] LLM detection failed: {e}")
 
@@ -957,28 +1073,32 @@ def generate_question(session, candidate_answer: str) -> dict:
 
     # Single LLM call — handles question generation + behavior detection
     t0_llm = time.time()
-    question = call_llm(messages, temperature=0.7, max_tokens=120)
+    question, usage = call_llm(messages, temperature=0.7, max_tokens=120)
     llm_ms = round((time.time() - t0_llm) * 1000)
-    print(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {session['turn']}")
+    print(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {session['turn']} | in={usage['input_tokens']} out={usage['output_tokens']} ${usage['cost_usd']:.4f}")
 
     # Clean markdown
     question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', question)
     question = re.sub(r'`([^`]+)`', r'\1', question)
     question = re.sub(r'#{1,3}\s*', '', question)
 
+    obs = _obs_entry("LLM_question", RUNTIME_CONFIG["qgen_model"], llm_ms, "success",
+                     input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
+                     cost_usd=usage["cost_usd"])
+
     # Check behavior tags from LLM
     if "[PERSONAL]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
         reply = question.replace("[PERSONAL]", "").strip()
         session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
         session["turn"] += 1
-        session.setdefault("obs_log", []).append({"step": "LLM_question", "model": RUNTIME_CONFIG["qgen_model"], "latency_ms": llm_ms, "status": "success"})
+        session.setdefault("obs_log", []).append(obs)
         return {"question": reply, "should_end": False, "llm_ms": llm_ms}
 
     if "[ABUSIVE]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
         reply = question.replace("[ABUSIVE]", "").strip()
         session["phase"] = "ended"
         session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
-        session.setdefault("obs_log", []).append({"step": "LLM_question", "model": RUNTIME_CONFIG["qgen_model"], "latency_ms": llm_ms, "status": "success"})
+        session.setdefault("obs_log", []).append(obs)
         if ANTICHEAT_FEATURES.get("abuse_email_alert", {}).get("enabled", True):
             threading.Thread(target=send_abuse_email, args=(session, candidate_answer), daemon=True).start()
         return {"question": reply, "should_end": True, "llm_ms": llm_ms}
@@ -993,8 +1113,8 @@ def generate_question(session, candidate_answer: str) -> dict:
     session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
     session["turn"] += 1
 
-    # Store LLM timing
-    session.setdefault("obs_log", []).append({"step": "LLM_question", "model": RUNTIME_CONFIG["qgen_model"], "latency_ms": llm_ms, "status": "success"})
+    # Store LLM timing + cost
+    session.setdefault("obs_log", []).append(obs)
 
     return {"question": question, "should_end": llm_end, "llm_ms": llm_ms}
 
@@ -1049,8 +1169,14 @@ Rules:
 - Sound like a real person, not a script{no_repeat}"""
 
     try:
-        greeting = call_llm([{"role": "user", "content": context}], temperature=0.8, max_tokens=60)
+        t0_greet = time.time()
+        greeting, greet_usage = call_llm([{"role": "user", "content": context}], temperature=0.8, max_tokens=60)
+        greet_ms = round((time.time() - t0_greet) * 1000)
         greeting = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', greeting).strip()
+        session.setdefault("obs_log", []).append(
+            _obs_entry("LLM_greeting", RUNTIME_CONFIG["qgen_model"], greet_ms, "success",
+                       input_tokens=greet_usage["input_tokens"], output_tokens=greet_usage["output_tokens"],
+                       cost_usd=greet_usage["cost_usd"]))
     except:
         name = (resume.get("candidate_name", "") or "").split()[0] if resume.get("candidate_name") else ""
         greeting = f"Hi{' ' + name if name else ''}, thanks for joining. Tell me about yourself."
@@ -1199,6 +1325,12 @@ async def start_interview(data: dict):
     audio, tts_ms = synthesize_speech(greeting)
     session["phase"] = "interview"
 
+    # Track greeting TTS cost
+    tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
+    session.setdefault("obs_log", []).append(
+        _obs_entry("TTS_greeting", tts_provider, tts_ms, "success" if audio else "failure",
+                   chars=len(greeting), cost_usd=_calc_tts_cost(tts_provider, len(greeting))))
+
     return {
         "question": greeting, "question_type": "greeting", "turn": session["turn"],
         "phase": session["phase"], "audio": audio, "difficulty": "basic",
@@ -1212,10 +1344,13 @@ async def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = F
     audio_bytes = await audio.read()
     ext = audio.filename.rsplit(".", 1)[-1] if audio.filename else "webm"
     transcript, stt_ms = transcribe_audio(audio_bytes, ext)
-    # Store STT timing in session
+    # Store STT timing + cost in session
+    stt_model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
     session = sessions.get(session_id)
     if session:
-        session.setdefault("obs_log", []).append({"step": "STT", "model": "gpt-4o-mini-transcribe", "latency_ms": stt_ms, "status": "success" if transcript else "failure"})
+        session.setdefault("obs_log", []).append(
+            _obs_entry("STT", stt_model, stt_ms, "success" if transcript else "failure",
+                       chars=len(transcript), cost_usd=_calc_stt_cost(stt_model, stt_ms)))
     return {"transcript": transcript, "stt_ms": stt_ms}
 
 
@@ -1230,8 +1365,11 @@ async def submit_answer(data: dict):
     result = generate_question(session, answer)
     audio, tts_ms = synthesize_speech(result["question"])
 
-    # Store TTS timing
-    session.setdefault("obs_log", []).append({"step": "TTS", "model": RUNTIME_CONFIG.get("tts_provider", "deepgram"), "latency_ms": tts_ms, "status": "success" if audio else "failure"})
+    # Store TTS timing + cost
+    tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
+    session.setdefault("obs_log", []).append(
+        _obs_entry("TTS", tts_provider, tts_ms, "success" if audio else "failure",
+                   chars=len(result["question"]), cost_usd=_calc_tts_cost(tts_provider, len(result["question"]))))
 
     if result["should_end"]:
         session["phase"] = "ended"
@@ -1293,6 +1431,9 @@ async def stream_answer(data: dict):
         full_text = ""
         sentence_buffer = ""
         sentence_count = 0
+        total_tts_ms = 0
+        total_tts_chars = 0
+        input_tokens_est = _estimate_message_tokens(messages)
 
         for token in stream_llm(messages, temperature=0.7, max_tokens=120):
             full_text += token
@@ -1311,6 +1452,8 @@ async def stream_answer(data: dict):
                     t0_tts = time.time()
                     audio_bytes = tts_chunk(sentence)
                     tts_ms = round((time.time() - t0_tts) * 1000)
+                    total_tts_ms += tts_ms
+                    total_tts_chars += len(sentence)
                     if audio_bytes:
                         yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
                     print(f"[Stream] Sentence {sentence_count}: TTS {tts_ms}ms — \"{sentence[:50]}...\"")
@@ -1321,10 +1464,14 @@ async def stream_answer(data: dict):
             t0_tts = time.time()
             audio_bytes = tts_chunk(sentence)
             tts_ms = round((time.time() - t0_tts) * 1000)
+            total_tts_ms += tts_ms
+            total_tts_chars += len(sentence)
             if audio_bytes:
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
 
         llm_ms = round((time.time() - t0_llm) * 1000)
+        output_tokens_est = _estimate_tokens(full_text)
+        llm_cost = _calc_llm_cost(RUNTIME_CONFIG["qgen_model"], input_tokens_est, output_tokens_est)
 
         # Clean the full text
         question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', full_text)
@@ -1349,7 +1496,17 @@ async def stream_answer(data: dict):
         # Update session
         session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
         session["turn"] += 1
-        session.setdefault("obs_log", []).append({"step": "LLM_question", "model": RUNTIME_CONFIG["qgen_model"], "latency_ms": llm_ms, "status": "success"})
+
+        # Track LLM cost
+        tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
+        tts_cost = _calc_tts_cost(tts_provider, total_tts_chars)
+        session.setdefault("obs_log", []).append(
+            _obs_entry("LLM_question", RUNTIME_CONFIG["qgen_model"], llm_ms, "success",
+                       input_tokens=input_tokens_est, output_tokens=output_tokens_est, cost_usd=llm_cost))
+        # Track TTS cost
+        session["obs_log"].append(
+            _obs_entry("TTS", tts_provider, total_tts_ms, "success",
+                       chars=total_tts_chars, cost_usd=tts_cost))
 
         if is_end:
             save_candidate_session(session)
@@ -1679,10 +1836,11 @@ async def prompt_playground(data: dict, _=Depends(require_admin)):
 
     t0 = time.time()
     try:
-        raw = call_llm(msgs, model_id=model_id, temperature=temperature, max_tokens=max_tokens)
+        raw, usage = call_llm(msgs, model_id=model_id, temperature=temperature, max_tokens=max_tokens)
         # Try to parse as JSON for eval prompts
         parsed = safe_json(raw)
-        result = {"status": "success", "raw_response": raw, "latency_ms": round((time.time() - t0) * 1000), "model": model_id}
+        result = {"status": "success", "raw_response": raw, "latency_ms": round((time.time() - t0) * 1000), "model": model_id,
+                  "input_tokens": usage["input_tokens"], "output_tokens": usage["output_tokens"], "cost_usd": usage["cost_usd"]}
         if parsed:
             result["parsed_json"] = parsed
         return result
@@ -1724,17 +1882,38 @@ async def admin_sessions(_=Depends(require_admin)):
 
 
 def _build_session_obs(sid, session):
-    """Build observability summary for a single session."""
+    """Build observability summary for a single session with cost tracking."""
     logs = session.get("obs_log", [])
     total = len(logs)
     success = sum(1 for l in logs if l.get("status") == "success")
     latencies = [l["latency_ms"] for l in logs if l.get("latency_ms")]
     avg_lat = round(sum(latencies) / len(latencies)) if latencies else 0
+    total_cost = sum(l.get("cost_usd", 0) for l in logs)
+    total_input_tokens = sum(l.get("input_tokens", 0) for l in logs)
+    total_output_tokens = sum(l.get("output_tokens", 0) for l in logs)
     by_step = {}
-    for step in ["LLM_question", "STT", "TTS"]:
-        step_lats = [l["latency_ms"] for l in logs if l.get("step") == step and l.get("latency_ms")]
-        by_step[step] = {"calls": len(step_lats), "avg_ms": round(sum(step_lats) / len(step_lats)) if step_lats else 0, "cost_usd": 0}
-    return {"session_id": sid, "total_calls": total, "success_calls": success, "failure_calls": total - success, "total_cost_usd": 0, "avg_latency_ms": avg_lat, "step_breakdown": by_step}
+    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "STT", "TTS", "TTS_greeting"]:
+        step_logs = [l for l in logs if l.get("step") == step]
+        step_lats = [l["latency_ms"] for l in step_logs if l.get("latency_ms")]
+        step_cost = sum(l.get("cost_usd", 0) for l in step_logs)
+        step_in = sum(l.get("input_tokens", 0) for l in step_logs)
+        step_out = sum(l.get("output_tokens", 0) for l in step_logs)
+        step_chars = sum(l.get("chars", 0) for l in step_logs)
+        if step_lats or step_cost > 0:
+            by_step[step] = {
+                "calls": len(step_lats),
+                "avg_ms": round(sum(step_lats) / len(step_lats)) if step_lats else 0,
+                "cost_usd": round(step_cost, 6),
+                "input_tokens": step_in,
+                "output_tokens": step_out,
+                "chars": step_chars,
+            }
+    return {
+        "session_id": sid, "total_calls": total, "success_calls": success,
+        "failure_calls": total - success, "total_cost_usd": round(total_cost, 6),
+        "total_input_tokens": total_input_tokens, "total_output_tokens": total_output_tokens,
+        "avg_latency_ms": avg_lat, "step_breakdown": by_step,
+    }
 
 @app.get("/api/admin/session/{sid}")
 async def admin_session_detail(sid: str, _=Depends(require_admin)):
@@ -1803,10 +1982,13 @@ async def obs_summary(window: int = 86400, _=Depends(require_admin)):
     failures = total - success
     latencies = [l["latency_ms"] for l in all_logs if l.get("latency_ms")]
     avg_lat = round(sum(latencies) / len(latencies)) if latencies else 0
+    total_cost = sum(l.get("cost_usd", 0) for l in all_logs)
+    total_input_tokens = sum(l.get("input_tokens", 0) for l in all_logs)
+    total_output_tokens = sum(l.get("output_tokens", 0) for l in all_logs)
 
     # Step breakdown
     by_step = {}
-    for step in ["LLM_question", "STT", "TTS"]:
+    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "STT", "TTS", "TTS_greeting"]:
         step_logs = [l for l in all_logs if l.get("step") == step]
         step_lats = sorted([l["latency_ms"] for l in step_logs if l.get("latency_ms")])
         if step_lats:
@@ -1815,16 +1997,23 @@ async def obs_summary(window: int = 86400, _=Depends(require_admin)):
             avg = round(sum(step_lats) / len(step_lats))
         else:
             p50 = p95 = avg = 0
-        by_step[step] = {
-            "calls": len(step_logs),
-            "failures": sum(1 for l in step_logs if l.get("status") != "success"),
-            "p50": p50, "p95": p95, "avg": avg,
-            "cost_usd": 0,
-        }
+        step_cost = sum(l.get("cost_usd", 0) for l in step_logs)
+        step_in = sum(l.get("input_tokens", 0) for l in step_logs)
+        step_out = sum(l.get("output_tokens", 0) for l in step_logs)
+        step_chars = sum(l.get("chars", 0) for l in step_logs)
+        if step_lats or step_cost > 0:
+            by_step[step] = {
+                "calls": len(step_logs),
+                "failures": sum(1 for l in step_logs if l.get("status") != "success"),
+                "p50": p50, "p95": p95, "avg": avg,
+                "cost_usd": round(step_cost, 6),
+                "input_tokens": step_in, "output_tokens": step_out, "chars": step_chars,
+            }
 
     return {
         "total_calls": total, "success_calls": success, "failure_calls": failures,
-        "total_cost_usd": 0, "avg_latency_ms": avg_lat,
+        "total_cost_usd": round(total_cost, 6), "avg_latency_ms": avg_lat,
+        "total_input_tokens": total_input_tokens, "total_output_tokens": total_output_tokens,
         "success_rate_pct": round(success / total * 100, 1) if total else 100,
         "by_step": by_step,
         "recent_errors": [],
@@ -1836,15 +2025,17 @@ async def obs_logs(limit: int = 500, _=Depends(require_admin)):
     for sid, s in sessions.items():
         for log in s.get("obs_log", []):
             all_logs.append({
-                "ts_str": datetime.fromtimestamp(s.get("started_at", 0)).strftime("%H:%M:%S"),
+                "ts_str": datetime.fromtimestamp(log.get("ts", s.get("started_at", 0))).strftime("%H:%M:%S"),
                 "session_id": sid,
                 "step": log.get("step", ""),
                 "model": log.get("model", ""),
                 "latency_ms": log.get("latency_ms"),
-                "total_tokens": None,
-                "cost_usd": None,
+                "input_tokens": log.get("input_tokens", 0),
+                "output_tokens": log.get("output_tokens", 0),
+                "chars": log.get("chars", 0),
+                "cost_usd": log.get("cost_usd", 0),
                 "status": log.get("status", "success"),
-                "error": None,
+                "error": log.get("error"),
             })
     return all_logs[-limit:]
 

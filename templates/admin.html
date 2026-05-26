@@ -2434,8 +2434,8 @@ function renderAcDetail(d) {
     if (!obs || !obs.total_calls) {
       return '<div style="font-size:12px;color:var(--t4);padding:12px 0">No API call data recorded yet. Run an interview first.</div>';
     }
-    const colors = {LLM_question:'#2563EB',LLM_evaluation:'#7C3AED',STT:'#16A34A',TTS:'#D97706',resume_parsing:'#EA580C'};
-    const labels = {LLM_question:'LLM question',LLM_evaluation:'LLM eval',STT:'STT',TTS:'TTS',resume_parsing:'Resume parse'};
+    const colors = {LLM_question:'#2563EB',LLM_greeting:'#3B82F6',LLM_ai_detect:'#8B5CF6',LLM_evaluation:'#7C3AED',STT:'#16A34A',TTS:'#D97706',TTS_greeting:'#F59E0B',resume_parsing:'#EA580C'};
+    const labels = {LLM_question:'LLM question',LLM_greeting:'LLM greeting',LLM_ai_detect:'AI detection',LLM_evaluation:'LLM eval',STT:'STT',TTS:'TTS',TTS_greeting:'TTS greeting',resume_parsing:'Resume parse'};
     const failColor   = (obs.failure_calls||0) > 0 ? 'var(--red)' : 'var(--green)';
     const failBg      = (obs.failure_calls||0) > 0 ? 'var(--rb)'  : 'var(--gb)';
     const failBorder  = (obs.failure_calls||0) > 0 ? 'var(--rbd)' : 'var(--gbd)';
@@ -2457,7 +2457,7 @@ function renderAcDetail(d) {
     html += '<div style="background:var(--off);border:1px solid var(--b);border-radius:8px;padding:10px 12px">';
     html += '<div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);margin-bottom:5px">Session cost</div>';
     html += '<div style="font-size:22px;font-weight:500;letter-spacing:-1px;font-family:var(--mono)">' + (obs.total_cost_usd ? '$' + obs.total_cost_usd.toFixed(5) : '$0.00') + '</div>';
-    html += '<div style="font-size:10px;color:var(--t3);margin-top:3px">LLM + STT spend</div></div>';
+    html += '<div style="font-size:10px;color:var(--t3);margin-top:3px">LLM + STT + TTS</div></div>';
 
     html += '<div style="background:' + failBg + ';border:1px solid ' + failBorder + ';border-radius:8px;padding:10px 12px">';
     html += '<div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.6px;color:' + failColor + ';margin-bottom:5px">API failures</div>';
@@ -2583,9 +2583,12 @@ function renderObsSummary(sum) {
   const keys = ['LLM_question','LLM_evaluation','STT','TTS','resume_parsing'];
   const SC_CFG = {
     LLM_question:  {color:'#2563EB',bg:'#EFF6FF',label:'LLM question'},
+    LLM_greeting:  {color:'#3B82F6',bg:'#EFF6FF',label:'LLM greeting'},
+    LLM_ai_detect: {color:'#8B5CF6',bg:'#F5F3FF',label:'AI detection'},
     LLM_evaluation:{color:'#7C3AED',bg:'#F5F3FF',label:'LLM eval'},
     STT:           {color:'#16A34A',bg:'#F0FDF4',label:'STT'},
     TTS:           {color:'#D97706',bg:'#FFFBEB',label:'TTS'},
+    TTS_greeting:  {color:'#F59E0B',bg:'#FFFBEB',label:'TTS greeting'},
     resume_parsing:{color:'#EA580C',bg:'#FFF7ED',label:'Resume parsing'},
   };
   const maxP95   = Math.max(...keys.map(k=>by[k]?.p95||0), 1);
@@ -2711,9 +2714,12 @@ function filterObsLogs() {
 function renderObsLogTable() {
   const SC_CFG2 = {
     LLM_question:  {color:'#2563EB',bg:'#EFF6FF',label:'LLM question'},
+    LLM_greeting:  {color:'#3B82F6',bg:'#EFF6FF',label:'LLM greeting'},
+    LLM_ai_detect: {color:'#8B5CF6',bg:'#F5F3FF',label:'AI detection'},
     LLM_evaluation:{color:'#7C3AED',bg:'#F5F3FF',label:'LLM eval'},
     STT:           {color:'#16A34A',bg:'#F0FDF4',label:'STT'},
     TTS:           {color:'#D97706',bg:'#FFFBEB',label:'TTS'},
+    TTS_greeting:  {color:'#F59E0B',bg:'#FFFBEB',label:'TTS greeting'},
     resume_parsing:{color:'#EA580C',bg:'#FFF7ED',label:'Resume parsing'},
   };
   const tbody = document.getElementById('obs-log-tbody');
