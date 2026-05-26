@@ -1293,17 +1293,24 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
                         print(f"[Resume] pdfplumber extracted {len(text.strip())} chars")
                 except ImportError:
                     pass
-            # Final fallback: Amazon Textract (handles scanned PDFs via AWS)
+            # Final fallback: Amazon Textract (render pages to images first)
             if not text.strip():
                 try:
+                    import fitz  # PyMuPDF — render PDF pages to PNG
                     textract_client = boto3.client("textract",
                         region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-                    resp = textract_client.detect_document_text(Document={"Bytes": content})
-                    blocks = resp.get("Blocks", [])
-                    lines = [b["Text"] for b in blocks if b["BlockType"] == "LINE"]
-                    text = "\n".join(lines)
+                    doc = fitz.open(tmp_path)
+                    for i, page in enumerate(doc):
+                        pix = page.get_pixmap(dpi=200)
+                        img_bytes = pix.tobytes("png")
+                        resp = textract_client.detect_document_text(Document={"Bytes": img_bytes})
+                        lines = [b["Text"] for b in resp.get("Blocks", []) if b["BlockType"] == "LINE"]
+                        text += "\n".join(lines) + "\n"
+                        if i >= 2:  # max 3 pages for resume
+                            break
+                    doc.close()
                     if text.strip():
-                        print(f"[Resume] Textract extracted {len(text.strip())} chars")
+                        print(f"[Resume] Textract OCR extracted {len(text.strip())} chars")
                     else:
                         print(f"[Resume] Textract returned 0 chars")
                 except Exception as e:
