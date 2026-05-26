@@ -1676,7 +1676,8 @@
                             const stt = _lastSttMs || 0;
                             const totalMs = Date.now() - streamStartTime;
                             console.log(`[Stream Turn ${evt.turn}] STT: ${stt}ms | LLM: ${t.llm_ms}ms | First audio: ${firstAudioTime}ms | Total: ${totalMs}ms`);
-                            document.getElementById('footer-tag').textContent = `STT ${stt}ms + First audio ${firstAudioTime}ms | LLM ${t.llm_ms}ms`;
+                            const totalLatency = stt + firstAudioTime;
+                            document.getElementById('footer-tag').textContent = `STT ${stt}ms + LLM ${t.llm_ms}ms + First audio ${firstAudioTime}ms = Total ${totalLatency}ms`;
                         }
                     } catch(e) { /* ignore parse errors */ }
                 }
