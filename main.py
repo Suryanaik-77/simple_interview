@@ -13,7 +13,7 @@ from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Request, Response
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -464,6 +464,130 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
         if tmp_path:
             try: os.unlink(tmp_path)
             except: pass
+
+
+# ── Silero VAD ───────────────────────────────────────────────────────────
+
+_silero_model = None
+_silero_utils = None
+
+def _load_silero():
+    """Load Silero VAD model (once). Returns (model, get_speech_timestamps, read_audio) or None."""
+    global _silero_model, _silero_utils
+    if _silero_model is not None:
+        return _silero_model, _silero_utils
+    try:
+        import torch
+        model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad', trust_repo=True)
+        _silero_model = model
+        _silero_utils = utils
+        print("[Silero] VAD model loaded")
+        return model, utils
+    except Exception as e:
+        print(f"[Silero] Not available: {e}. Install: pip install torch torchaudio")
+        return None, None
+
+
+@app.websocket("/ws/audio")
+async def ws_audio(ws: WebSocket):
+    """WebSocket for real-time audio streaming with Silero VAD.
+
+    Client sends: binary audio chunks (PCM16, 16kHz, mono)
+    Server sends: JSON events:
+      {"event": "silence_1s"}      → 1.0s silence after speech (speculative STT triggered)
+      {"event": "silence_final"}   → 2.0s silence (final, submit answer)
+      {"event": "speech_start"}    → candidate started speaking
+      {"event": "stt_result", "transcript": "...", "stt_ms": 300, "speculative": true}
+    """
+    await ws.accept()
+    sid = ws.query_params.get("session_id", "")
+
+    # Try loading Silero
+    model, utils = _load_silero()
+    use_silero = model is not None
+
+    if use_silero:
+        import torch
+        # Silero VAD state
+        vad_sr = 16000
+        window_size = 512  # 32ms at 16kHz
+        speech_detected = False
+        silence_start = None
+        speculative_sent = False
+        audio_buffer = bytearray()
+        all_audio = bytearray()
+
+    await ws.send_json({"event": "connected", "vad": "silero" if use_silero else "browser"})
+    print(f"[WS] Audio stream connected (session={sid}, vad={'silero' if use_silero else 'browser'})")
+
+    try:
+        while True:
+            data = await ws.receive_bytes()
+
+            if not use_silero:
+                # No Silero — just accumulate, let browser handle VAD
+                continue
+
+            import torch
+            all_audio.extend(data)
+            audio_buffer.extend(data)
+
+            # Process in 32ms windows
+            while len(audio_buffer) >= window_size * 2:  # 2 bytes per sample (int16)
+                chunk = audio_buffer[:window_size * 2]
+                audio_buffer = audio_buffer[window_size * 2:]
+
+                # Convert to float tensor
+                audio_tensor = torch.frombuffer(bytes(chunk), dtype=torch.int16).float() / 32768.0
+
+                # Run Silero VAD
+                speech_prob = model(audio_tensor, vad_sr).item()
+
+                if speech_prob > 0.5:
+                    # Speech detected
+                    if not speech_detected:
+                        speech_detected = True
+                        silence_start = None
+                        speculative_sent = False
+                        await ws.send_json({"event": "speech_start"})
+                    else:
+                        silence_start = None
+                        speculative_sent = False
+                elif speech_detected:
+                    # Silence after speech
+                    now = time.time()
+                    if silence_start is None:
+                        silence_start = now
+
+                    silence_duration = now - silence_start
+
+                    # 1.0s silence → speculative STT in background
+                    if silence_duration >= 1.0 and not speculative_sent:
+                        speculative_sent = True
+                        await ws.send_json({"event": "silence_1s"})
+                        # Send audio to STT in background
+                        audio_copy = bytes(all_audio)
+                        def run_speculative_stt(audio_data):
+                            text, ms = transcribe_audio(audio_data, "webm")
+                            import asyncio
+                            try:
+                                asyncio.run_coroutine_threadsafe(
+                                    ws.send_json({"event": "stt_result", "transcript": text, "stt_ms": ms, "speculative": True}),
+                                    asyncio.get_event_loop()
+                                )
+                            except: pass
+                        threading.Thread(target=run_speculative_stt, args=(audio_copy,), daemon=True).start()
+
+                    # 2.0s silence → final, stop
+                    if silence_duration >= 2.0:
+                        await ws.send_json({"event": "silence_final"})
+                        speech_detected = False
+                        silence_start = None
+
+    except WebSocketDisconnect:
+        print(f"[WS] Audio stream disconnected (session={sid})")
+    except Exception as e:
+        print(f"[WS] Error: {e}")
 
 
 # ── TTS ──────────────────────────────────────────────────────────────────
