@@ -1261,31 +1261,16 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
             text = ""
             t0_pdf = time.time()
             print(f"[Resume] PDF upload: {len(content)} bytes, file={file.filename}")
-            # Try PyMuPDF — fast text extraction + scanned PDF detection
-            is_scanned = False
+            # Try pdfplumber first (text-based PDFs)
             try:
-                import fitz  # PyMuPDF
-                doc = fitz.open(tmp_path)
-                for page in doc:
-                    text += (page.get_text() or "") + "\n"
-                if not text.strip():
-                    is_scanned = True
-                doc.close()
-                if text.strip():
-                    print(f"[Resume] PyMuPDF extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
-            except ImportError:
-                pass
-            # Only try other text extractors if PyMuPDF not available (not for scanned PDFs)
-            if not text.strip() and not is_scanned:
-                try:
-                    from pypdf import PdfReader
-                    reader = PdfReader(tmp_path)
-                    for page in reader.pages:
+                import pdfplumber
+                with pdfplumber.open(tmp_path) as pdf:
+                    for page in pdf.pages:
                         text += (page.extract_text() or "") + "\n"
-                    if text.strip():
-                        print(f"[Resume] PyPDF extracted {len(text.strip())} chars")
-                except ImportError:
-                    pass
+                if text.strip():
+                    print(f"[Resume] pdfplumber extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
+            except Exception as e:
+                print(f"[Resume] pdfplumber failed: {e}")
             # Amazon Textract for scanned/image PDFs — render pages to PNG
             if not text.strip():
                 try:
