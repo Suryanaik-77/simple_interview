@@ -467,14 +467,12 @@ RESUME:
 {resume_text[:3000]}
 
 JSON:"""
-    haiku_model = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     for attempt in range(3):
         try:
-            raw, usage = call_llm([{"role": "user", "content": prompt}],
-                                  model_id=haiku_model, temperature=0.1, max_tokens=500)
+            raw = call_cerebras([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
             parsed = safe_json(raw)
             if parsed and parsed.get("candidate_name"):
-                print(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')} | ${usage['cost_usd']:.4f}")
+                print(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')}")
                 return parsed
             print(f"[Resume] Attempt {attempt+1}: empty result, retrying...")
         except Exception as e:
@@ -1261,24 +1259,27 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 tmp.write(content); tmp_path = tmp.name
             text = ""
-            # Try PyMuPDF first (handles both text and scanned PDFs)
+            print(f"[Resume] PDF upload: {len(content)} bytes, file={file.filename}")
+            # Try PyMuPDF first
             try:
                 import fitz  # PyMuPDF
                 doc = fitz.open(tmp_path)
                 for page in doc:
                     text += (page.get_text() or "") + "\n"
                 doc.close()
-                print(f"[Resume] PyMuPDF extracted {len(text.strip())} chars")
+                if text.strip():
+                    print(f"[Resume] PyMuPDF text extracted {len(text.strip())} chars")
             except ImportError:
                 pass
-            # Fallback to PyPDF2 if PyMuPDF not available or extracted nothing
+            # Fallback to PyPDF
             if not text.strip():
                 try:
                     from pypdf import PdfReader
                     reader = PdfReader(tmp_path)
                     for page in reader.pages:
                         text += (page.extract_text() or "") + "\n"
-                    print(f"[Resume] PyPDF extracted {len(text.strip())} chars")
+                    if text.strip():
+                        print(f"[Resume] PyPDF extracted {len(text.strip())} chars")
                 except ImportError:
                     pass
             # Fallback to pdfplumber
@@ -1288,9 +1289,25 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
                     with pdfplumber.open(tmp_path) as pdf:
                         for page in pdf.pages:
                             text += (page.extract_text() or "") + "\n"
-                    print(f"[Resume] pdfplumber extracted {len(text.strip())} chars")
+                    if text.strip():
+                        print(f"[Resume] pdfplumber extracted {len(text.strip())} chars")
                 except ImportError:
                     pass
+            # Final fallback: Amazon Textract (handles scanned PDFs via AWS)
+            if not text.strip():
+                try:
+                    textract_client = boto3.client("textract",
+                        region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+                    resp = textract_client.detect_document_text(Document={"Bytes": content})
+                    blocks = resp.get("Blocks", [])
+                    lines = [b["Text"] for b in blocks if b["BlockType"] == "LINE"]
+                    text = "\n".join(lines)
+                    if text.strip():
+                        print(f"[Resume] Textract extracted {len(text.strip())} chars")
+                    else:
+                        print(f"[Resume] Textract returned 0 chars")
+                except Exception as e:
+                    print(f"[Resume] Textract failed: {e}")
         except Exception as e:
             raise HTTPException(400, f"PDF error: {e}")
         finally:
