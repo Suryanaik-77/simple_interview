@@ -977,24 +977,6 @@ textarea::placeholder{color:var(--t4)}
         </div>
       </div>
 
-      <!-- Pipeline Toggles -->
-      <div style="display:flex;gap:20px;margin-bottom:20px;padding:16px;background:var(--w);border:1px solid var(--b);border-radius:10px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-          <input type="checkbox" id="llm-strategy-toggle" checked>
-          <div>
-            <div style="font-size:12px;font-weight:600;color:var(--t)">Strategy Engine</div>
-            <div style="font-size:10px;color:var(--t3)">Topic selection, coverage tracking, depth control</div>
-          </div>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-          <input type="checkbox" id="llm-repguard-toggle" checked>
-          <div>
-            <div style="font-size:12px;font-weight:600;color:var(--t)">Repetition Guard</div>
-            <div style="font-size:10px;color:var(--t3)">Cosine similarity check, blocks duplicate questions</div>
-          </div>
-        </label>
-      </div>
-
       <button id="llm-save-btn" onclick="saveLlmConfig()" style="padding:10px 28px;background:#111;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;transition:opacity .12s">
         Save Configuration
       </button>
@@ -1021,31 +1003,51 @@ textarea::placeholder{color:var(--t4)}
       <!-- Editable Prompts -->
       <div style="margin-top:32px;padding-top:20px;border-top:1px solid var(--b)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div style="font-size:13px;font-weight:600;color:var(--t)">Prompts (editable — changes apply to next question)</div>
+          <div style="font-size:13px;font-weight:600;color:var(--t)">Evaluation Prompt (editable — applies to next answer)</div>
           <div>
-            <button onclick="savePrompts()" style="padding:7px 20px;background:#111;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;margin-right:8px">Save Prompts</button>
+            <button onclick="savePrompts()" style="padding:7px 20px;background:#111;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;margin-right:8px">Save Prompt</button>
             <button onclick="resetPrompts()" style="padding:7px 20px;background:var(--off);color:var(--t2);border:1px solid var(--b);border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit">Reset to Default</button>
             <span id="prompt-save-status" style="margin-left:10px;font-size:12px;color:var(--green)"></span>
           </div>
         </div>
-        <div style="display:grid;gap:16px">
-          <div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-              <div style="width:8px;height:8px;border-radius:50%;background:var(--blue)"></div>
-              <div style="font-size:12px;font-weight:600;color:var(--t)">Question Generation Rules</div>
-              <div style="font-size:10px;color:var(--t3)">— injected into the question prompt as ═══ RULES ═══</div>
-            </div>
-            <textarea id="llm-qgen-prompt" style="width:100%;min-height:180px;background:#0C0C0C;color:#E0E0E0;padding:16px;border-radius:8px;font-size:11px;font-family:var(--mono);line-height:1.6;border:1px solid #333;resize:vertical;outline:none" spellcheck="false"></textarea>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--green)"></div>
+            <div style="font-size:12px;font-weight:600;color:var(--t)">Evaluation Prompt Template</div>
+            <div style="font-size:10px;color:var(--t3)">— variables: {domain} {level} {years} {question_type} {difficulty} {question} {answer}</div>
           </div>
-          <div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-              <div style="width:8px;height:8px;border-radius:50%;background:var(--green)"></div>
-              <div style="font-size:12px;font-weight:600;color:var(--t)">Evaluation Prompt Template</div>
-              <div style="font-size:10px;color:var(--t3)">— variables: {domain} {level} {years} {question_type} {difficulty} {question} {answer}</div>
-            </div>
-            <textarea id="llm-eval-prompt" style="width:100%;min-height:350px;background:#0C0C0C;color:#E0E0E0;padding:16px;border-radius:8px;font-size:11px;font-family:var(--mono);line-height:1.6;border:1px solid #333;resize:vertical;outline:none" spellcheck="false"></textarea>
-          </div>
+          <textarea id="llm-eval-prompt" style="width:100%;min-height:350px;background:#0C0C0C;color:#E0E0E0;padding:16px;border-radius:8px;font-size:11px;font-family:var(--mono);line-height:1.6;border:1px solid #333;resize:vertical;outline:none" spellcheck="false"></textarea>
         </div>
+      </div>
+
+      <!-- Interviewer Prompts viewer (9 prompts: 3 domains x 3 levels) -->
+      <div style="margin-top:32px;padding-top:20px;border-top:1px solid var(--b)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--purple)"></div>
+          <div style="font-size:13px;font-weight:600;color:var(--t)">Interviewer System Prompts</div>
+        </div>
+        <div style="font-size:11px;color:var(--t3);margin-bottom:14px">9 system prompts (3 domains × 3 levels). Select domain and level to view the prompt used by Ranjitha for that combination.</div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;margin-bottom:12px;align-items:end">
+          <div>
+            <div style="font-size:11px;font-weight:500;color:var(--t3);margin-bottom:4px">Domain</div>
+            <select id="ivp-domain" onchange="loadInterviewPrompt()" style="width:100%;padding:9px 12px;border:1px solid var(--b);border-radius:7px;font-size:12px;font-family:inherit;background:var(--off);color:var(--t);cursor:pointer;outline:none">
+              <option value="physical_design">Physical Design</option>
+              <option value="analog_layout">Analog Layout</option>
+              <option value="design_verification">Design Verification</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:500;color:var(--t3);margin-bottom:4px">Level</div>
+            <select id="ivp-level" onchange="loadInterviewPrompt()" style="width:100%;padding:9px 12px;border:1px solid var(--b);border-radius:7px;font-size:12px;font-family:inherit;background:var(--off);color:var(--t);cursor:pointer;outline:none">
+              <option value="trained_fresher">Trained Fresher (0-1 yr)</option>
+              <option value="experienced_junior">Experienced Junior (1-3 yr)</option>
+              <option value="experienced_senior">Experienced Senior (3+ yr)</option>
+            </select>
+          </div>
+          <div style="font-size:10px;color:var(--t3);padding-bottom:10px" id="ivp-filename">prompts/trained_fresher_physical_design.md</div>
+        </div>
+        <textarea id="ivp-content" readonly style="width:100%;min-height:420px;background:#0C0C0C;color:#E0E0E0;padding:16px;border-radius:8px;font-size:11px;font-family:var(--mono);line-height:1.6;border:1px solid #333;resize:vertical;outline:none" spellcheck="false" placeholder="Select domain and level to load the prompt..."></textarea>
       </div>
     </div>
   </div>
@@ -1366,7 +1368,6 @@ function fillInterviewerSample() {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   if (_pgRecording) stopPgMic();
   const v = getPgVars();
-  const rules = document.getElementById('llm-qgen-prompt')?.value || '';
   document.getElementById('pg-system').value = `You are Ranjitha, a senior VLSI ${v.domain} interviewer at a semiconductor company. You are conducting a mock interview.
 
 CANDIDATE: ${v.name} | ${v.domain} | ${v.level}
@@ -1374,11 +1375,11 @@ Resume tools: ${v.tools}
 Experience: ${v.years} years
 
 RULES:
-${rules || `- Ask ONE question at a time. Max 2 sentences.
+- Ask ONE question at a time. Max 2 sentences.
 - React to the candidate's answer before asking the next question.
 - Start with basic questions, increase difficulty if they answer well.
 - Be conversational and natural, like a real interview.
-- If they don't know, give a small hint and move on.`}
+- If they don't know, give a small hint and move on.
 
 Start by greeting ${v.name} and asking your first question.`;
   document.getElementById('pg-input').value = '';
@@ -2064,7 +2065,6 @@ async function loadLlmPrompts() {
     const resp = await fetch('/api/admin/llm-prompts', { credentials:'include' });
     if (!resp.ok) return;
     const data = await resp.json();
-    document.getElementById('llm-qgen-prompt').value = data.qgen_rules || '';
     document.getElementById('llm-eval-prompt').value = data.eval_prompt || '';
   } catch(e) { console.error('Failed to load prompts:', e); }
 }
@@ -2077,7 +2077,6 @@ async function savePrompts() {
       method: 'POST', credentials:'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        qgen_rules: document.getElementById('llm-qgen-prompt').value,
         eval_prompt: document.getElementById('llm-eval-prompt').value,
       })
     });
@@ -2107,6 +2106,7 @@ async function resetPrompts() {
 
 async function loadLlmConfig() {
   loadLlmPrompts();
+  loadInterviewPrompt();   // load the interviewer prompt viewer on first open
   try {
     const resp = await fetch('/api/admin/llm-config', { credentials:'include' });
     if (!resp.ok) return;
@@ -2128,12 +2128,28 @@ async function loadLlmConfig() {
 
     qgenSel.onchange = () => updateLlmInfo(qgenSel.value, 'llm-qgen-info', data.available_models);
     evalSel.onchange = () => updateLlmInfo(evalSel.value, 'llm-eval-info', data.available_models);
-
-    // Pipeline toggles
-    document.getElementById('llm-strategy-toggle').checked = data.strategy_engine !== false;
-    document.getElementById('llm-repguard-toggle').checked = data.repetition_guard !== false;
   } catch(e) {
     console.error('Failed to load LLM config:', e);
+  }
+}
+
+async function loadInterviewPrompt() {
+  const domain = document.getElementById('ivp-domain').value;
+  const level  = document.getElementById('ivp-level').value;
+  const ta = document.getElementById('ivp-content');
+  const fn = document.getElementById('ivp-filename');
+  ta.value = 'Loading...';
+  try {
+    const r = await fetch(`/api/admin/interview-prompt?domain=${domain}&level=${level}`, { credentials:'include' });
+    if (!r.ok) {
+      ta.value = `Failed to load (status ${r.status})`;
+      return;
+    }
+    const d = await r.json();
+    ta.value = d.prompt || '';
+    fn.textContent = `prompts/${d.filename}`;
+  } catch (e) {
+    ta.value = 'Error loading prompt: ' + (e.message || e);
   }
 }
 
@@ -2176,8 +2192,6 @@ async function saveLlmConfig() {
       body: JSON.stringify({
         qgen_model: qgen,
         eval_model: eval_,
-        strategy_engine: document.getElementById('llm-strategy-toggle').checked,
-        repetition_guard: document.getElementById('llm-repguard-toggle').checked,
       })
     });
     const data = await resp.json();

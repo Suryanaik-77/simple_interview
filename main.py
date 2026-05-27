@@ -1726,12 +1726,6 @@ async def set_llm_config(data: dict, _=Depends(require_admin)):
     return {"status": "success", "qgen_model": RUNTIME_CONFIG["qgen_model"], "eval_model": RUNTIME_CONFIG["eval_model"]}
 
 EDITABLE_PROMPTS = {
-    "qgen_rules": """- Ask ONE question at a time. Max 2 sentences.
-- React to the candidate's answer before asking the next question.
-- Start with basic questions, increase difficulty if they answer well.
-- Be conversational and natural, like a real interview.
-- If they don't know, give a small hint and move on.
-- Never teach or explain. Just ask and react.""",
     "eval_prompt": """You are a senior VLSI interview evaluator. Score this candidate's answer.
 
 CANDIDATE: {domain} | {level} | {years} years experience
@@ -1757,18 +1751,12 @@ Rules:
 
 @app.get("/api/admin/llm-prompts")
 async def get_llm_prompts(_=Depends(require_admin)):
-    return {"eval_prompt": EDITABLE_PROMPTS["eval_prompt"], "qgen_rules": EDITABLE_PROMPTS["qgen_rules"], "qgen_prompt": _BASE}
+    return {"eval_prompt": EDITABLE_PROMPTS["eval_prompt"]}
 
 @app.post("/api/admin/llm-prompts")
 async def set_llm_prompts(data: dict, _=Depends(require_admin)):
-    if data.get("reset_eval"):
-        EDITABLE_PROMPTS["eval_prompt"] = EDITABLE_PROMPTS["eval_prompt"]  # already default
-    elif "eval_prompt" in data:
+    if "eval_prompt" in data:
         EDITABLE_PROMPTS["eval_prompt"] = data["eval_prompt"]
-    if data.get("reset_qgen"):
-        EDITABLE_PROMPTS["qgen_rules"] = EDITABLE_PROMPTS["qgen_rules"]
-    elif "qgen_rules" in data:
-        EDITABLE_PROMPTS["qgen_rules"] = data["qgen_rules"]
     return {"status": "success"}
 
 @app.get("/api/admin/qgen-prompt")
@@ -1776,6 +1764,21 @@ async def get_qgen_prompt(domain: str = "physical_design", level: str = "trained
     prompt = get_interview_prompt(level, domain)
     prompt += f"\nCANDIDATE: {name} | {level.replace('_',' ')} | Tools: not specified"
     return {"prompt": prompt}
+
+
+@app.get("/api/admin/interview-prompt")
+async def get_interview_prompt_admin(domain: str = "physical_design", level: str = "trained_fresher", _=Depends(require_admin)):
+    """Return the raw interviewer prompt file for the given domain + level.
+    Used by the LLM Config viewer in the admin UI."""
+    valid_domains = {"physical_design", "analog_layout", "design_verification"}
+    valid_levels = {"trained_fresher", "experienced_junior", "experienced_senior", "fresh_graduate"}
+    if domain not in valid_domains or level not in valid_levels:
+        raise HTTPException(400, f"Invalid domain or level. Allowed domains: {valid_domains}, levels: {valid_levels}")
+    # _load_prompt remaps fresh_graduate → trained_fresher internally; we report the actual file used.
+    effective_level = "trained_fresher" if level == "fresh_graduate" else level
+    filename = f"{effective_level}_{domain}.md"
+    prompt = get_interview_prompt(level, domain)
+    return {"prompt": prompt, "filename": filename, "level": level, "domain": domain}
 
 
 # ── Admin: Voice Config ──────────────────────────────────────────────────
