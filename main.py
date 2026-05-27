@@ -442,22 +442,61 @@ def safe_json(text: str):
 def parse_resume(resume_text: str) -> dict:
     if not resume_text or len(resume_text.strip()) < 20:
         return {}
+    today_str = datetime.now().strftime("%B %Y")
     prompt = f"""Extract from this resume. Return ONLY valid JSON:
 {{"candidate_name":"","email":"","phone":"","level":"fresh_graduate|trained_fresher|experienced_junior|experienced_senior",
 "years_experience":0,"skills":[],"tools":[],"key_projects":[],"domain":"","education":""}}
 
+Today's date: {today_str}
+
 Rules:
 - email: extract email address if present, empty string if not found
 - phone: extract phone number if present, empty string if not found
-- years_experience
-  Convert ALL experience into decimal years
-  Examples:
-  - 6 months = 0.5
-  - 10 months = 0.8
-  - 1 year 6 months = 1.5
-  - 2 years 3 months = 2.25
-  NEVER confuse months with years
-  Freshers = 0
+
+- years_experience: TOTAL professional/industrial work experience in DECIMAL YEARS.
+  Look ONLY inside sections titled (case-insensitive):
+    "Experience", "Work Experience", "Professional Experience",
+    "Industrial Experience", "Employment", "Career", "Internship", "Internships"
+  IGNORE these sections entirely (do NOT count toward experience):
+    "Education", "Academic", "Projects", "Personal Projects", "Certifications",
+    "Training", "Courses", "Achievements", "Publications"
+
+  Two extraction modes — use BOTH and pick the LARGER value:
+
+  MODE A — DIRECT MENTION:
+    If the resume says it explicitly, use that number.
+    Examples:
+      "5 years of experience"            → 5.0
+      "2.5 years in VLSI"                → 2.5
+      "6 months internship"              → 0.5
+      "1 year 8 months as DV engineer"   → 1.67
+
+  MODE B — COMPUTE FROM DATE RANGES:
+    Find every date range under an experience section and SUM the durations.
+    A date range looks like:  "<start month/year> – <end month/year>" (any dash: -, –, —, "to")
+    Recognize these formats (case-insensitive):
+      "June 2025 - Dec 2025"             → 6 months = 0.5
+      "Jun 2024 to Present"              → from Jun 2024 to {today_str} (compute)
+      "06/2024 – 09/2024"                → 3 months = 0.25
+      "2022 - 2024"                      → 24 months = 2.0   (year-only: assume Jan)
+      "Aug 2023 - current"               → from Aug 2023 to today
+    "Present", "Current", "Now", "Till date", "Ongoing" all mean {today_str}.
+    Compute: months = (end_year - start_year) * 12 + (end_month - start_month)
+    Sum across ALL listed positions, then divide by 12 for years (round to 2 decimals).
+    DO NOT count overlapping ranges twice — if two roles overlap, only count the union.
+    DO NOT count internships that are listed under "Projects" or "Training".
+
+  Final value = max(MODE A result, MODE B result).
+  If candidate is clearly a fresher / student with NO work or internship dates → 0.
+  NEVER confuse months with years (6 months is 0.5, NOT 6).
+  Cap the value at 50.
+
+- level: classify based on years_experience and resume content
+    fresh_graduate     = 0 years, no internship
+    trained_fresher    = 0–1 year, has internship/training only
+    experienced_junior = 1–5 years professional
+    experienced_senior = 5+ years professional
+
 - skills: VLSI/EDA specific only
 - tools: EDA tool names (ICC2, PrimeTime, Calibre, Virtuoso, VCS, etc.)
 - key_projects: max 5
