@@ -1268,6 +1268,9 @@
     let warmupTurns = 0;
     let techQuestionCount = 0;
     let _typewriterTimer = null;
+    // Text of the most recent REAL question — used to restore the UI after a "Take your time"
+    // style pause prompt (which is not a new question and shouldn't replace the active one).
+    let _lastRealQuestionText = '';
 
     function typewriterText(element, text, durationMs) {
         if (_typewriterTimer) { clearInterval(_typewriterTimer); _typewriterTimer = null; }
@@ -1293,14 +1296,20 @@
     function displayQuestion(data) {
         if (interviewEnded) return;
 
+        const isPausePrompt = !!data.pause_prompt;
+
         // Store text — typewriter starts when audio plays (synced to audio duration)
-        _pendingQuestionText = data.question;
+        // For pause prompts ("Take your time") keep showing the original question.
+        _pendingQuestionText = isPausePrompt ? (_lastRealQuestionText || data.question) : data.question;
+        if (!isPausePrompt) _lastRealQuestionText = data.question;
         document.getElementById('question-text').textContent = '';
 
         const phase = data.phase || 'interview';
 
-        // Only count technical questions, not warmup/greeting
-        if (phase === 'interview') {
+        // Pause prompts don't count as new questions — skip counter update.
+        if (isPausePrompt) {
+            // leave counter as-is
+        } else if (phase === 'interview') {
             if (!warmupTurns) warmupTurns = (data.turn || 1) - 1;
             techQuestionCount = Math.max(0, (data.turn || 0) - warmupTurns);
             updateQuestionCount(techQuestionCount);
@@ -1817,11 +1826,17 @@
             else if (streamDone) onStreamComplete();
         }
 
+        let _wasPausePrompt = false;
         function onStreamComplete() {
             if (audioPlaying || audioQueue.length > 0) return;
             document.getElementById('status-txt').textContent = 'listening';
             document.getElementById('main-label').textContent = 'Listening...';
-            document.getElementById('question-text').textContent = streamText;
+            // For a pause prompt ("Take your time") restore the original question text
+            // so the candidate keeps seeing the question they need to answer.
+            document.getElementById('question-text').textContent = _wasPausePrompt
+                ? (_lastRealQuestionText || streamText)
+                : streamText;
+            if (!_wasPausePrompt) _lastRealQuestionText = streamText;
             if (!interviewEnded) startRecording();
         }
 
@@ -1878,7 +1893,21 @@
                             document.getElementById('live-badge').textContent = 'interview';
                             document.getElementById('live-badge').classList.add('active');
                         }
-                        qCount = evt.turn || qCount;
+                        _wasPausePrompt = !!evt.pause_prompt;
+                        // For pause prompts ("Take your time") the server didn't bump turn
+                        // and didn't store a new question. Skip the counter update too.
+                        if (!_wasPausePrompt) {
+                            qCount = evt.turn || qCount;
+                            if (evt.phase === 'interview') {
+                                if (!warmupTurns) warmupTurns = (evt.turn || 1) - 1;
+                                techQuestionCount = Math.max(0, (evt.turn || 0) - warmupTurns);
+                                updateQuestionCount(techQuestionCount);
+                            } else {
+                                document.getElementById('d-qnum').textContent = 'Warmup';
+                                document.getElementById('q-num-label').textContent = 'Warmup';
+                                document.getElementById('stat-q').textContent = '0';
+                            }
+                        }
                         const t = evt.timing || {};
                         const stt = _lastSttMs || 0;
                         const totalMs = Date.now() - streamStartTime;

@@ -437,6 +437,23 @@ def safe_json(text: str):
     return None
 
 
+def _is_pause_prompt(text: str) -> bool:
+    """True if the LLM output is a 'Take your time' style pause prompt.
+    These don't count as new questions — the candidate's next answer must attach
+    to the ORIGINAL question, not to this prompt."""
+    if not text:
+        return False
+    t = text.strip().lower().strip("\"'").rstrip(".!?,").strip()
+    if not t:
+        return False
+    if t in {"take your time", "please take your time", "ok take your time",
+             "alright take your time", "sure take your time", "no rush",
+             "take a moment", "please take a moment"}:
+        return True
+    # Short utterance that's effectively just a pause cue
+    return len(t) <= 50 and "take your time" in t
+
+
 # ── Resume Parsing ───────────────────────────────────────────────────────
 
 def parse_resume(resume_text: str) -> dict:
@@ -554,7 +571,7 @@ VLSI_KEYWORDS = [
 # Deepgram keywords format: "word:boost" (boost 1-10)
 _DG_KEYWORDS = "&".join(f"keywords={k}:5" for k in VLSI_KEYWORDS[:50])
 
-# OpenAI prompt hint for VLSI domain
+# Generic STT prompt — fallback when domain is unknown or its file is missing.
 _OPENAI_STT_PROMPT = (
     "This is a VLSI semiconductor technical interview. "
     "Common terms: ICC2, PrimeTime, Calibre, Innovus, Virtuoso, VCS, Questa, "
@@ -567,8 +584,36 @@ _OPENAI_STT_PROMPT = (
     "AXI, AHB, APB, PCIe, DDR, tapeout, PDK, signoff."
 )
 
+# Per-domain STT prompt cache (loaded lazily from stt_prompts/<domain>.txt).
+# Whisper / gpt-4o-mini-transcribe prompt is capped at 224 tokens, so each
+# domain file is sized to fit within that budget with VLSI vocabulary only
+# relevant to that domain — giving better biasing than a generic prompt.
+_STT_PROMPT_DIR = os.path.join(os.path.dirname(__file__), "stt_prompts")
+_STT_PROMPT_CACHE: dict[str, str] = {}
 
-def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
+def _get_stt_prompt(domain: str) -> str:
+    """Return the STT prompt for the given domain (cached). Falls back to the generic prompt."""
+    if not domain:
+        return _OPENAI_STT_PROMPT
+    if domain in _STT_PROMPT_CACHE:
+        return _STT_PROMPT_CACHE[domain]
+    path = os.path.join(_STT_PROMPT_DIR, f"{domain}.txt")
+    try:
+        with open(path, "r") as f:
+            text = f.read().strip()
+        if text:
+            _STT_PROMPT_CACHE[domain] = text
+            print(f"[STT] Loaded domain prompt: {domain} ({len(text)} chars)")
+            return text
+    except FileNotFoundError:
+        print(f"[STT] No prompt file for domain '{domain}' — using generic")
+    except Exception as e:
+        print(f"[STT] Failed to load prompt for '{domain}': {e}")
+    _STT_PROMPT_CACHE[domain] = _OPENAI_STT_PROMPT
+    return _OPENAI_STT_PROMPT
+
+
+def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") -> tuple[str, int]:
     """Returns (transcript, latency_ms). Supports OpenAI and Deepgram STT with VLSI keyword boosting."""
     provider = RUNTIME_CONFIG.get("stt_provider", "openai")
     model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
@@ -591,7 +636,8 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
         except Exception as e:
             print(f"[STT] Deepgram error: {e}, falling back to OpenAI")
 
-    # OpenAI STT with VLSI domain prompt
+    # OpenAI STT with VLSI domain prompt — domain-specific if provided, generic otherwise.
+    stt_prompt = _get_stt_prompt(domain)
     try:
         with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as f:
             f.write(audio_bytes); tmp_path = f.name
@@ -599,15 +645,17 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm") -> tuple[str, int]:
             response = openai_client.audio.transcriptions.create(
                 model=model if provider == "openai" else "gpt-4o-mini-transcribe",
                 file=audio_file, language="en",
-                prompt=_OPENAI_STT_PROMPT,
+                prompt=stt_prompt,
             )
         latency = round((time.time() - t0) * 1000)
         text = response.text.strip() if hasattr(response, "text") else str(response).strip()
-        # Filter STT hallucinations — model echoes prompt hint when audio is silent
-        if text and ("VLSI semiconductor" in text or "Common terms:" in text or "floorplanning, placement, routing" in text):
+        # Filter STT hallucinations — model echoes prompt hint when audio is silent.
+        # Check the actual prompt used (every domain prompt starts with "This is a VLSI"
+        # and contains "Common terms:" so those substrings cover all variants).
+        if text and ("This is a VLSI" in text or "VLSI semiconductor" in text or "Common terms:" in text):
             print(f"[STT] OpenAI/{model} {latency}ms — HALLUCINATION filtered (prompt echo)")
             return "", latency
-        print(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars")
+        print(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars (domain={domain or 'generic'})")
         return text, latency
     except Exception as e:
         print(f"[STT] Error: {e}")
@@ -1045,14 +1093,18 @@ def generate_question(session, candidate_answer: str) -> dict:
         question = question.replace("[END_INTERVIEW]", "").strip()
         session["phase"] = "ended"
 
-    # Add to history
-    session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
-    session["turn"] += 1
+    # Pause prompt ("Take your time") — don't count as a new question.
+    is_pause_prompt = _is_pause_prompt(question)
+    if is_pause_prompt:
+        print(f"[Submit] Pause prompt detected — not counting as a turn: \"{question}\"")
+    else:
+        session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
+        session["turn"] += 1
 
     # Store LLM timing + cost
     session.setdefault("obs_log", []).append(obs)
 
-    return {"question": question, "should_end": llm_end, "llm_ms": llm_ms}
+    return {"question": question, "should_end": llm_end, "pause_prompt": is_pause_prompt, "llm_ms": llm_ms}
 
 
 def generate_greeting(session) -> str:
@@ -1317,10 +1369,12 @@ async def start_interview(data: dict):
 async def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form("")):
     audio_bytes = await audio.read()
     ext = audio.filename.rsplit(".", 1)[-1] if audio.filename else "webm"
-    transcript, stt_ms = transcribe_audio(audio_bytes, ext)
+    # Pick the STT prompt by the candidate's domain (from resume).
+    session = sessions.get(session_id)
+    domain = (session.get("resume", {}).get("domain", "") if session else "") or ""
+    transcript, stt_ms = transcribe_audio(audio_bytes, ext, domain=domain)
     # Store STT timing + cost in session
     stt_model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
-    session = sessions.get(session_id)
     if session:
         session.setdefault("obs_log", []).append(
             _obs_entry("STT", stt_model, stt_ms, "success" if transcript else "failure",
@@ -1467,9 +1521,14 @@ async def stream_answer(data: dict):
             session["phase"] = "ended"
             is_end = True
 
-        # Update session
-        session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
-        session["turn"] += 1
+        # Pause prompts (e.g. "Take your time") are NOT new questions. Don't bump turn,
+        # don't append to history. The candidate's next answer attaches to the ORIGINAL question.
+        is_pause_prompt = _is_pause_prompt(question)
+        if is_pause_prompt:
+            print(f"[Stream] Pause prompt detected — not counting as a turn: \"{question}\"")
+        else:
+            session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
+            session["turn"] += 1
 
         # Track LLM cost
         tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
@@ -1489,7 +1548,7 @@ async def stream_answer(data: dict):
         print(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks)")
 
         # Final done event
-        yield f"data: {json.dumps({'type': 'done', 'question': question, 'turn': session['turn'], 'phase': session['phase'], 'should_end': is_end, 'timing': {'llm_ms': llm_ms, 'total_ms': total_ms}})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'question': question, 'turn': session['turn'], 'phase': session['phase'], 'should_end': is_end, 'pause_prompt': is_pause_prompt, 'timing': {'llm_ms': llm_ms, 'total_ms': total_ms}})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
