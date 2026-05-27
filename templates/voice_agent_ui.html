@@ -1013,9 +1013,14 @@
     let recordingStartTime = 0;
     let currentAudio = null;
     const SILENCE_THRESHOLD = 15;
-    const SILENCE_TIMEOUT = 2000;
+    const EARLY_COMMIT_MS = 1000;     // 1.0s silence → commit chunk to STT, keep listening
+    const SILENCE_TIMEOUT = 2000;     // 2.0s total silence → finalize turn (no re-send)
     const MAX_CHUNK_MS = 30000;   // 30s auto-send
     const NO_SPEECH_TIMEOUT = 10000;  // 10s no speech → prompt candidate
+
+    // Pause-tracking across recorder restarts (survives the 1s auto-commit restart)
+    let _pauseStartedAt = null;       // wall-clock of pause start; null while speaking
+    let _hadCommitInPause = false;    // true after 1s commit fires; cleared on speech resume
 
     // ── Silero VAD WebSocket ──
     let vadWs = null;
@@ -1518,32 +1523,44 @@
             }
 
             // Browser fallback VAD
+            // Pause flow:
+            //   speech → 1.0s silence → commit chunk to STT (background), STOP recorder.
+            //   Then post-commit monitor watches the live mic (no MediaRecorder running):
+            //     speech resumes  → startRecording() (new recorder captures it)
+            //     2.0s total silence → finalize turn (no re-send, uses accumulated transcript)
+            const now = Date.now();
             if (!isSilent) {
+                // Speech (resumed or initial) — clear all pause tracking
                 speechDetected = true;
                 silenceStart = null;
+                _pauseStartedAt = null;
+                _hadCommitInPause = false;
                 document.getElementById('sub-label').textContent = `speaking... (${avg.toFixed(0)})`;
-            } else {
-                if (speechDetected) {
-                    if (silenceStart === null) {
-                        silenceStart = Date.now();
-                    } else {
-                        const silenceDuration = Date.now() - silenceStart;
-                        document.getElementById('sub-label').textContent = `pause ${(silenceDuration/1000).toFixed(1)}s... (${avg.toFixed(0)}/255)`;
+            } else if (speechDetected) {
+                // Silence after speech in THIS recorder
+                if (silenceStart === null) silenceStart = now;
+                if (_pauseStartedAt === null) _pauseStartedAt = now;
+                const localSilence = now - silenceStart;
+                const totalPause = now - _pauseStartedAt;
+                document.getElementById('sub-label').textContent = `pause ${(totalPause/1000).toFixed(1)}s... (${avg.toFixed(0)}/255)`;
 
-                        if (silenceDuration >= SILENCE_TIMEOUT) {
-                            document.getElementById('sub-label').textContent = 'processing...';
-                            stopRecording();
-                            return;
-                        }
-                    }
+                if (!_hadCommitInPause && localSilence >= EARLY_COMMIT_MS) {
+                    // 1.0s silence — ship what we have, then STOP. Wait for speech via post-commit monitor.
+                    _hadCommitInPause = true;
+                    document.getElementById('sub-label').textContent = 'pause 1.0s — committing chunk...';
+                    mediaRecorder._autoChunk = true;
+                    mediaRecorder._pauseCommit = true;   // distinguish 1s commit from 30s mid-speech chunk
+                    stopRecording();
+                    return;
+                }
+            } else {
+                // No speech yet in a fresh turn
+                const waitTime = now - recordingStartTime;
+                if (waitTime >= NO_SPEECH_TIMEOUT) {
+                    document.getElementById('sub-label').textContent = 'Please speak your answer...';
+                    document.getElementById('main-label').textContent = 'Waiting for you...';
                 } else {
-                    const waitTime = Date.now() - recordingStartTime;
-                    if (waitTime >= NO_SPEECH_TIMEOUT) {
-                        document.getElementById('sub-label').textContent = 'Please speak your answer...';
-                        document.getElementById('main-label').textContent = 'Waiting for you...';
-                    } else {
-                        document.getElementById('sub-label').textContent = `waiting for speech... (${avg.toFixed(0)}/255)`;
-                    }
+                    document.getElementById('sub-label').textContent = `waiting for speech... (${avg.toFixed(0)}/255)`;
                 }
             }
 
@@ -1578,8 +1595,11 @@
     async function sendAudioForTranscription() {
         if (interviewEnded) return;
 
-        // Check if this was a 30s auto-chunk
-        _wasAutoChunk = mediaRecorder && mediaRecorder._autoChunk;
+        // _autoChunk covers two distinct triggers (use _pauseCommit to tell them apart):
+        //   - 30s mid-speech chunk: restart recorder immediately for zero-gap continuous speech
+        //   - 1s pause commit:      DO NOT restart. Wait for speech via post-commit monitor.
+        _wasAutoChunk = !!(mediaRecorder && mediaRecorder._autoChunk);
+        const _wasPauseCommit = !!(mediaRecorder && mediaRecorder._pauseCommit);
 
         if (audioChunks.length === 0) {
             document.getElementById('sub-label').textContent = 'no audio recorded';
@@ -1595,9 +1615,14 @@
         form.append('session_id', sessionId);
 
         try {
-            // If auto-chunk (30s): restart recording FIRST, transcribe in background
+            // Auto-chunk paths — transcribe in background. Either restart immediately (30s)
+            // or hand off to the post-commit monitor (1s pause: no new recorder yet).
             if (_wasAutoChunk) {
-                if (!interviewEnded) startRecording();  // restart immediately — zero gap
+                if (_wasPauseCommit) {
+                    if (!interviewEnded) startPostCommitMonitor();
+                } else {
+                    if (!interviewEnded) startRecording();           // 30s case: zero-gap restart
+                }
                 _pendingChunkSTT = fetch('/api/transcribe', { method: 'POST', body: form })
                     .then(r => r.json())
                     .then(td => {
@@ -1649,152 +1674,225 @@
                 return;
             }
 
-            document.getElementById('sub-label').textContent = 'thinking...';
-            setOrb('speaking');
-            document.getElementById('main-label').textContent = 'AI Thinking...';
-
-            // Stream answer — LLM tokens + TTS audio chunks arrive via SSE
-            const streamResp = await fetch('/api/stream-answer', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session_id: sessionId, answer: finalText })
-            });
-
-            if (!streamResp.ok) {
-                // Fallback to non-streaming
-                console.warn('[Stream] Failed, falling back to /api/submit-answer');
-                const ar = await fetch('/api/submit-answer', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionId, answer: finalText, turn: qCount, answer_duration_sec: dur, word_count: finalText.split(/\s+/).length, input_mode: 'voice', whisper_confidence: 1.0 })
-                });
-                const ad = await ar.json();
-                if (ad.should_end) { endSession(); return; }
-                displayQuestion(ad);
-                await playAudio(ad.question, ad.audio, ad.phase);
-                return;
-            }
-
-            // Process SSE stream
-            const reader = streamResp.body.getReader();
-            const decoder = new TextDecoder();
-            let streamText = '';
-            const audioQueue = [];
-            let audioPlaying = false;
-            let streamDone = false;
-            let firstAudioTime = 0;
-            const streamStartTime = Date.now();
-
-            // Audio queue player — plays chunks sequentially
-            async function playNextChunk() {
-                if (audioPlaying || audioQueue.length === 0) return;
-                audioPlaying = true;
-                const b64 = audioQueue.shift();
-                try {
-                    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-                    const blob = new Blob([bytes], { type: 'audio/mpeg' });
-                    const url = URL.createObjectURL(blob);
-                    const audio = new Audio(url);
-                    currentAudio = audio;
-                    await new Promise(resolve => {
-                        audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-                        audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-                        audio.play().catch(resolve);
-                    });
-                } catch(e) { console.error('[Stream Audio] Error:', e); }
-                audioPlaying = false;
-                currentAudio = null;
-                if (audioQueue.length > 0) playNextChunk();
-                else if (streamDone) onStreamComplete();
-            }
-
-            function onStreamComplete() {
-                if (audioPlaying || audioQueue.length > 0) return; // still playing
-                // All audio done — start recording
-                document.getElementById('status-txt').textContent = 'listening';
-                document.getElementById('main-label').textContent = 'Listening...';
-                document.getElementById('question-text').textContent = streamText;
-                if (!interviewEnded) startRecording();
-            }
-
-            // Read SSE stream
-            let buffer = '';
-            let doneData = null;
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-
-                // Parse SSE events from buffer
-                const lines = buffer.split('\n');
-                buffer = lines.pop(); // keep incomplete line
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    try {
-                        const evt = JSON.parse(line.slice(6));
-
-                        if (evt.type === 'token') {
-                            streamText += evt.content;
-                            document.getElementById('question-text').textContent = streamText;
-                            document.getElementById('main-label').textContent = 'AI Speaking';
-                            document.getElementById('sub-label').textContent = 'streaming...';
-                        }
-
-                        if (evt.type === 'audio') {
-                            if (!firstAudioTime) {
-                                firstAudioTime = Date.now() - streamStartTime;
-                                console.log(`[Stream] First audio chunk at ${firstAudioTime}ms`);
-                                document.getElementById('sub-label').textContent = `first audio: ${firstAudioTime}ms`;
-                            }
-                            audioQueue.push(evt.data);
-                            playNextChunk();
-                        }
-
-                        if (evt.type === 'text' && evt.done) {
-                            streamText = evt.content || streamText;
-                            document.getElementById('question-text').textContent = streamText;
-                        }
-
-                        if (evt.type === 'done') {
-                            doneData = evt;
-                            if (evt.should_end) {
-                                streamDone = true;
-                                // Wait for audio to finish then end
-                                const waitEnd = setInterval(() => {
-                                    if (!audioPlaying && audioQueue.length === 0) {
-                                        clearInterval(waitEnd);
-                                        endSession();
-                                    }
-                                }, 100);
-                                break;
-                            }
-                            if (evt.phase === 'interview') {
-                                document.getElementById('live-badge').textContent = 'interview';
-                                document.getElementById('live-badge').classList.add('active');
-                            }
-                            qCount = evt.turn || qCount;
-                            // Log timing
-                            const t = evt.timing || {};
-                            const stt = _lastSttMs || 0;
-                            const totalMs = Date.now() - streamStartTime;
-                            console.log(`[Stream Turn ${evt.turn}] STT: ${stt}ms | LLM: ${t.llm_ms}ms | First audio: ${firstAudioTime}ms | Total: ${totalMs}ms`);
-                            const totalLatency = stt + firstAudioTime;
-                            document.getElementById('footer-tag').textContent = `STT ${stt}ms + LLM ${t.llm_ms}ms + First audio ${firstAudioTime}ms = Total ${totalLatency}ms`;
-                        }
-                    } catch(e) { /* ignore parse errors */ }
-                }
-            }
-
-            streamDone = true;
-            // If no audio was generated, just start recording
-            if (audioQueue.length === 0 && !audioPlaying) onStreamComplete();
+            await submitFinalAnswerAndStream(finalText, dur);
 
         } catch (e) {
             console.error('Error:', e);
             document.getElementById('sub-label').textContent = 'error, retrying...';
             if (!interviewEnded) setTimeout(startRecording, 2000);
         }
+    }
+
+    // After a 1s pause-commit there is NO MediaRecorder running. This loop watches the live
+    // mic via the analyser:
+    //   speech detected (avg ≥ SILENCE_THRESHOLD) → startRecording() for the next segment
+    //   2.0s total silence (from _pauseStartedAt) → finalize the turn (no STT re-send)
+    let _postCommitMonitorActive = false;
+    function startPostCommitMonitor() {
+        if (_postCommitMonitorActive || !analyser || interviewEnded) return;
+        _postCommitMonitorActive = true;
+        setOrb('idle');
+        document.getElementById('status-txt').textContent = 'waiting';
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        const tick = () => {
+            if (interviewEnded) { _postCommitMonitorActive = false; return; }
+            // If something else started a recorder (e.g. the LLM finished and called startRecording),
+            // the monitor's job is done.
+            if (isRecording) { _postCommitMonitorActive = false; return; }
+            // Pause flags cleared elsewhere → state is no longer "post-commit"; bail.
+            if (!_hadCommitInPause) { _postCommitMonitorActive = false; return; }
+
+            analyser.getByteFrequencyData(dataArray);
+            const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+            const isSilent = avg < SILENCE_THRESHOLD;
+            const now = Date.now();
+            const totalPause = _pauseStartedAt !== null ? (now - _pauseStartedAt) : 0;
+
+            if (!isSilent) {
+                // Speech resumed — start a fresh recorder for the next segment.
+                _hadCommitInPause = false;
+                _pauseStartedAt = null;
+                _postCommitMonitorActive = false;
+                document.getElementById('sub-label').textContent = 'resuming...';
+                startRecording();
+                return;
+            }
+
+            document.getElementById('sub-label').textContent = `pause ${(totalPause/1000).toFixed(1)}s (waiting)...`;
+
+            if (totalPause >= SILENCE_TIMEOUT) {
+                // 2.0s total silence and no resumed speech — finalize.
+                _postCommitMonitorActive = false;
+                document.getElementById('sub-label').textContent = 'finalizing...';
+                finalizeAfterPauseCommit();
+                return;
+            }
+
+            requestAnimationFrame(tick);
+        };
+        tick();
+    }
+
+    async function finalizeAfterPauseCommit() {
+        _pauseStartedAt = null;
+        _hadCommitInPause = false;
+        if (interviewEnded) return;
+        try {
+            if (_pendingChunkSTT) {
+                document.getElementById('sub-label').textContent = 'waiting for chunk STT...';
+                await _pendingChunkSTT;
+            }
+            const finalText = _accumulatedTranscript.trim();
+            _accumulatedTranscript = '';
+            if (interviewEnded) return;
+            if (!finalText) {
+                document.getElementById('sub-label').textContent = 'no audio recorded';
+                if (!interviewEnded) setTimeout(startRecording, 500);
+                return;
+            }
+            const dur = (Date.now() - recordingStartTime) / 1000;
+            await submitFinalAnswerAndStream(finalText, dur);
+        } catch (e) {
+            console.error('[Finalize after pause] Error:', e);
+            document.getElementById('sub-label').textContent = 'error, retrying...';
+            if (!interviewEnded) setTimeout(startRecording, 2000);
+        }
+    }
+
+    // Run the LLM streaming pipeline (SSE: tokens + TTS audio chunks).
+    // Called from both the normal path and the post-pause-commit finalize path.
+    async function submitFinalAnswerAndStream(finalText, dur) {
+        document.getElementById('sub-label').textContent = 'thinking...';
+        setOrb('speaking');
+        document.getElementById('main-label').textContent = 'AI Thinking...';
+
+        const streamResp = await fetch('/api/stream-answer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId, answer: finalText })
+        });
+
+        if (!streamResp.ok) {
+            console.warn('[Stream] Failed, falling back to /api/submit-answer');
+            const ar = await fetch('/api/submit-answer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId, answer: finalText, turn: qCount, answer_duration_sec: dur, word_count: finalText.split(/\s+/).length, input_mode: 'voice', whisper_confidence: 1.0 })
+            });
+            const ad = await ar.json();
+            if (ad.should_end) { endSession(); return; }
+            displayQuestion(ad);
+            await playAudio(ad.question, ad.audio, ad.phase);
+            return;
+        }
+
+        const reader = streamResp.body.getReader();
+        const decoder = new TextDecoder();
+        let streamText = '';
+        const audioQueue = [];
+        let audioPlaying = false;
+        let streamDone = false;
+        let firstAudioTime = 0;
+        const streamStartTime = Date.now();
+
+        async function playNextChunk() {
+            if (audioPlaying || audioQueue.length === 0) return;
+            audioPlaying = true;
+            const b64 = audioQueue.shift();
+            try {
+                const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+                const blob = new Blob([bytes], { type: 'audio/mpeg' });
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                currentAudio = audio;
+                await new Promise(resolve => {
+                    audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+                    audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+                    audio.play().catch(resolve);
+                });
+            } catch(e) { console.error('[Stream Audio] Error:', e); }
+            audioPlaying = false;
+            currentAudio = null;
+            if (audioQueue.length > 0) playNextChunk();
+            else if (streamDone) onStreamComplete();
+        }
+
+        function onStreamComplete() {
+            if (audioPlaying || audioQueue.length > 0) return;
+            document.getElementById('status-txt').textContent = 'listening';
+            document.getElementById('main-label').textContent = 'Listening...';
+            document.getElementById('question-text').textContent = streamText;
+            if (!interviewEnded) startRecording();
+        }
+
+        let buffer = '';
+        let doneData = null;
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const evt = JSON.parse(line.slice(6));
+
+                    if (evt.type === 'token') {
+                        streamText += evt.content;
+                        document.getElementById('question-text').textContent = streamText;
+                        document.getElementById('main-label').textContent = 'AI Speaking';
+                        document.getElementById('sub-label').textContent = 'streaming...';
+                    }
+
+                    if (evt.type === 'audio') {
+                        if (!firstAudioTime) {
+                            firstAudioTime = Date.now() - streamStartTime;
+                            console.log(`[Stream] First audio chunk at ${firstAudioTime}ms`);
+                            document.getElementById('sub-label').textContent = `first audio: ${firstAudioTime}ms`;
+                        }
+                        audioQueue.push(evt.data);
+                        playNextChunk();
+                    }
+
+                    if (evt.type === 'text' && evt.done) {
+                        streamText = evt.content || streamText;
+                        document.getElementById('question-text').textContent = streamText;
+                    }
+
+                    if (evt.type === 'done') {
+                        doneData = evt;
+                        if (evt.should_end) {
+                            streamDone = true;
+                            const waitEnd = setInterval(() => {
+                                if (!audioPlaying && audioQueue.length === 0) {
+                                    clearInterval(waitEnd);
+                                    endSession();
+                                }
+                            }, 100);
+                            break;
+                        }
+                        if (evt.phase === 'interview') {
+                            document.getElementById('live-badge').textContent = 'interview';
+                            document.getElementById('live-badge').classList.add('active');
+                        }
+                        qCount = evt.turn || qCount;
+                        const t = evt.timing || {};
+                        const stt = _lastSttMs || 0;
+                        const totalMs = Date.now() - streamStartTime;
+                        console.log(`[Stream Turn ${evt.turn}] STT: ${stt}ms | LLM: ${t.llm_ms}ms | First audio: ${firstAudioTime}ms | Total: ${totalMs}ms`);
+                        const totalLatency = stt + firstAudioTime;
+                        document.getElementById('footer-tag').textContent = `STT ${stt}ms + LLM ${t.llm_ms}ms + First audio ${firstAudioTime}ms = Total ${totalLatency}ms`;
+                    }
+                } catch(e) { /* ignore parse errors */ }
+            }
+        }
+
+        streamDone = true;
+        if (audioQueue.length === 0 && !audioPlaying) onStreamComplete();
     }
 
     // Main button click handler
