@@ -1628,9 +1628,8 @@
                     .then(td => {
                         const txt = (td.transcript || '').trim();
                         if (txt) _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
-                        console.log(`[Chunk STT] ${td.stt_ms || '?'}ms — "${txt.substring(0, 50)}..."`);
                     })
-                    .catch(e => console.error('[Chunk STT] Error:', e))
+                    .catch(() => {})
                     .finally(() => { _pendingChunkSTT = null; });
                 return;
             }
