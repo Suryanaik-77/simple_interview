@@ -112,15 +112,25 @@ def _persist_runtime_config():
 
 
 # Adopt persisted config at boot so an admin's earlier changes survive restarts;
-# seed defaults on first run. Cache into Redis if available.
+# seed defaults on first run. Postgres is the source of truth, so only refresh
+# Redis from it when we actually read/seeded the durable value. If Postgres is
+# unavailable at this boot (e.g. a transient connection failure during a
+# max-requests worker recycle), never overwrite the shared Redis value with this
+# worker's hardcoded defaults — that would silently revert an admin's model
+# choice for every worker. Seed Redis only when the key is absent.
+_seeded_from_db = False
 if database.is_available():
     _persisted_cfg = database.get_app_config(_CONFIG_DB_KEY)
     if _persisted_cfg:
         RUNTIME_CONFIG.update(_persisted_cfg)
     else:
         database.save_app_config(_CONFIG_DB_KEY, RUNTIME_CONFIG)
+    _seeded_from_db = True
 if redis_cache.is_available():
-    redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
+    if _seeded_from_db:
+        redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
+    elif redis_cache.get_json(_RUNTIME_CONFIG_KEY) is None:
+        redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
 
 
 class DatabaseSessions:
