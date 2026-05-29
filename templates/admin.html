@@ -1014,8 +1014,13 @@ textarea::placeholder{color:var(--t4)}
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <div style="width:8px;height:8px;border-radius:50%;background:var(--green)"></div>
             <div style="font-size:12px;font-weight:600;color:var(--t)">Evaluation Prompt Template</div>
-            <div style="font-size:10px;color:var(--t3)">— variables: {domain} {level} {years} {question_type} {difficulty} {question} {answer}</div>
+            <div style="font-size:10px;color:var(--t3)">— runs once at interview end (after ≥8 answers). Variables: {name} {domain} {level} {years} {num_answers} {transcript}</div>
           </div>
+          <select id="eval-level-sel" onchange="loadLlmPrompts()" style="margin-bottom:8px;padding:8px 12px;border:1px solid #333;border-radius:6px;font-size:12px;font-family:inherit;background:#0C0C0C;color:#E0E0E0;cursor:pointer;outline:none">
+            <option value="trained_fresher">Trained Fresher / Fresh Graduate</option>
+            <option value="experienced_junior">Experienced Junior (1–5 yrs)</option>
+            <option value="experienced_senior">Experienced Senior (5+ yrs)</option>
+          </select>
           <textarea id="llm-eval-prompt" style="width:100%;min-height:350px;background:#0C0C0C;color:#E0E0E0;padding:16px;border-radius:8px;font-size:11px;font-family:var(--mono);line-height:1.6;border:1px solid #333;resize:vertical;outline:none" spellcheck="false"></textarea>
         </div>
       </div>
@@ -2062,7 +2067,8 @@ const TIER_COLORS = { fast:'var(--blue)', balanced:'var(--green)', premium:'var(
 
 async function loadLlmPrompts() {
   try {
-    const resp = await fetch('/api/admin/llm-prompts', { credentials:'include' });
+    const lvl = document.getElementById('eval-level-sel')?.value || 'trained_fresher';
+    const resp = await fetch('/api/admin/llm-prompts?level=' + encodeURIComponent(lvl), { credentials:'include' });
     if (!resp.ok) return;
     const data = await resp.json();
     document.getElementById('llm-eval-prompt').value = data.eval_prompt || '';
@@ -2077,6 +2083,7 @@ async function savePrompts() {
       method: 'POST', credentials:'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        level: document.getElementById('eval-level-sel')?.value || 'trained_fresher',
         eval_prompt: document.getElementById('llm-eval-prompt').value,
       })
     });
@@ -2849,8 +2856,56 @@ function renderRevQList() {
 
 function revGoTo(i) { REV_CUR = i; renderRevSections(); renderRevQList(); }
 
+function revEvalSummaryHtml() {
+  const EV = (REV_SESSION && REV_SESSION.evaluation) || {};
+  if (EV.status === 'skipped')
+    return `<div class="sec" style="margin-bottom:14px"><div class="sec-body ro"><div style="font-size:12px;color:var(--t2)">Overall evaluation skipped — ${escH(EV.reason||'not enough answers')}.</div></div></div>`;
+  if (EV.status !== 'done') return '';
+
+  const chip = (label, val) => {
+    const has = (val === 0 || !!val);
+    const col = (typeof val === 'number') ? scColor(val) : 'var(--t3)';
+    return `<div style="text-align:center;padding:9px 14px;background:var(--sf);border:1px solid var(--b);border-radius:8px;flex-shrink:0">
+      <div style="font-size:24px;font-weight:400;font-family:var(--mono);color:${col};letter-spacing:-1px">${has?val:'—'}</div>
+      <div style="font-size:9px;color:var(--t3)">${label} /10</div></div>`;
+  };
+  const items = (arr, color) => (arr||[]).map(x =>
+    `<li style="color:${color}">${escH(typeof x === 'string' ? x : (x.topic || JSON.stringify(x)))}</li>`).join('');
+  const topics = (EV.topic_breakdown||[]).map(t =>
+    `<span class="chip chip-gray" style="margin:2px">${escH(t.topic||'')}: ${(t.score ?? '—')}/10</span>`).join('');
+  const recColor = {strong_yes:'var(--green)',yes:'var(--green)',maybe:'var(--amber)',no:'var(--red)',strong_no:'var(--red)'}[EV.recommendation] || 'var(--t2)';
+  const col3 = (title, color, arr) => (arr||[]).length
+    ? `<div style="flex:1;min-width:170px"><div class="qa-lbl" style="color:${color}">${title}</div><ul style="margin:4px 0 0;padding-left:16px;font-size:11px">${items(arr,'var(--t2)')}</ul></div>` : '';
+
+  return `
+  <div class="sec complete" style="margin-bottom:14px">
+    <div class="sec-hd"><div class="sec-badge" style="background:var(--purple);border-color:var(--purple);color:#fff">★</div>
+      <div class="sec-title">Overall AI evaluation</div>
+      <span class="sec-sts" style="color:var(--t3)">${escH(EV.model||'')} · read only</span></div>
+    <div class="sec-body ro">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        ${chip('Overall', EV.overall_score)}
+        ${chip('Communication', EV.communication_score)}
+        <div style="flex:1;min-width:160px">
+          <div style="font-size:13px;font-weight:600;color:${recColor};text-transform:capitalize">${escH((EV.recommendation||'—').replace(/_/g,' '))}</div>
+          <div style="font-size:11px;color:var(--t2);margin-top:2px">Level fit: ${escH((EV.level_fit||'—').replace(/_/g,' '))} · ${EV.answered||0} questions answered</div>
+          ${EV.verdict?`<div style="font-size:11px;color:var(--t2);font-style:italic;margin-top:4px">"${escH(EV.verdict)}"</div>`:''}
+        </div>
+      </div>
+      ${EV.summary?`<div class="qa-box"><div class="qa-lbl">Summary</div><div class="qa-text" style="color:var(--t2)">${escH(EV.summary)}</div></div>`:''}
+      ${topics?`<div style="margin-top:8px"><div class="qa-lbl" style="margin-bottom:4px">Topic scores</div>${topics}</div>`:''}
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px">
+        ${col3('Strengths','var(--green)',EV.strengths)}
+        ${col3('Weaknesses','var(--amber)',EV.weaknesses)}
+        ${col3('Red flags','var(--red)',EV.red_flags)}
+      </div>
+      <div style="font-size:10px;color:var(--t3);margin-top:10px">Per-question scores from this evaluation appear as "AI:" in the queue on the left and in section A.</div>
+    </div>
+  </div>`;
+}
+
 function renderRevSections() {
-  if (!REV_TURNS.length) { document.getElementById('rev-sections').innerHTML = '<div class="empty-state">No technical turns to review for this session.</div>'; return; }
+  if (!REV_TURNS.length) { document.getElementById('rev-sections').innerHTML = revEvalSummaryHtml() + '<div class="empty-state">No technical turns to review for this session.</div>'; return; }
   const h = REV_TURNS[REV_CUR];
   const r = getRevState(REV_CUR);
   const aiScore = parseFloat(h.score) || 5;
@@ -2877,6 +2932,7 @@ function renderRevSections() {
   const cDone = !!r.verdict;
 
   document.getElementById('rev-sections').innerHTML = `
+  ${revEvalSummaryHtml()}
   <!-- NAV PIPS -->
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px">
     <button class="btn" onclick="revNav(-1)" ${REV_CUR===0?'disabled':''}>← Prev</button>

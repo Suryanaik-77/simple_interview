@@ -447,6 +447,55 @@ def update_session_ai_detection(session_id, turn_index, detection):
         return False
 
 
+def save_session_evaluation(session_id, evaluation):
+    """Merge the end-of-interview evaluation into the session blob via jsonb_set.
+    The evaluation runs in a background thread, so it targets ONLY the top-level
+    'evaluation' key rather than rewriting the whole blob — a full read-modify-write
+    would race the foreground turn handler and the ai_detection writer."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE active_sessions
+                    SET session_data = jsonb_set(session_data, '{evaluation}', %s::jsonb, true),
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                """, (json.dumps(evaluation), session_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] save_session_evaluation failed: {e}")
+        return False
+
+
+def append_session_obs(session_id, entry):
+    """Append one observability entry to the session's obs_log via jsonb concat.
+    Each UPDATE takes the row lock, so concurrent appends serialize and none are
+    lost — unlike a full-blob writeback, which would clobber the rest of the session."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE active_sessions
+                    SET session_data = jsonb_set(
+                            session_data, '{obs_log}',
+                            COALESCE(session_data->'obs_log', '[]'::jsonb) || %s::jsonb, true),
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                """, (json.dumps([entry]), session_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] append_session_obs failed: {e}")
+        return False
+
+
 def save_candidate_history(email, session_id, session_summary):
     """Save a single session summary to candidate history in PostgreSQL."""
     if not _db_available:

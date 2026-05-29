@@ -176,6 +176,14 @@ def save_candidate_session(session):
         "tools": session.get("resume", {}).get("tools", []),
         "weak_signals": [],
     }
+    ev = session.get("evaluation")
+    if ev:
+        summary["evaluation"] = {
+            "status": ev.get("status"),
+            "overall_score": ev.get("overall_score"),
+            "recommendation": ev.get("recommendation"),
+            "level_fit": ev.get("level_fit"),
+        }
     if database.is_available():
         database.save_candidate_history(email, session["id"], summary)
     else:
@@ -1248,6 +1256,251 @@ Rules:
     return greeting
 
 
+# ── End-of-Interview Evaluation ─────────────────────────────────────────
+# Runs ONCE when the interview ends, and ONLY if the candidate actually
+# answered enough questions to be judged fairly. Scores the whole transcript
+# with a rubric tuned to the candidate's level.
+
+MIN_ANSWERS_FOR_EVAL = 8
+
+# Shared output contract. Kept separate from the rubric text so the {...} braces
+# here never collide with prompt placeholders (we fill with str.replace, not
+# str.format, precisely so these JSON braces survive untouched).
+_EVAL_JSON_SCHEMA = """{
+  "overall_score": <integer 0-10>,
+  "recommendation": "strong_yes|yes|maybe|no|strong_no",
+  "level_fit": "below_level|at_level|above_level",
+  "verdict": "one-line hire verdict",
+  "per_question": [{"q": <question number>, "question": "<first ~10 words>", "score": <0-10>, "comment": "one short clause"}],
+  "communication_score": <integer 0-10>,
+  "communication": "1-2 sentences on clarity, structure, and how they explain reasoning",
+  "strengths": ["short bullet", "..."],
+  "weaknesses": ["short bullet", "..."],
+  "topic_breakdown": [{"topic": "", "score": <0-10>, "comment": ""}],
+  "red_flags": ["only genuine concerns; [] if none"],
+  "summary": "3-4 sentence overall assessment"
+}"""
+
+# Appended to every level rubric: the numbered transcript, the per-question and
+# communication scoring instructions, and the JSON contract.
+_EVAL_TASK = """FULL TRANSCRIPT (each question is numbered [Q1], [Q2], ...; [A1] is the answer to [Q1]):
+{transcript}
+
+In addition to the overall assessment, do BOTH of these:
+- Score EVERY numbered question individually in "per_question", referencing its number. Judge each answer's technical merit at THIS candidate's level.
+- Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
+
+Return ONLY valid JSON, no prose, no markdown fences:
+""" + _EVAL_JSON_SCHEMA
+
+_EVAL_PROMPT_FRESHER = """You are a senior VLSI interviewer writing the final evaluation of a TRAINED FRESHER / FRESH GRADUATE after a mock interview.
+
+Candidate: {name} | Domain: {domain} | Claimed level: {level} | Experience: {years} years
+Questions answered: {num_answers}
+
+You are judging POTENTIAL and FUNDAMENTALS, not production depth. This person has little or no industry experience — calibrate accordingly.
+
+What a STRONG fresher looks like:
+- Understands the "why" behind concepts, not just textbook definitions
+- Reasons from first principles even without tool or production exposure
+- Honest about limits — "I haven't done that, but my understanding is..." is a POSITIVE signal
+- Shows real learning from coursework, training, or academic / internship projects
+- Curiosity and structured thinking
+
+RED FLAGS to call out explicitly:
+- Polished, textbook-perfect answers that sound memorized rather than understood
+- Claiming hands-on production / tape-out experience inconsistent with a fresher profile
+- Buzzword stacking with no underlying reasoning
+- Contradicting themselves across answers
+
+Do NOT penalize: lack of tool / flow / production experience, an honest "I don't know", or nervous, informal phrasing.
+
+Calibrate scoring to a FRESHER bar: a fresher with genuinely strong fundamentals can score 8-9. Do not expect senior-level depth.
+
+""" + _EVAL_TASK
+
+_EVAL_PROMPT_JUNIOR = """You are a senior VLSI interviewer writing the final evaluation of an EXPERIENCED JUNIOR engineer (1-5 years) after a mock interview.
+
+Candidate: {name} | Domain: {domain} | Claimed level: {level} | Experience: {years} years
+Questions answered: {num_answers}
+
+You are judging hands-on competence in their stated area — they claim real industry experience, so demonstrated depth must back up the claim.
+
+What a STRONG junior looks like:
+- Concrete hands-on experience with the tools / flow they list; can describe what THEY actually did
+- Real debugging stories — specific problems, how they root-caused and fixed them
+- Ownership of at least part of a block / flow, with awareness of the surrounding steps
+- Can go one or two levels deeper when probed, not just surface-level recall
+
+RED FLAGS to call out explicitly:
+- Vague or evasive about tools listed on their resume (names ICC2 / VCS / Virtuoso etc. but can't discuss real usage)
+- All theory, no project specifics — "we did placement" with no detail on their own role
+- Can't explain decisions they claim to have made
+- Knowledge that stops exactly at the textbook boundary
+- Gaps between claimed experience and demonstrated ability
+
+Calibrate to a JUNIOR bar: expect hands-on competence in their stated area, but NOT architecture-level or cross-domain mastery. Penalize gaps between claimed experience and demonstrated depth more heavily than you would for a fresher.
+
+""" + _EVAL_TASK
+
+_EVAL_PROMPT_SENIOR = """You are a senior VLSI interviewer writing the final evaluation of an EXPERIENCED SENIOR engineer (5+ years) after a mock interview.
+
+Candidate: {name} | Domain: {domain} | Claimed level: {level} | Experience: {years} years
+Questions answered: {num_answers}
+
+You are judging depth, judgement, and leadership. Surface-level correctness is NOT enough at this level.
+
+What a STRONG senior looks like:
+- Tradeoff and architecture-level reasoning — explains WHY, weighs alternatives, discusses corner cases and failure modes
+- Drives the conversation, anticipates follow-ups, handles ambiguity and open-ended questions
+- Cross-step / cross-domain awareness (e.g. how PD choices ripple into timing, power, or DV)
+- Methodology and signoff judgement; can set direction and mentor
+- War stories with real complexity and measurable impact
+
+RED FLAGS to call out explicitly:
+- Only operational / "button-pushing" knowledge — runs the tool but can't reason about why
+- Cannot discuss tradeoffs, alternatives, or failure modes
+- Dated knowledge or vague generalities where depth is expected
+- Cannot handle open-ended or ambiguous questions
+- Title / years not backed by demonstrated depth (the most serious flag at this level)
+
+Calibrate to a SENIOR bar: a senior who only recites correct fundamentals should score LOW. Reserve high scores for genuine depth, judgement, and ownership.
+
+""" + _EVAL_TASK
+
+EVAL_PROMPTS = {
+    "trained_fresher": _EVAL_PROMPT_FRESHER,
+    "experienced_junior": _EVAL_PROMPT_JUNIOR,
+    "experienced_senior": _EVAL_PROMPT_SENIOR,
+}
+# Pristine copies for the admin "Reset to Default" action.
+_DEFAULT_EVAL_PROMPTS = dict(EVAL_PROMPTS)
+
+
+def get_eval_prompt(level: str) -> str:
+    """Pick the eval prompt for a level. fresh_graduate reuses the fresher rubric,
+    matching how _load_prompt maps it for question generation."""
+    if level == "fresh_graduate":
+        level = "trained_fresher"
+    return EVAL_PROMPTS.get(level, EVAL_PROMPTS["trained_fresher"])
+
+
+def _fill_eval_prompt(template: str, **kw) -> str:
+    """Substitute {key} placeholders without str.format — the JSON schema in the
+    template contains literal braces that str.format would choke on."""
+    out = template
+    for k, v in kw.items():
+        out = out.replace("{" + k + "}", str(v))
+    return out
+
+
+def _answered_count(session) -> int:
+    """How many questions the candidate actually answered (non-empty answer)."""
+    return sum(1 for e in session.get("conversation", [])
+               if (e.get("answer") or "").strip())
+
+
+def _build_eval_transcript(session, max_chars: int = 8000) -> str:
+    """Render the conversation as numbered Q/A pairs so the evaluator can map a
+    per-question score back to each question by its number."""
+    lines = []
+    n = 0
+    for e in session.get("conversation", []):
+        q = (e.get("question") or "").strip()
+        if not q:
+            continue
+        n += 1
+        a = (e.get("answer") or "").strip()
+        lines.append(f"[Q{n}] {q}")
+        lines.append(f"[A{n}] {a if a else '(no answer)'}")
+    return "\n".join(lines)[:max_chars]
+
+
+def evaluate_interview(session) -> dict:
+    """Score the full interview once it ends. Gated on MIN_ANSWERS_FOR_EVAL.
+    Idempotent (skips if already evaluated) and safe to run in a background
+    thread — it persists via targeted jsonb_set, never a full session writeback."""
+    sid = session.get("id", "")
+
+    # Don't evaluate twice (e.g. should_end fires, then the client calls /end-session).
+    existing = session.get("evaluation")
+    if existing and existing.get("status") in ("done", "skipped"):
+        return existing
+
+    answered = _answered_count(session)
+    if answered < MIN_ANSWERS_FOR_EVAL:
+        result = {"status": "skipped", "answered": answered,
+                  "reason": f"only {answered} answered (need {MIN_ANSWERS_FOR_EVAL})"}
+        session["evaluation"] = result
+        if database.is_available():
+            database.save_session_evaluation(sid, result)
+        print(f"[Eval] Skipped {sid[:8]} — {answered}/{MIN_ANSWERS_FOR_EVAL} answered")
+        return result
+
+    resume = session.get("resume", {})
+    level = resume.get("level", "trained_fresher")
+    prompt = _fill_eval_prompt(
+        get_eval_prompt(level),
+        name=resume.get("candidate_name", "Candidate"),
+        domain=str(resume.get("domain", "VLSI")).replace("_", " "),
+        level=level.replace("_", " "),
+        years=resume.get("years_experience", 0),
+        num_answers=answered,
+        transcript=_build_eval_transcript(session),
+    )
+
+    model = RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+    t0 = time.time()
+    try:
+        raw, usage = call_llm([{"role": "user", "content": prompt}],
+                              model_id=model, temperature=0.2, max_tokens=1800)
+    except Exception as e:
+        print(f"[Eval] LLM call failed for {sid[:8]}: {e}")
+        result = {"status": "error", "answered": answered, "error": str(e)}
+        session["evaluation"] = result
+        if database.is_available():
+            database.save_session_evaluation(sid, result)
+        return result
+    eval_ms = round((time.time() - t0) * 1000)
+
+    parsed = safe_json(raw) or {}
+    result = {
+        "status": "done",
+        "answered": answered,
+        "level": level,
+        "model": model,
+        "latency_ms": eval_ms,
+        "cost_usd": round(usage["cost_usd"], 6),
+        "ts": time.time(),
+        **parsed,
+    }
+    if not parsed:
+        result["parse_error"] = True
+        result["raw_response"] = raw[:2000]
+
+    session["evaluation"] = result
+
+    obs = _obs_entry("LLM_evaluation", model, eval_ms, "success" if parsed else "failure",
+                     input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
+                     cost_usd=usage["cost_usd"])
+    session.setdefault("obs_log", []).append(obs)
+
+    if database.is_available():
+        database.save_session_evaluation(sid, result)
+        database.append_session_obs(sid, obs)
+
+    print(f"[Eval] {sid[:8]} ({level}): score={result.get('overall_score', '?')} "
+          f"rec={result.get('recommendation', '?')} {eval_ms}ms ${usage['cost_usd']:.4f}")
+    return result
+
+
+def _evaluate_async(session):
+    """Run evaluation off the request path so the candidate's closing message
+    isn't delayed. Call only AFTER the final full-session writeback, so the
+    thread's targeted jsonb_set lands on top of it rather than being overwritten."""
+    threading.Thread(target=evaluate_interview, args=(session,), daemon=True).start()
+
+
 # ── API Endpoints ────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -1479,6 +1732,10 @@ def submit_answer(data: dict):
 
     sessions[sid] = session
 
+    # Evaluate after the writeback so the eval thread's jsonb_set isn't clobbered.
+    if result["should_end"]:
+        _evaluate_async(session)
+
     total_ms = round((time.time() - t0_total) * 1000)
     llm_ms = result.get("llm_ms", 0)
     print(f"[Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms + TTS: {tts_ms}ms)")
@@ -1624,6 +1881,10 @@ def stream_answer(data: dict):
         # Save session to DB
         sessions[sid] = session
 
+        # Evaluate after the writeback so the eval thread's jsonb_set isn't clobbered.
+        if is_end:
+            _evaluate_async(session)
+
         total_ms = round((time.time() - t0) * 1000)
         print(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks)")
 
@@ -1639,6 +1900,10 @@ def end_session(data: dict):
     session = sessions.get(sid)
     if session:
         session["phase"] = "ended"
+        # Sync here (not background): this path deletes the active session right
+        # after, so the eval must be computed and folded into the history summary
+        # before it's gone.
+        evaluate_interview(session)
         save_candidate_session(session)
         del sessions[sid]
     return {"ok": True}
@@ -1807,38 +2072,31 @@ async def set_llm_config(data: dict, _=Depends(require_admin)):
     if "eval_model" in data: RUNTIME_CONFIG["eval_model"] = data["eval_model"]
     return {"status": "success", "qgen_model": RUNTIME_CONFIG["qgen_model"], "eval_model": RUNTIME_CONFIG["eval_model"]}
 
-EDITABLE_PROMPTS = {
-    "eval_prompt": """You are a senior VLSI interview evaluator. Score this candidate's answer.
-
-CANDIDATE: {domain} | {level} | {years} years experience
-QUESTION ({question_type}, {difficulty}): {question}
-ANSWER: {answer}
-
-Score 0-10 and return ONLY valid JSON:
-{{"score": 0, "quality": "strong|adequate|weak|honest_admission", "accuracy": "correct|partial|incorrect|not_applicable",
-"quadrant": "genuine_expert|genuine_nervous|honest_confused|dangerous_fake",
-"score_reasoning": "1-2 sentence explanation",
-"expected_points": ["point1", "point2"],
-"missing_points": ["missed1"],
-"level_gap": 0,
-"notes": "brief evaluator note"}}
-
-Rules:
-- Score relative to candidate's level (fresh grad scored differently than senior)
-- "I don't know" = honest_admission, score 5-6 (shows integrity)
-- Textbook-perfect answers from freshers = suspicious, note it
-- Partial but genuine answers score higher than memorized-sounding complete ones
-- 0-3: wrong/no answer, 4-5: partial, 6-7: adequate, 8-9: strong, 10: exceptional""",
-}
-
 @app.get("/api/admin/llm-prompts")
-async def get_llm_prompts(_=Depends(require_admin)):
-    return {"eval_prompt": EDITABLE_PROMPTS["eval_prompt"]}
+async def get_llm_prompts(level: str = "", _=Depends(require_admin)):
+    """Return the editable evaluation prompts. The admin UI shows one level at a
+    time; `eval_prompt` is that level's prompt (back-compat for the single textarea)."""
+    lvl = "trained_fresher" if level in ("", "fresh_graduate") else level
+    if lvl not in EVAL_PROMPTS:
+        lvl = "trained_fresher"
+    return {
+        "level": lvl,
+        "levels": list(EVAL_PROMPTS.keys()),
+        "eval_prompt": EVAL_PROMPTS[lvl],
+        "eval_prompts": EVAL_PROMPTS,
+    }
 
 @app.post("/api/admin/llm-prompts")
 async def set_llm_prompts(data: dict, _=Depends(require_admin)):
+    if data.get("reset_eval"):
+        EVAL_PROMPTS.update(_DEFAULT_EVAL_PROMPTS)
+        return {"status": "success", "reset": True}
     if "eval_prompt" in data:
-        EDITABLE_PROMPTS["eval_prompt"] = data["eval_prompt"]
+        lvl = data.get("level", "trained_fresher")
+        if lvl == "fresh_graduate":
+            lvl = "trained_fresher"
+        if lvl in EVAL_PROMPTS:
+            EVAL_PROMPTS[lvl] = data["eval_prompt"]
     return {"status": "success"}
 
 @app.get("/api/admin/qgen-prompt")
@@ -2010,7 +2268,7 @@ def _build_session_obs(sid, session):
     total_input_tokens = sum(l.get("input_tokens", 0) for l in logs)
     total_output_tokens = sum(l.get("output_tokens", 0) for l in logs)
     by_step = {}
-    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "STT", "TTS", "TTS_greeting"]:
+    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "LLM_evaluation", "STT", "TTS", "TTS_greeting"]:
         step_logs = [l for l in logs if l.get("step") == step]
         step_lats = [l["latency_ms"] for l in step_logs if l.get("latency_ms")]
         step_cost = sum(l.get("cost_usd", 0) for l in step_logs)
@@ -2038,8 +2296,25 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
     session = sessions.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
+    # Map per-question eval scores back onto turns. evaluate_interview numbers the
+    # transcript [Q1], [Q2]... over conversation entries that have a question, so we
+    # reproduce that exact counter here and look up each item by its "q" number.
+    evaluation = session.get("evaluation", {}) or {}
+    pq_by_num = {}
+    for item in evaluation.get("per_question", []) or []:
+        try:
+            pq_by_num[int(item.get("q"))] = item
+        except (TypeError, ValueError):
+            continue
+
     turn_log = []
+    qnum = 0
     for entry in session.get("conversation", []):
+        has_q = bool((entry.get("question") or "").strip())
+        if has_q:
+            qnum += 1
+        pq = pq_by_num.get(qnum) if has_q else None
+        comment = (pq or {}).get("comment", "")
         turn_log.append({
             "turn": entry.get("turn", 0),
             "phase": "interview",
@@ -2048,14 +2323,14 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             "question_type": "interview",
             "topic": "",
             "difficulty": "basic",
-            "score": "",
+            "score": (pq or {}).get("score", ""),
             "quality": "",
             "accuracy": "",
             "quadrant": "",
-            "notes": "",
+            "notes": comment,
             "word_count": len((entry.get("answer") or "").split()),
             "answer_duration_sec": 0,
-            "score_reasoning": "",
+            "score_reasoning": comment,
             "expected_points": [],
             "missing_points": [],
             "level_gap": 0,
@@ -2081,6 +2356,7 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
         "expert_reviews": [],
         "eval_model": RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini"),
         "qgen_model": RUNTIME_CONFIG.get("qgen_model", "gpt-4o-mini"),
+        "evaluation": session.get("evaluation", {}),
         "observability": _build_session_obs(sid, session),
     }
 
@@ -2106,7 +2382,7 @@ def obs_summary(window: int = 86400, _=Depends(require_admin)):
 
     # Step breakdown
     by_step = {}
-    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "STT", "TTS", "TTS_greeting"]:
+    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "LLM_evaluation", "STT", "TTS", "TTS_greeting"]:
         step_logs = [l for l in all_logs if l.get("step") == step]
         step_lats = sorted([l["latency_ms"] for l in step_logs if l.get("latency_ms")])
         if step_lats:
