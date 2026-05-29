@@ -125,6 +125,12 @@ class DatabaseSessions:
             return [(s["id"], s) for s in database.list_active_sessions()]
         return list(self._memory.items())
 
+    def __delitem__(self, key):
+        if database.is_available():
+            database.delete_active_session(key)
+        else:
+            self._memory.pop(key, None)
+
 sessions = DatabaseSessions()
 
 # ── Candidate History (file-backed, keyed by email) ──────────────────────
@@ -145,8 +151,12 @@ def _save_history_to_disk():
     except Exception as e:
         print(f"[History] Save failed: {e}")
 
-candidate_history: dict[str, list[dict]] = _load_history()
-print(f"[History] Loaded {sum(len(v) for v in candidate_history.values())} sessions for {len(candidate_history)} candidates")
+# Only load the whole-file snapshot in the no-DB fallback. When the DB is the source of
+# truth, returning-candidate history is fetched per-email on demand via get_candidate_previous,
+# so loading every candidate into each worker at startup would be wasted RAM and stale.
+candidate_history: dict[str, list[dict]] = {} if database.is_available() else _load_history()
+if not database.is_available():
+    print(f"[History] Loaded {sum(len(v) for v in candidate_history.values())} sessions for {len(candidate_history)} candidates")
 
 
 def save_candidate_session(session):
@@ -1076,10 +1086,13 @@ JSON:"""
         except Exception as e:
             print(f"[AI Detect] LLM detection failed: {e}")
 
-    # Store result in conversation entry
+    # Store result in conversation entry. This runs in a background thread, so persist
+    # via a targeted jsonb_set (not a full-session writeback) — a full overwrite here
+    # would race the foreground turn handler and could clobber it or tear json.dumps.
     if turn_index < len(session.get("conversation", [])):
         session["conversation"][turn_index]["ai_detection"] = result
-        sessions[session["id"]] = session
+        if database.is_available():
+            database.update_session_ai_detection(session["id"], turn_index, result)
 
     if result["is_ai"]:
         print(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
@@ -1627,7 +1640,7 @@ def end_session(data: dict):
     if session:
         session["phase"] = "ended"
         save_candidate_session(session)
-        sessions[sid] = session
+        del sessions[sid]
     return {"ok": True}
 
 

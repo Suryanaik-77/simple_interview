@@ -10,14 +10,19 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 _pool = None
 _db_available = False
 
+# Constant key for the advisory lock that serializes schema creation across workers.
+_SCHEMA_LOCK_KEY = 192837465
+
 
 def init_db():
-    """Initialize connection pool and create tables. Called once at startup."""
+    """Initialize connection pool and create tables. Called once per worker at startup."""
     global _pool, _db_available
     if not DATABASE_URL:
         print("[DB] DATABASE_URL not set — running without database (in-memory only)")
         return
 
+    # Step 1 — connect. DB availability hinges ONLY on a working connection, never on
+    # whether THIS worker won the race to create the schema (see step 2).
     try:
         import psycopg
         from psycopg_pool import ConnectionPool
@@ -27,23 +32,38 @@ def init_db():
             min_size=1,
             max_size=10
         )
-
-        # Create tables from schema.sql
-        schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-        if os.path.exists(schema_path):
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    with open(schema_path, "r", encoding="utf-8") as f:
-                        cur.execute(f.read())
-                conn.commit()
-
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
         _db_available = True
-        print(f"[DB] PostgreSQL connected and tables ready")
     except ImportError:
-        print("[DB] psycopg2 not installed — pip install psycopg2-binary")
+        print("[DB] psycopg not installed — pip install psycopg[binary] psycopg_pool")
+        return
     except Exception as e:
         print(f"[DB] PostgreSQL connection failed: {e}")
         print("[DB] Running without database (in-memory only)")
+        return
+
+    # Step 2 — create tables. With 4 workers booting together, concurrent
+    # CREATE TABLE IF NOT EXISTS races on the system catalogs and raises in all but one
+    # worker (e.g. 'duplicate key value violates unique constraint pg_type_typname_nsp_index').
+    # Serialize the DDL with a transaction-scoped advisory lock so exactly one worker builds
+    # the schema while the others wait and then no-op. A schema hiccup must NOT flip the DB
+    # to unavailable — the connection above already proved it works.
+    schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+    if os.path.exists(schema_path):
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_KEY,))
+                    with open(schema_path, "r", encoding="utf-8") as f:
+                        cur.execute(f.read())
+                conn.commit()
+            print("[DB] PostgreSQL connected and schema ready")
+        except Exception as e:
+            print(f"[DB] schema init skipped ({e}) — assuming another worker created it")
+    else:
+        print("[DB] PostgreSQL connected (no schema.sql found)")
 
 
 def is_available():
@@ -383,6 +403,48 @@ def list_active_session_keys():
     except Exception as e:
         print(f"[DB] list_active_session_keys failed: {e}")
         return []
+
+
+def delete_active_session(session_id):
+    """Remove an active session row. Called when an interview ends so the
+    active_sessions table doesn't grow unbounded. Idempotent."""
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM active_sessions WHERE session_id = %s", (session_id,))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] delete_active_session failed: {e}")
+        return False
+
+
+def update_session_ai_detection(session_id, turn_index, detection):
+    """Merge an ai_detection result into a single conversation turn via jsonb_set.
+    A background thread calls this, so it must NOT rewrite the whole session blob —
+    a full read-modify-write would race the foreground turn handler (lost updates,
+    and json.dumps tearing on a concurrently-mutated dict). jsonb_set updates just
+    the one path atomically in the DB."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        path = ["conversation", str(turn_index), "ai_detection"]
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE active_sessions
+                    SET session_data = jsonb_set(session_data, %s::text[], %s::jsonb, true),
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                """, (path, json.dumps(detection), session_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] update_session_ai_detection failed: {e}")
+        return False
 
 
 def save_candidate_history(email, session_id, session_summary):
