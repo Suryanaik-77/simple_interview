@@ -161,3 +161,24 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 
 CREATE INDEX IF NOT EXISTS idx_llm_session ON llm_calls(session_id);
 CREATE INDEX IF NOT EXISTS idx_llm_created ON llm_calls(created_at);
+
+-- ═══════════════════════════════════════════
+-- ACTIVE SESSIONS STATE (For process sharing)
+-- ═══════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS active_sessions (
+    session_id TEXT PRIMARY KEY,
+    session_data JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ═══════════════════════════════════════════
+-- CANDIDATE HISTORY (Replaces candidate_history.json)
+-- ═══════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS candidate_history (
+    email TEXT NOT NULL,
+    session_id TEXT PRIMARY KEY,
+    session_summary JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_candidate_history_email ON candidate_history(email);
