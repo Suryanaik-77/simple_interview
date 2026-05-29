@@ -33,7 +33,7 @@ def init_db():
         if os.path.exists(schema_path):
             with get_conn() as conn:
                 with conn.cursor() as cur:
-                    with open(schema_path, "r") as f:
+                    with open(schema_path, "r", encoding="utf-8") as f:
                         cur.execute(f.read())
                 conn.commit()
 
@@ -290,3 +290,140 @@ def save_report(db_session_id, technical_score, theory_score, communication_scor
                 conn.commit()
     except Exception as e:
         print(f"[DB] save_report failed: {e}")
+
+
+def save_active_session(session_id, session_data):
+    """Save active session state (JSON data) to PostgreSQL."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO active_sessions (session_id, session_data, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (session_id) DO UPDATE SET
+                        session_data = EXCLUDED.session_data,
+                        updated_at = NOW()
+                """, (session_id, json.dumps(session_data)))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] save_active_session failed: {e}")
+        return False
+
+
+def get_active_session(session_id):
+    """Load active session state from PostgreSQL."""
+    if not _db_available:
+        return None
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT session_data FROM active_sessions WHERE session_id = %s", (session_id,))
+                row = cur.fetchone()
+                if row:
+                    data = row[0]
+                    if isinstance(data, str):
+                        import json
+                        return json.loads(data)
+                    return data
+                return None
+    except Exception as e:
+        print(f"[DB] get_active_session failed: {e}")
+        return None
+
+
+def active_session_exists(session_id):
+    """Check if active session exists in PostgreSQL."""
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM active_sessions WHERE session_id = %s", (session_id,))
+                return cur.fetchone() is not None
+    except Exception as e:
+        print(f"[DB] active_session_exists failed: {e}")
+        return False
+
+
+def list_active_sessions():
+    """List all active sessions."""
+    if not _db_available:
+        return []
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT session_data FROM active_sessions")
+                rows = cur.fetchall()
+                sessions_list = []
+                for row in rows:
+                    data = row[0]
+                    if isinstance(data, str):
+                        import json
+                        data = json.loads(data)
+                    sessions_list.append(data)
+                return sessions_list
+    except Exception as e:
+        print(f"[DB] list_active_sessions failed: {e}")
+        return []
+
+
+def list_active_session_keys():
+    """List all active session keys."""
+    if not _db_available:
+        return []
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT session_id FROM active_sessions")
+                return [row[0] for row in cur.fetchall()]
+    except Exception as e:
+        print(f"[DB] list_active_session_keys failed: {e}")
+        return []
+
+
+def save_candidate_history(email, session_id, session_summary):
+    """Save a single session summary to candidate history in PostgreSQL."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO candidate_history (email, session_id, session_summary, created_at)
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (session_id) DO UPDATE SET
+                        email = EXCLUDED.email,
+                        session_summary = EXCLUDED.session_summary
+                """, (email, session_id, json.dumps(session_summary)))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] save_candidate_history failed: {e}")
+        return False
+
+
+def get_candidate_history(email):
+    """Load candidate history from PostgreSQL."""
+    if not _db_available:
+        return []
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT session_summary FROM candidate_history WHERE email = %s ORDER BY created_at ASC", (email,))
+                rows = cur.fetchall()
+                history = []
+                for row in rows:
+                    summary = row[0]
+                    if isinstance(summary, str):
+                        import json
+                        summary = json.loads(summary)
+                    history.append(summary)
+                return history
+    except Exception as e:
+        print(f"[DB] get_candidate_history failed: {e}")
+        return []

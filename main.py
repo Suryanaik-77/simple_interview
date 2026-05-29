@@ -72,8 +72,60 @@ RUNTIME_CONFIG = {
     "qgen_model": "gpt-4o-mini",
     "eval_model": "gpt-4o-mini",
 }
+import database
+database.init_db()
 
-sessions = {}
+class DatabaseSessions:
+    def __init__(self):
+        self._memory = {}
+
+    def __contains__(self, key):
+        if database.is_available():
+            return database.active_session_exists(key)
+        return key in self._memory
+
+    def __getitem__(self, key):
+        if database.is_available():
+            val = database.get_active_session(key)
+            if val is None:
+                raise KeyError(key)
+            return val
+        return self._memory[key]
+
+    def __setitem__(self, key, value):
+        if database.is_available():
+            database.save_active_session(key, value)
+        else:
+            self._memory[key] = value
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def setdefault(self, key, default):
+        if key not in self:
+            self[key] = default
+            return default
+        return self[key]
+
+    def keys(self):
+        if database.is_available():
+            return database.list_active_session_keys()
+        return self._memory.keys()
+
+    def values(self):
+        if database.is_available():
+            return database.list_active_sessions()
+        return list(self._memory.values())
+
+    def items(self):
+        if database.is_available():
+            return [(s["id"], s) for s in database.list_active_sessions()]
+        return list(self._memory.items())
+
+sessions = DatabaseSessions()
 
 # ── Candidate History (file-backed, keyed by email) ──────────────────────
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), "candidate_history.json")
@@ -114,13 +166,18 @@ def save_candidate_session(session):
         "tools": session.get("resume", {}).get("tools", []),
         "weak_signals": [],
     }
-    candidate_history.setdefault(email, []).append(summary)
-    _save_history_to_disk()
+    if database.is_available():
+        database.save_candidate_history(email, session["id"], summary)
+    else:
+        candidate_history.setdefault(email, []).append(summary)
+        _save_history_to_disk()
     print(f"[History] Saved for {email}: {summary['turns']} turns, session {summary['session_id'][:8]}")
 
 
 def get_candidate_previous(email: str) -> list[dict]:
     """Get previous sessions for a returning candidate."""
+    if database.is_available():
+        return database.get_candidate_history(email)
     return candidate_history.get(email, [])
 
 # ── Auth ─────────────────────────────────────────────────────────────────
@@ -1022,6 +1079,7 @@ JSON:"""
     # Store result in conversation entry
     if turn_index < len(session.get("conversation", [])):
         session["conversation"][turn_index]["ai_detection"] = result
+        sessions[session["id"]] = session
 
     if result["is_ai"]:
         print(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
@@ -1233,8 +1291,8 @@ async def login(data: dict, response: Response):
 # ── Resume Parsing ───────────────────────────────────────────────────────
 
 @app.post("/api/parse-resume")
-async def parse_resume_endpoint(file: UploadFile = File(...)):
-    content = await file.read()
+def parse_resume_endpoint(file: UploadFile = File(...)):
+    content = file.file.read()
     if len(content) > 5_000_000:
         raise HTTPException(413, "File too large. Max 5MB.")
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "txt"
@@ -1315,7 +1373,7 @@ async def parse_resume_endpoint(file: UploadFile = File(...)):
 # ── Session Management ───────────────────────────────────────────────────
 
 @app.post("/api/create-session")
-async def create_session_endpoint(data: dict):
+def create_session_endpoint(data: dict):
     resume_text = data.get("resume_text", "")
     mode = data.get("mode", "mock")
     domain = data.get("domain", "physical_design")
@@ -1342,7 +1400,7 @@ async def create_session_endpoint(data: dict):
 
 
 @app.post("/api/start-interview")
-async def start_interview(data: dict):
+def start_interview(data: dict):
     sid = data.get("session_id")
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
@@ -1357,6 +1415,8 @@ async def start_interview(data: dict):
         _obs_entry("TTS_greeting", tts_provider, tts_ms, "success" if audio else "failure",
                    chars=len(greeting), cost_usd=_calc_tts_cost(tts_provider, len(greeting))))
 
+    sessions[sid] = session
+
     return {
         "question": greeting, "question_type": "greeting", "turn": session["turn"],
         "phase": session["phase"], "audio": audio, "difficulty": "basic",
@@ -1366,8 +1426,8 @@ async def start_interview(data: dict):
 
 
 @app.post("/api/transcribe")
-async def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form("")):
-    audio_bytes = await audio.read()
+def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form("")):
+    audio_bytes = audio.file.read()
     ext = audio.filename.rsplit(".", 1)[-1] if audio.filename else "webm"
     # Pick the STT prompt by the candidate's domain (from resume).
     session = sessions.get(session_id)
@@ -1379,11 +1439,12 @@ async def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = F
         session.setdefault("obs_log", []).append(
             _obs_entry("STT", stt_model, stt_ms, "success" if transcript else "failure",
                        chars=len(transcript), cost_usd=_calc_stt_cost(stt_model, stt_ms)))
+        sessions[session_id] = session
     return {"transcript": transcript, "stt_ms": stt_ms}
 
 
 @app.post("/api/submit-answer")
-async def submit_answer(data: dict):
+def submit_answer(data: dict):
     sid = data.get("session_id")
     answer = data.get("answer", "")
     session = sessions.get(sid)
@@ -1403,6 +1464,8 @@ async def submit_answer(data: dict):
         session["phase"] = "ended"
         save_candidate_session(session)
 
+    sessions[sid] = session
+
     total_ms = round((time.time() - t0_total) * 1000)
     llm_ms = result.get("llm_ms", 0)
     print(f"[Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms + TTS: {tts_ms}ms)")
@@ -1417,7 +1480,7 @@ async def submit_answer(data: dict):
 
 
 @app.post("/api/stream-answer")
-async def stream_answer(data: dict):
+def stream_answer(data: dict):
     """SSE endpoint: LLM streams tokens → sentence buffer → TTS per sentence → audio chunks to client."""
     sid = data.get("session_id")
     answer = data.get("answer", "")
@@ -1439,6 +1502,7 @@ async def stream_answer(data: dict):
         if should_end:
             session["phase"] = "ended"
             audio_bytes = tts_chunk(end_msg)
+            sessions[sid] = session
             yield f"data: {json.dumps({'type': 'text', 'content': end_msg, 'done': True, 'should_end': True})}\n\n"
             if audio_bytes:
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
@@ -1544,6 +1608,9 @@ async def stream_answer(data: dict):
         if is_end:
             save_candidate_session(session)
 
+        # Save session to DB
+        sessions[sid] = session
+
         total_ms = round((time.time() - t0) * 1000)
         print(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks)")
 
@@ -1554,17 +1621,18 @@ async def stream_answer(data: dict):
 
 
 @app.post("/api/end-session")
-async def end_session(data: dict):
+def end_session(data: dict):
     sid = data.get("session_id")
     session = sessions.get(sid)
     if session:
         session["phase"] = "ended"
         save_candidate_session(session)
+        sessions[sid] = session
     return {"ok": True}
 
 
 @app.get("/api/get-session")
-async def get_session_endpoint(session_id: str):
+def get_session_endpoint(session_id: str):
     session = sessions.get(session_id)
     if not session: raise HTTPException(404, "Session not found")
     return {"session_id": session_id, "phase": session["phase"], "turn": session["turn"],
@@ -1572,7 +1640,7 @@ async def get_session_endpoint(session_id: str):
 
 
 @app.post("/api/generate-report")
-async def generate_report(data: dict):
+def generate_report(data: dict):
     sid = data.get("session_id")
     session = sessions.get(sid)
     if not session: return {"report": "No session found."}
@@ -1657,7 +1725,7 @@ ANTICHEAT_FEATURES = {
 }
 
 @app.post("/api/anticheat-event")
-async def anticheat_event(data: dict):
+def anticheat_event(data: dict):
     event_type = data.get("event_type", "")
     # Check if this event type's feature is enabled
     feature_map = {
@@ -1678,6 +1746,7 @@ async def anticheat_event(data: dict):
             "timestamp": data.get("timestamp", time.time()),
             "metadata": data.get("metadata", ""),
         })
+        sessions[sid] = session
     return {"ok": True}
 
 @app.get("/api/anticheat-settings")
@@ -1847,7 +1916,7 @@ async def playground_tts(data: dict):
 # ── Admin: Prompt Playground ─────────────────────────────────────────────
 
 @app.post("/api/admin/prompt-playground")
-async def prompt_playground(data: dict, _=Depends(require_admin)):
+def prompt_playground(data: dict, _=Depends(require_admin)):
     prompt_text = data.get("prompt", "")
     messages = data.get("messages", [])
     model_id = data.get("model_id", RUNTIME_CONFIG["qgen_model"])
@@ -1898,7 +1967,7 @@ async def set_anticheat_config(data: dict, _=Depends(require_admin)):
 # ── Admin: Sessions ──────────────────────────────────────────────────────
 
 @app.get("/api/admin/sessions")
-async def admin_sessions(_=Depends(require_admin)):
+def admin_sessions(_=Depends(require_admin)):
     session_list = []
     for sid, s in sessions.items():
         session_list.append({
@@ -1949,7 +2018,7 @@ def _build_session_obs(sid, session):
     }
 
 @app.get("/api/admin/session/{sid}")
-async def admin_session_detail(sid: str, _=Depends(require_admin)):
+def admin_session_detail(sid: str, _=Depends(require_admin)):
     session = sessions.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
@@ -2003,7 +2072,7 @@ async def admin_session_detail(sid: str, _=Depends(require_admin)):
 # ── Admin: Observability ─────────────────────────────────────────────────
 
 @app.get("/api/observability/summary")
-async def obs_summary(window: int = 86400, _=Depends(require_admin)):
+def obs_summary(window: int = 86400, _=Depends(require_admin)):
     cutoff = time.time() - window
     all_logs = []
     for s in sessions.values():
@@ -2053,7 +2122,7 @@ async def obs_summary(window: int = 86400, _=Depends(require_admin)):
     }
 
 @app.get("/api/observability/logs")
-async def obs_logs(limit: int = 500, _=Depends(require_admin)):
+def obs_logs(limit: int = 500, _=Depends(require_admin)):
     all_logs = []
     for sid, s in sessions.items():
         for log in s.get("obs_log", []):
@@ -2076,7 +2145,7 @@ async def obs_logs(limit: int = 500, _=Depends(require_admin)):
 # ── Admin: Expert Review ─────────────────────────────────────────────────
 
 @app.post("/api/admin/review")
-async def submit_review(data: dict, _=Depends(require_admin)):
+def submit_review(data: dict, _=Depends(require_admin)):
     return {"ok": True, "review_id": f"R-{secrets.token_hex(4).upper()}"}
 
 
@@ -2089,4 +2158,4 @@ if __name__ == "__main__":
     print(f"  STT: gpt-4o-mini-transcribe")
     print(f"  Bedrock: {'ready' if bedrock_client else 'not configured'}")
     print(f"  Grok: {'ready' if xai_client else 'not configured'}")
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run("main:app", host="0.0.0.0", port=8001, workers=4)
