@@ -76,6 +76,16 @@ def get_conn():
     try:
         yield conn
     finally:
+        # Reads use psycopg's default (autocommit off), so a plain SELECT opens an
+        # implicit transaction the callers never close. Roll it back here so the
+        # connection returns to the pool IDLE instead of INTRANS/INERROR — otherwise
+        # the pool rolls it back itself and logs a noisy warning on every read.
+        # Writers commit before this runs, leaving the connection IDLE (a no-op here).
+        try:
+            if conn.info.transaction_status != 0:  # 0 == TransactionStatus.IDLE
+                conn.rollback()
+        except Exception:
+            pass
         _pool.putconn(conn)
 
 
@@ -444,6 +454,49 @@ def update_session_ai_detection(session_id, turn_index, detection):
                 return True
     except Exception as e:
         print(f"[DB] update_session_ai_detection failed: {e}")
+        return False
+
+
+def get_app_config(key):
+    """Read shared app config (e.g. runtime LLM/TTS/STT settings). None on miss."""
+    if not _db_available:
+        return None
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT config_value FROM app_config WHERE config_key = %s", (key,))
+                row = cur.fetchone()
+                if row:
+                    val = row[0]
+                    if isinstance(val, str):
+                        import json
+                        return json.loads(val)
+                    return val
+                return None
+    except Exception as e:
+        print(f"[DB] get_app_config failed: {e}")
+        return None
+
+
+def save_app_config(key, value):
+    """Upsert shared app config. Durable source of truth across workers/restarts."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO app_config (config_key, config_value, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (config_key) DO UPDATE SET
+                        config_value = EXCLUDED.config_value,
+                        updated_at = NOW()
+                """, (key, json.dumps(value)))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] save_app_config failed: {e}")
         return False
 
 

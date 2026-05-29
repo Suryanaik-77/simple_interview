@@ -75,26 +75,82 @@ RUNTIME_CONFIG = {
 import database
 database.init_db()
 
+import redis_cache
+redis_cache.init_cache()
+
+# Shared runtime config (LLM/TTS/STT). With multiple workers, an admin edit only
+# mutates one worker's RUNTIME_CONFIG dict. Postgres holds the durable, shared copy
+# (so changes survive restarts and reach every worker); Redis caches it for fast reads.
+_RUNTIME_CONFIG_KEY = "config:runtime"   # Redis key
+_CONFIG_DB_KEY = "runtime"               # app_config.config_key
+
+
+def _sync_runtime_config():
+    """Refresh RUNTIME_CONFIG from the shared store so all workers agree.
+    Redis first (fast); Postgres (durable) on miss, repopulating Redis. No-op if
+    neither is available — the in-process dict stays the source of truth."""
+    if redis_cache.is_available():
+        cfg = redis_cache.get_json(_RUNTIME_CONFIG_KEY)
+        if cfg:
+            RUNTIME_CONFIG.update(cfg)
+            return
+    if database.is_available():
+        cfg = database.get_app_config(_CONFIG_DB_KEY)
+        if cfg:
+            RUNTIME_CONFIG.update(cfg)
+            if redis_cache.is_available():
+                redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
+
+
+def _persist_runtime_config():
+    """After an admin change: write Postgres (durable) and refresh the Redis cache,
+    so the new config survives restarts and reaches the other workers."""
+    if database.is_available():
+        database.save_app_config(_CONFIG_DB_KEY, RUNTIME_CONFIG)
+    if redis_cache.is_available():
+        redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
+
+
+# Adopt persisted config at boot so an admin's earlier changes survive restarts;
+# seed defaults on first run. Cache into Redis if available.
+if database.is_available():
+    _persisted_cfg = database.get_app_config(_CONFIG_DB_KEY)
+    if _persisted_cfg:
+        RUNTIME_CONFIG.update(_persisted_cfg)
+    else:
+        database.save_app_config(_CONFIG_DB_KEY, RUNTIME_CONFIG)
+if redis_cache.is_available():
+    redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
+
+
 class DatabaseSessions:
     def __init__(self):
         self._memory = {}
 
     def __contains__(self, key):
         if database.is_available():
+            if redis_cache.get_session(key) is not None:
+                return True
             return database.active_session_exists(key)
         return key in self._memory
 
     def __getitem__(self, key):
         if database.is_available():
+            cached = redis_cache.get_session(key)
+            if cached is not None:
+                return cached
             val = database.get_active_session(key)
             if val is None:
                 raise KeyError(key)
+            redis_cache.set_session(key, val)  # populate on miss
             return val
         return self._memory[key]
 
     def __setitem__(self, key, value):
         if database.is_available():
+            # Postgres is the source of truth; write it first, then refresh the cache.
             database.save_active_session(key, value)
+            redis_cache.set_session(key, value)
         else:
             self._memory[key] = value
 
@@ -128,6 +184,7 @@ class DatabaseSessions:
     def __delitem__(self, key):
         if database.is_available():
             database.delete_active_session(key)
+            redis_cache.delete_session(key)
         else:
             self._memory.pop(key, None)
 
@@ -1101,6 +1158,9 @@ JSON:"""
         session["conversation"][turn_index]["ai_detection"] = result
         if database.is_available():
             database.update_session_ai_detection(session["id"], turn_index, result)
+            # This jsonb_set bypassed the cache; drop the stale blob so the next
+            # read repopulates from Postgres (which now has this ai_detection).
+            redis_cache.delete_session(session["id"])
 
     if result["is_ai"]:
         print(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
@@ -1434,6 +1494,7 @@ def evaluate_interview(session) -> dict:
         session["evaluation"] = result
         if database.is_available():
             database.save_session_evaluation(sid, result)
+            redis_cache.delete_session(sid)
         print(f"[Eval] Skipped {sid[:8]} — {answered}/{MIN_ANSWERS_FOR_EVAL} answered")
         return result
 
@@ -1460,6 +1521,7 @@ def evaluate_interview(session) -> dict:
         session["evaluation"] = result
         if database.is_available():
             database.save_session_evaluation(sid, result)
+            redis_cache.delete_session(sid)
         return result
     eval_ms = round((time.time() - t0) * 1000)
 
@@ -1488,6 +1550,7 @@ def evaluate_interview(session) -> dict:
     if database.is_available():
         database.save_session_evaluation(sid, result)
         database.append_session_obs(sid, obs)
+        redis_cache.delete_session(sid)  # these jsonb_set writes bypassed the cache
 
     print(f"[Eval] {sid[:8]} ({level}): score={result.get('overall_score', '?')} "
           f"rec={result.get('recommendation', '?')} {eval_ms}ms ${usage['cost_usd']:.4f}")
@@ -1667,6 +1730,7 @@ def create_session_endpoint(data: dict):
 
 @app.post("/api/start-interview")
 def start_interview(data: dict):
+    _sync_runtime_config()
     sid = data.get("session_id")
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
@@ -1693,6 +1757,7 @@ def start_interview(data: dict):
 
 @app.post("/api/transcribe")
 def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form("")):
+    _sync_runtime_config()
     audio_bytes = audio.file.read()
     ext = audio.filename.rsplit(".", 1)[-1] if audio.filename else "webm"
     # Pick the STT prompt by the candidate's domain (from resume).
@@ -1711,6 +1776,7 @@ def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form(""
 
 @app.post("/api/submit-answer")
 def submit_answer(data: dict):
+    _sync_runtime_config()
     sid = data.get("session_id")
     answer = data.get("answer", "")
     session = sessions.get(sid)
@@ -1752,6 +1818,7 @@ def submit_answer(data: dict):
 @app.post("/api/stream-answer")
 def stream_answer(data: dict):
     """SSE endpoint: LLM streams tokens → sentence buffer → TTS per sentence → audio chunks to client."""
+    _sync_runtime_config()
     sid = data.get("session_id")
     answer = data.get("answer", "")
     session = sessions.get(sid)
@@ -1773,6 +1840,7 @@ def stream_answer(data: dict):
             session["phase"] = "ended"
             audio_bytes = tts_chunk(end_msg)
             sessions[sid] = session
+            _evaluate_async(session)  # hard-limit end returns early — evaluate here too
             yield f"data: {json.dumps({'type': 'text', 'content': end_msg, 'done': True, 'should_end': True})}\n\n"
             if audio_bytes:
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
@@ -1900,12 +1968,13 @@ def end_session(data: dict):
     session = sessions.get(sid)
     if session:
         session["phase"] = "ended"
-        # Sync here (not background): this path deletes the active session right
-        # after, so the eval must be computed and folded into the history summary
-        # before it's gone.
+        # Evaluate synchronously, then KEEP the session row. The admin review reads
+        # from active_sessions, so deleting here would make every completed interview
+        # (and its evaluation) vanish from the review. The submit/stream end paths
+        # already keep ended sessions; this stays consistent with them.
         evaluate_interview(session)
         save_candidate_session(session)
-        del sessions[sid]
+        sessions[sid] = session
     return {"ok": True}
 
 
@@ -2064,12 +2133,14 @@ AVAILABLE_MODELS = [
 
 @app.get("/api/admin/llm-config")
 async def get_llm_config(_=Depends(require_admin)):
+    _sync_runtime_config()
     return {"qgen_model": RUNTIME_CONFIG["qgen_model"], "eval_model": RUNTIME_CONFIG["eval_model"], "available_models": AVAILABLE_MODELS}
 
 @app.post("/api/admin/llm-config")
 async def set_llm_config(data: dict, _=Depends(require_admin)):
     if "qgen_model" in data: RUNTIME_CONFIG["qgen_model"] = data["qgen_model"]
     if "eval_model" in data: RUNTIME_CONFIG["eval_model"] = data["eval_model"]
+    _persist_runtime_config()
     return {"status": "success", "qgen_model": RUNTIME_CONFIG["qgen_model"], "eval_model": RUNTIME_CONFIG["eval_model"]}
 
 @app.get("/api/admin/llm-prompts")
@@ -2126,14 +2197,17 @@ async def get_interview_prompt_admin(domain: str = "physical_design", level: str
 @app.post("/api/toggle-tts")
 async def toggle_tts(data: dict):
     RUNTIME_CONFIG["tts_enabled"] = data.get("enabled", True)
+    _persist_runtime_config()
     return {"ok": True, "tts_enabled": RUNTIME_CONFIG["tts_enabled"]}
 
 @app.get("/api/tts-status")
 async def tts_status():
+    _sync_runtime_config()
     return {"tts_enabled": RUNTIME_CONFIG["tts_enabled"]}
 
 @app.get("/api/admin/stt-config")
 async def get_stt_config(_=Depends(require_admin)):
+    _sync_runtime_config()
     return {
         "provider": RUNTIME_CONFIG["stt_provider"],
         "model": RUNTIME_CONFIG["stt_model"],
@@ -2151,6 +2225,7 @@ async def set_stt_config(data: dict, _=Depends(require_admin)):
         RUNTIME_CONFIG["stt_provider"] = data["provider"]
     if "model" in data:
         RUNTIME_CONFIG["stt_model"] = data["model"]
+    _persist_runtime_config()
     print(f"[STT Config] Changed to {RUNTIME_CONFIG['stt_provider']}/{RUNTIME_CONFIG['stt_model']}")
     return {"status": "success", "provider": RUNTIME_CONFIG["stt_provider"], "model": RUNTIME_CONFIG["stt_model"]}
 
@@ -2158,6 +2233,7 @@ async def set_stt_config(data: dict, _=Depends(require_admin)):
 async def set_interview_voice(data: dict, _=Depends(require_admin)):
     RUNTIME_CONFIG["tts_provider"] = data.get("provider", "deepgram")
     RUNTIME_CONFIG["tts_voice"] = data.get("voice", "")
+    _persist_runtime_config()
     return {"ok": True, "provider": RUNTIME_CONFIG["tts_provider"], "voice": RUNTIME_CONFIG["tts_voice"]}
 
 @app.post("/api/admin/test-tts")
@@ -2450,4 +2526,5 @@ if __name__ == "__main__":
     print(f"  STT: gpt-4o-mini-transcribe")
     print(f"  Bedrock: {'ready' if bedrock_client else 'not configured'}")
     print(f"  Grok: {'ready' if xai_client else 'not configured'}")
+    print(f"  Redis cache: {'ready' if redis_cache.is_available() else 'not configured'}")
     uvicorn.run("main:app", host="0.0.0.0", port=8001, workers=4)

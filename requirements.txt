@@ -9,6 +9,9 @@ openai
 psycopg[binary]
 psycopg-pool
 
+# Redis cache (active sessions + shared runtime config across workers)
+redis
+
 # Resume parsing
 pdfplumber
 docx2txt
