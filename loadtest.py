@@ -14,31 +14,37 @@ SCENARIOS
 
   session  POST /api/create-session -> GET /api/get-session -> POST /api/end-session
            FREE (sends a pre-parsed JSON resume, so the server skips the LLM).
-           The cross-worker correctness probe: create lands on one worker, the
-           GET must find the session on (maybe) another. If workers don't share
+           Cross-worker correctness probe: create lands on one worker, the GET
+           must find the session on (maybe) another. If workers don't share
            state via Postgres, the GET 404s -> reported in the "xwork404" column.
-           The trailing end-session exercises delete-on-end, so it self-cleans.
 
-  turn     POST /api/create-session -> POST /api/submit-answer -> POST /api/end-session
-           *** COSTS REAL MONEY *** — submit-answer runs a real LLM call + TTS.
-           Measures the actual per-turn latency (the submit-answer call) under
-           concurrency, plus the server-reported llm_ms / tts_ms breakdown.
-           Hard-capped by --max-turns PER STEP so the bill stays bounded. Errors
-           here (429 / 5xx) usually mean PROVIDER RATE LIMITS, not app bugs.
-           Note: this measures a fresh first turn (smallest prompt, and no
-           background AI-detection call). Real mid-interview turns carry more
-           context and also kick off a background AI-detect LLM call, so expect
-           production latency to be somewhat higher and ~2x the LLM call volume.
+  turn     POST /api/create-session -> POST /api/submit-answer -> end
+           *** COSTS REAL MONEY *** — submit-answer is the NON-streaming endpoint:
+           it blocks for the FULL LLM response + FULL TTS audio, then returns.
+           So this reports full-turn-completion latency (the fallback path), plus
+           the server-reported llm_ms / tts_ms. Hard-capped by --max-turns/step.
+
+  stream   POST /api/create-session -> POST /api/stream-answer (SSE) -> end
+           *** COSTS REAL MONEY *** — this is the endpoint the UI actually uses.
+           It consumes the SSE stream and timestamps:
+             TTFT  = time to first 'token' event   (interviewer starts thinking)
+             TTFA  = time to first 'audio' event    (interviewer starts SPEAKING)
+             total = time to the 'done' event        (full turn)
+           The p50/p95/p99 columns are TTFA — the latency a candidate actually
+           perceives. Hard-capped by --max-turns/step.
+
+  Note (turn & stream): both measure a FRESH first turn — smallest prompt and no
+  background AI-detection call. Real mid-interview turns carry more context and
+  also fire a background AI-detect LLM call, so production is somewhat slower and
+  ~2x the LLM call volume. Errors here (429 / 5xx) usually mean PROVIDER RATE
+  LIMITS, not app bugs.
 
 USAGE
   python3 loadtest.py --url https://staging.example.com --scenario health
   python3 loadtest.py --url https://staging.example.com --scenario session
-  python3 loadtest.py --url https://staging.example.com --scenario turn \
+  python3 loadtest.py --url https://staging.example.com --scenario stream \
       --steps 1,10,25,50,100 --duration 10 --max-turns 60
   python3 loadtest.py --url https://staging.example.com --insecure ...   # self-signed cert
-
-Read the table like a growth curve: as 'conc' rises, watch p95/p99 and err%.
-The "knee" — where latency jumps sharply or errors appear — is your ceiling.
 """
 
 import argparse
@@ -50,7 +56,7 @@ import time
 import urllib.error
 import urllib.request
 
-# A realistic ~30-word answer so submit-answer behaves like a real turn.
+# A realistic ~30-word answer so the turn behaves like a real one.
 CANNED_ANSWER = (
     "In physical design, clock tree synthesis builds a buffered tree from the clock "
     "source to all flops to balance skew, and after CTS I usually check insertion "
@@ -60,8 +66,7 @@ CANNED_ANSWER = (
 
 def do_request(method, url, body=None, timeout=30, ctx=None):
     """Issue one HTTP request. Returns (status, latency_ms, body_bytes, error).
-    status is the HTTP code (incl. 4xx/5xx); error is set only on transport
-    failures (timeout, connection refused, DNS, etc)."""
+    status is the HTTP code (incl. 4xx/5xx); error is set only on transport failures."""
     headers = {}
     data = None
     if body is not None:
@@ -72,18 +77,15 @@ def do_request(method, url, body=None, timeout=30, ctx=None):
     try:
         resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
         payload = resp.read()
-        latency = (time.monotonic() - t0) * 1000.0
-        return resp.getcode(), latency, payload, None
+        return resp.getcode(), (time.monotonic() - t0) * 1000.0, payload, None
     except urllib.error.HTTPError as e:
-        latency = (time.monotonic() - t0) * 1000.0
         try:
             payload = e.read()
         except Exception:
             payload = b""
-        return e.code, latency, payload, None
+        return e.code, (time.monotonic() - t0) * 1000.0, payload, None
     except Exception as e:
-        latency = (time.monotonic() - t0) * 1000.0
-        return None, latency, b"", str(e)
+        return None, (time.monotonic() - t0) * 1000.0, b"", str(e)
 
 
 def _resume_payload(domain):
@@ -109,6 +111,10 @@ def _create_session(base, domain, timeout, ctx):
         return None, status, ("bad create json: %s" % e)
 
 
+def _end(base, sid, timeout, ctx):
+    do_request("POST", base + "/api/end-session", {"session_id": sid}, timeout, ctx)
+
+
 def op_health(base, domain, timeout, ctx):
     status, ms, _body, err = do_request("GET", base + "/health", None, timeout, ctx)
     return {"ok": status == 200, "ms": ms, "xwork404": False, "err": err, "status": status}
@@ -126,8 +132,7 @@ def op_session(base, domain, timeout, ctx):
         "GET", base + "/api/get-session?session_id=" + str(sid), None, timeout, ctx)
     xwork404 = (gstatus == 404)
     get_ok = (gstatus == 200)
-
-    do_request("POST", base + "/api/end-session", {"session_id": sid}, timeout, ctx)
+    _end(base, sid, timeout, ctx)
 
     total = (time.monotonic() - t0) * 1000.0
     if gerr or not get_ok:
@@ -137,8 +142,7 @@ def op_session(base, domain, timeout, ctx):
 
 
 def op_turn(base, domain, timeout, ctx):
-    """create -> submit-answer (REAL LLM + TTS) -> end. The reported latency is the
-    submit-answer call itself = the per-turn latency. Also captures server llm_ms/tts_ms."""
+    """create -> submit-answer (REAL LLM + FULL TTS) -> end. Reports full-turn latency."""
     sid, status, err = _create_session(base, domain, timeout, ctx)
     if sid is None:
         return {"ok": False, "ms": 0.0, "xwork404": False, "err": err, "status": status}
@@ -147,7 +151,6 @@ def op_turn(base, domain, timeout, ctx):
         "POST", base + "/api/submit-answer",
         {"session_id": sid, "answer": CANNED_ANSWER}, timeout, ctx)
     ok = (sstatus == 200 and not serr)
-
     llm_ms = tts_ms = None
     if ok:
         try:
@@ -156,8 +159,7 @@ def op_turn(base, domain, timeout, ctx):
             tts_ms = timing.get("tts_ms")
         except Exception:
             pass
-
-    do_request("POST", base + "/api/end-session", {"session_id": sid}, timeout, ctx)
+    _end(base, sid, timeout, ctx)
 
     res = {"ok": ok, "ms": sms, "xwork404": False,
            "err": serr or (None if ok else ("submit %s" % sstatus)), "status": sstatus}
@@ -165,6 +167,61 @@ def op_turn(base, domain, timeout, ctx):
         res["llm_ms"] = llm_ms
     if tts_ms is not None:
         res["tts_ms"] = tts_ms
+    return res
+
+
+def op_stream(base, domain, timeout, ctx):
+    """create -> stream-answer (SSE, REAL LLM + per-sentence TTS) -> end.
+    Timestamps the SSE events. Reported latency (ms) is TTFA — time to first audio."""
+    sid, status, err = _create_session(base, domain, timeout, ctx)
+    if sid is None:
+        return {"ok": False, "ms": 0.0, "xwork404": False, "err": err, "status": status}
+
+    data = json.dumps({"session_id": sid, "answer": CANNED_ANSWER}).encode("utf-8")
+    req = urllib.request.Request(
+        base + "/api/stream-answer", data=data, method="POST",
+        headers={"Content-Type": "application/json", "Accept": "text/event-stream"})
+
+    ttft = ttfa = total = None
+    ok = False
+    errmsg = None
+    t0 = time.monotonic()
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        for raw in resp:                       # SSE lines arrive as the server flushes them
+            line = raw.decode("utf-8", "ignore").strip()
+            if not line.startswith("data:"):
+                continue
+            try:
+                evt = json.loads(line[5:].strip())
+            except Exception:
+                continue
+            now = (time.monotonic() - t0) * 1000.0
+            etype = evt.get("type")
+            if etype == "token" and ttft is None:
+                ttft = now
+            elif etype == "audio" and ttfa is None:
+                ttfa = now
+            elif etype == "done":
+                total = now
+                ok = True
+                break
+        resp.close()
+    except urllib.error.HTTPError as e:
+        errmsg = "stream %s" % e.code
+    except Exception as e:
+        errmsg = str(e)
+    _end(base, sid, timeout, ctx)
+
+    # Perceived latency = time to first audio. Fall back to total if TTS is off (no audio events).
+    primary = ttfa if ttfa is not None else (total if total is not None else 0.0)
+    res = {"ok": ok, "ms": primary, "xwork404": False,
+           "err": errmsg or (None if ok else "no done event"),
+           "status": 200 if ok else None}
+    if ttft is not None:
+        res["ttft_ms"] = ttft
+    if total is not None:
+        res["total_ms"] = total
     return res
 
 
@@ -182,9 +239,12 @@ def _avg(vals):
     return (sum(vals) / len(vals)) if vals else 0.0
 
 
+def _avg_key(results, key):
+    return _avg([r[key] for r in results if r.get(key) is not None])
+
+
 def run_step(op, base, domain, conc, duration, timeout, ctx, max_ops=0):
-    """Run `conc` threads hammering `op` for `duration` seconds (or until max_ops
-    operations, if >0). Returns aggregates."""
+    """Run `conc` threads hammering `op` for `duration`s (or until max_ops, if >0)."""
     results = []            # list.append is atomic under CPython's GIL
     deadline = time.monotonic() + duration
     budget = threading.Semaphore(max_ops) if max_ops > 0 else None
@@ -207,29 +267,33 @@ def run_step(op, base, domain, conc, duration, timeout, ctx, max_ops=0):
 
     sent = len(results)
     ok = sum(1 for r in results if r["ok"])
-    xwork = sum(1 for r in results if r["xwork404"])
     ok_lat = sorted(r["ms"] for r in results if r["ok"])
     errs = [r["err"] for r in results if r["err"]][:1]
     return {
         "conc": conc, "sent": sent, "ok": ok, "elapsed": elapsed,
         "rps": (sent / elapsed) if elapsed > 0 else 0.0,
         "err_pct": (100.0 * (sent - ok) / sent) if sent else 0.0,
-        "xwork": xwork, "capped": capped["hit"],
+        "xwork": sum(1 for r in results if r["xwork404"]), "capped": capped["hit"],
         "p50": pct(ok_lat, 50), "p90": pct(ok_lat, 90),
         "p95": pct(ok_lat, 95), "p99": pct(ok_lat, 99),
         "max": ok_lat[-1] if ok_lat else 0.0,
-        "avg_llm": _avg([r["llm_ms"] for r in results if r.get("llm_ms") is not None]),
-        "avg_tts": _avg([r["tts_ms"] for r in results if r.get("tts_ms") is not None]),
+        "avg_llm": _avg_key(results, "llm_ms"), "avg_tts": _avg_key(results, "tts_ms"),
+        "avg_ttft": _avg_key(results, "ttft_ms"), "avg_total": _avg_key(results, "total_ms"),
         "sample_err": errs[0] if errs else "",
     }
 
 
 def run_scenario(name, op, base, domain, steps, duration, timeout, ctx,
-                 show_xwork=False, show_timing=False, max_ops=0):
+                 show_xwork=False, show_timing=False, show_stream=False, max_ops=0):
     print("\n=== scenario: %s ===" % name)
+    if show_stream:
+        print("  latency columns (p50..max) = TTFA, time-to-first-audio (ms);"
+              " ttft/total are averages")
     hdr = " conc   sent     ok   err%%    rps      p50     p90     p95     p99     max"
     if show_timing:
         hdr += "   srv_llm srv_tts"
+    if show_stream:
+        hdr += "   avg_ttft avg_total"
     if show_xwork:
         hdr += "   xwork404"
     print(hdr)
@@ -243,6 +307,8 @@ def run_scenario(name, op, base, domain, steps, duration, timeout, ctx,
             r["p50"], r["p90"], r["p95"], r["p99"], r["max"])
         if show_timing:
             line += "  %7.0f %7.0f" % (r["avg_llm"], r["avg_tts"])
+        if show_stream:
+            line += "  %8.0f %9.0f" % (r["avg_ttft"], r["avg_total"])
         if show_xwork:
             line += "  %9d" % r["xwork"]
         if r["capped"]:
@@ -266,15 +332,15 @@ def main():
     ap = argparse.ArgumentParser(description="Stepped-concurrency load test (stdlib only).")
     ap.add_argument("--url", required=True, help="Base URL, e.g. https://staging.example.com")
     ap.add_argument("--scenario", default="health",
-                    choices=["health", "session", "turn", "both", "all"])
+                    choices=["health", "session", "turn", "stream", "both", "all"])
     ap.add_argument("--steps", default="1,5,10,25,50,100",
                     help="Comma-separated concurrency levels (default: 1,5,10,25,50,100)")
     ap.add_argument("--duration", type=float, default=10.0,
                     help="Seconds to hold each concurrency step (default: 10)")
     ap.add_argument("--timeout", type=float, default=30.0, help="Per-request timeout (s)")
-    ap.add_argument("--domain", default="physical_design", help="Resume domain for session/turn")
+    ap.add_argument("--domain", default="physical_design", help="Resume domain for session/turn/stream")
     ap.add_argument("--max-turns", type=int, default=60, dest="max_turns",
-                    help="turn scenario only: hard cap on submit-answer calls PER STEP (default 60)")
+                    help="turn/stream only: hard cap on paid calls PER STEP (default 60)")
     ap.add_argument("--insecure", action="store_true", help="Skip TLS cert verification")
     args = ap.parse_args()
 
@@ -293,11 +359,12 @@ def main():
     print("Steps:  %s  |  %.0fs per step  |  timeout %.0fs" % (steps, args.duration, args.timeout))
 
     do_turn = args.scenario in ("turn", "all")
-    if do_turn:
-        max_total = args.max_turns * len(steps)
-        print("\n*** turn scenario calls the REAL LLM + TTS — this COSTS MONEY. ***")
-        print("    Up to %d turns/step x %d steps = ~%d paid LLM+TTS calls max."
-              % (args.max_turns, len(steps), max_total))
+    do_stream = args.scenario in ("stream", "all")
+    if do_turn or do_stream:
+        n_paid = (1 if do_turn else 0) + (1 if do_stream else 0)
+        print("\n*** turn/stream scenarios call the REAL LLM + TTS — this COSTS MONEY. ***")
+        print("    Up to %d calls/step x %d steps x %d paid scenario(s) = ~%d paid LLM+TTS calls max."
+              % (args.max_turns, len(steps), n_paid, args.max_turns * len(steps) * n_paid))
         print("    429 / 5xx errors here usually mean PROVIDER RATE LIMITS, not app bugs.")
 
     worst = 0.0
@@ -312,6 +379,10 @@ def main():
         worst = max(worst, run_scenario("turn", op_turn, base, args.domain,
                                         steps, args.duration, args.timeout, ctx,
                                         show_timing=True, max_ops=args.max_turns))
+    if do_stream:
+        worst = max(worst, run_scenario("stream", op_stream, base, args.domain,
+                                        steps, args.duration, args.timeout, ctx,
+                                        show_stream=True, max_ops=args.max_turns))
 
     print("\nDone. Read the curve: where p95/p99 spikes or err%% climbs is your ceiling.")
     return 1 if worst > 0 else 0
