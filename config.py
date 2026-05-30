@@ -6,7 +6,7 @@ To change domain topics: edit DOMAIN_TOPICS / DOMAIN_RESOURCES.
 To add a new difficulty level: extend DIFFICULTY_LABELS and update matrices in agent/evaluator.py.
 """
 
-import os, base64
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,11 +18,6 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:8001").split(",
 # ── AI keys ───────────────────────────────────────────────────────────────────
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
 CEREBRAS_API_KEY  = os.getenv("CEREBRAS_API_KEY", "")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
-LMNT_API_KEY      = os.getenv("LMNT_API_KEY", "")
-LMNT_VOICE_ID     = os.getenv("LMNT_VOICE_ID", "")
-MISTRAL_API_KEY   = os.getenv("MISTRAL_API_KEY", "")
-AWS_REGION        = os.getenv("AWS_REGION", "us-east-1")
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 import secrets
@@ -36,16 +31,9 @@ REVIEWER_USER = os.getenv("REVIEWER_USER", "reviewer")
 REVIEWER_PASS = os.getenv("REVIEWER_PASS", "changeme_before_deploy")
 
 # ── AI Clients ────────────────────────────────────────────────────────────────
-import boto3, requests as http_requests
 from openai import OpenAI
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
-
-polly_client = boto3.client(
-    "polly", region_name=AWS_REGION,
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-)
 
 cerebras_client = None
 if CEREBRAS_API_KEY:
@@ -57,19 +45,6 @@ xai_client = None
 if XAI_API_KEY:
     xai_client = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1")
     print("xAI Grok ready.")
-
-elevenlabs_client = None
-if ELEVENLABS_API_KEY:
-    from elevenlabs.client import ElevenLabs
-    elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
-    print("ElevenLabs Scribe v2 ready (fallback STT).")
-
-# ── TTS reference audio ───────────────────────────────────────────────────────
-_ref_audio_path = os.path.join(os.path.dirname(__file__), "ranjitha_4dmjitkw.mp3")
-MISTRAL_TTS_REF_AUDIO = None
-if MISTRAL_API_KEY and os.path.exists(_ref_audio_path):
-    with open(_ref_audio_path, "rb") as _f:
-        MISTRAL_TTS_REF_AUDIO = base64.b64encode(_f.read()).decode()
 
 # ── TTS toggle ────────────────────────────────────────────────────────────────
 TTS_ENABLED = os.getenv("TTS_ENABLED", "true").lower() == "true"

@@ -1055,30 +1055,6 @@ def _should_end_interview(session) -> tuple[bool, str]:
 
 # ── Candidate Behavior Guard ───────────────────────────────────────────
 
-def classify_candidate_answer(answer: str) -> str:
-    """Classify candidate answer as normal, personal_question, or abusive.
-    Uses LLM to detect across all languages."""
-    prompt = f"""Classify this candidate's message in an interview context.
-Return ONLY one word: normal, personal_question, or abusive
-
-Rules:
-- personal_question: candidate asks personal things about the interviewer (age, marital status, location, appearance, personal life, etc.)
-- abusive: candidate uses abusive, offensive, insulting, or scolding language in ANY language (English, Hindi, Telugu, Tamil, etc.)
-- normal: everything else (technical answers, "I don't know", greetings, etc.)
-
-Candidate said: "{answer}"
-
-Classification:"""
-    try:
-        result, _usage = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=10)
-        result = result.strip().lower().replace(".", "")
-        if result in ("personal_question", "abusive"):
-            return result
-    except Exception as e:
-        print(f"[Guard] Classification failed: {e}")
-    return "normal"
-
-
 def send_abuse_email(session, answer: str):
     """Send email to admin reporting abusive candidate behavior."""
     if not SMTP_USER or not SMTP_PASS or not ADMIN_EMAIL:
