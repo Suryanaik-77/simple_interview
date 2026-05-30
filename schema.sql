@@ -172,6 +172,17 @@ CREATE TABLE IF NOT EXISTS active_sessions (
 );
 
 -- ═══════════════════════════════════════════
+-- APP CONFIG (shared runtime config: LLM/TTS/STT)
+-- Durable source of truth so admin changes survive restarts and are shared
+-- across all workers. Redis (when present) caches this for fast reads.
+-- ═══════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS app_config (
+    config_key TEXT PRIMARY KEY,
+    config_value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ═══════════════════════════════════════════
 -- CANDIDATE HISTORY (Replaces candidate_history.json)
 -- ═══════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS candidate_history (

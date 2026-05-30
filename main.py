@@ -32,6 +32,9 @@ DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 INWORLD_API_KEY = os.getenv("INWORLD_API_KEY", "")
 INWORLD_VOICE_ID = os.getenv("INWORLD_VOICE_ID", "Sarah")
 INWORLD_MODEL_ID = os.getenv("INWORLD_MODEL_ID", "inworld-tts-1.5-mini")
+KUGEL_API_KEY = os.getenv("KUGEL_API_KEY", "")
+KUGEL_MODEL_ID = os.getenv("KUGEL_MODEL_ID", "kugel-2.5")
+KUGEL_SAMPLE_RATE = int(os.getenv("KUGEL_SAMPLE_RATE", "24000"))
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
 JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
@@ -75,26 +78,92 @@ RUNTIME_CONFIG = {
 import database
 database.init_db()
 
+import redis_cache
+redis_cache.init_cache()
+
+# Shared runtime config (LLM/TTS/STT). With multiple workers, an admin edit only
+# mutates one worker's RUNTIME_CONFIG dict. Postgres holds the durable, shared copy
+# (so changes survive restarts and reach every worker); Redis caches it for fast reads.
+_RUNTIME_CONFIG_KEY = "config:runtime"   # Redis key
+_CONFIG_DB_KEY = "runtime"               # app_config.config_key
+
+
+def _sync_runtime_config():
+    """Refresh RUNTIME_CONFIG from the shared store so all workers agree.
+    Redis first (fast); Postgres (durable) on miss, repopulating Redis. No-op if
+    neither is available — the in-process dict stays the source of truth."""
+    if redis_cache.is_available():
+        cfg = redis_cache.get_json(_RUNTIME_CONFIG_KEY)
+        if cfg:
+            RUNTIME_CONFIG.update(cfg)
+            return
+    if database.is_available():
+        cfg = database.get_app_config(_CONFIG_DB_KEY)
+        if cfg:
+            RUNTIME_CONFIG.update(cfg)
+            if redis_cache.is_available():
+                redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
+
+
+def _persist_runtime_config():
+    """After an admin change: write Postgres (durable) and refresh the Redis cache,
+    so the new config survives restarts and reaches the other workers."""
+    if database.is_available():
+        database.save_app_config(_CONFIG_DB_KEY, RUNTIME_CONFIG)
+    if redis_cache.is_available():
+        redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
+
+
+# Adopt persisted config at boot so an admin's earlier changes survive restarts;
+# seed defaults on first run. Postgres is the source of truth, so only refresh
+# Redis from it when we actually read/seeded the durable value. If Postgres is
+# unavailable at this boot (e.g. a transient connection failure during a
+# max-requests worker recycle), never overwrite the shared Redis value with this
+# worker's hardcoded defaults — that would silently revert an admin's model
+# choice for every worker. Seed Redis only when the key is absent.
+_seeded_from_db = False
+if database.is_available():
+    _persisted_cfg = database.get_app_config(_CONFIG_DB_KEY)
+    if _persisted_cfg:
+        RUNTIME_CONFIG.update(_persisted_cfg)
+    else:
+        database.save_app_config(_CONFIG_DB_KEY, RUNTIME_CONFIG)
+    _seeded_from_db = True
+if redis_cache.is_available():
+    if _seeded_from_db:
+        redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
+    elif redis_cache.get_json(_RUNTIME_CONFIG_KEY) is None:
+        redis_cache.set_json(_RUNTIME_CONFIG_KEY, RUNTIME_CONFIG)
+
+
 class DatabaseSessions:
     def __init__(self):
         self._memory = {}
 
     def __contains__(self, key):
         if database.is_available():
+            if redis_cache.get_session(key) is not None:
+                return True
             return database.active_session_exists(key)
         return key in self._memory
 
     def __getitem__(self, key):
         if database.is_available():
+            cached = redis_cache.get_session(key)
+            if cached is not None:
+                return cached
             val = database.get_active_session(key)
             if val is None:
                 raise KeyError(key)
+            redis_cache.set_session(key, val)  # populate on miss
             return val
         return self._memory[key]
 
     def __setitem__(self, key, value):
         if database.is_available():
+            # Postgres is the source of truth; write it first, then refresh the cache.
             database.save_active_session(key, value)
+            redis_cache.set_session(key, value)
         else:
             self._memory[key] = value
 
@@ -128,6 +197,7 @@ class DatabaseSessions:
     def __delitem__(self, key):
         if database.is_available():
             database.delete_active_session(key)
+            redis_cache.delete_session(key)
         else:
             self._memory.pop(key, None)
 
@@ -176,6 +246,14 @@ def save_candidate_session(session):
         "tools": session.get("resume", {}).get("tools", []),
         "weak_signals": [],
     }
+    ev = session.get("evaluation")
+    if ev:
+        summary["evaluation"] = {
+            "status": ev.get("status"),
+            "overall_score": ev.get("overall_score"),
+            "recommendation": ev.get("recommendation"),
+            "level_fit": ev.get("level_fit"),
+        }
     if database.is_available():
         database.save_candidate_history(email, session["id"], summary)
     else:
@@ -251,6 +329,7 @@ _TTS_PRICING = {
     "deepgram": 0.015,
     "inworld": 0.015,
     "openai": 0.015,
+    "kugel": 0.046,  # ~€0.043/min (Turbo) ≈ $0.046/1K chars at ~1000 chars/min English
 }
 
 
@@ -390,6 +469,44 @@ def stream_llm(messages, model_id="", temperature=0.5, max_tokens=500):
             yield chunk.choices[0].delta.content
 
 
+def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 24000) -> bytes:
+    """Wrap raw PCM s16le bytes in a WAV header. Kugel returns raw PCM, but the
+    browser <audio> element and the rest of the pipeline expect a container."""
+    import struct
+    data_size = len(pcm_bytes)
+    byte_rate = sample_rate * 2  # mono, 16-bit
+    header = b"RIFF" + struct.pack("<I", 36 + data_size) + b"WAVE"
+    header += b"fmt " + struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, byte_rate, 2, 16)
+    header += b"data" + struct.pack("<I", data_size)
+    return header + pcm_bytes
+
+
+def _kugel_tts(text: str, voice: str) -> bytes:
+    """Call Kugel TTS and return playable WAV bytes (PCM wrapped). Returns b'' on failure."""
+    if not KUGEL_API_KEY or not text.strip():
+        return b""
+    try:
+        voice_id = int(voice) if voice and str(voice).isdigit() else None
+    except (TypeError, ValueError):
+        voice_id = None
+    body = {"text": text[:10000], "model_id": KUGEL_MODEL_ID, "sample_rate": KUGEL_SAMPLE_RATE}
+    if voice_id is not None:
+        body["voice_id"] = voice_id
+    try:
+        r = http_requests.post(
+            "https://api.kugelaudio.com/v1/tts/generate",
+            headers={"Authorization": f"Bearer {KUGEL_API_KEY}",
+                     "Content-Type": "application/json; charset=utf-8"},
+            json=body, timeout=15,
+        )
+        r.raise_for_status()
+        sr = int(r.headers.get("X-Sample-Rate", KUGEL_SAMPLE_RATE))
+        return _pcm_to_wav(r.content, sample_rate=sr)
+    except Exception as e:
+        print(f"[TTS] Kugel error: {e}")
+        return b""
+
+
 def tts_chunk(text: str) -> bytes:
     """Generate TTS audio bytes for a text chunk. Returns raw audio bytes."""
     if not RUNTIME_CONFIG.get("tts_enabled", True) or not text.strip():
@@ -406,6 +523,11 @@ def tts_chunk(text: str) -> bytes:
             return r.content
         except Exception as e:
             print(f"[TTS Stream] Deepgram error: {e}")
+
+    if provider == "kugel" and KUGEL_API_KEY:
+        wav = _kugel_tts(text[:2000], voice)
+        if wav:
+            return wav
 
     if provider == "inworld" and INWORLD_API_KEY:
         try:
@@ -773,6 +895,14 @@ def synthesize_speech(text: str) -> tuple[str, int]:
         except Exception as e:
             print(f"[TTS] Deepgram error: {e}")
 
+    # Kugel
+    if provider == "kugel" and KUGEL_API_KEY:
+        wav = _kugel_tts(text[:2000], voice)
+        latency = round((time.time() - t0) * 1000)
+        if wav:
+            print(f"[TTS] Kugel {latency}ms — {len(text)} chars (voice={voice})")
+            return base64.b64encode(wav).decode(), latency
+
     # Inworld
     if provider == "inworld" and INWORLD_API_KEY:
         try:
@@ -925,30 +1055,6 @@ def _should_end_interview(session) -> tuple[bool, str]:
 
 # ── Candidate Behavior Guard ───────────────────────────────────────────
 
-def classify_candidate_answer(answer: str) -> str:
-    """Classify candidate answer as normal, personal_question, or abusive.
-    Uses LLM to detect across all languages."""
-    prompt = f"""Classify this candidate's message in an interview context.
-Return ONLY one word: normal, personal_question, or abusive
-
-Rules:
-- personal_question: candidate asks personal things about the interviewer (age, marital status, location, appearance, personal life, etc.)
-- abusive: candidate uses abusive, offensive, insulting, or scolding language in ANY language (English, Hindi, Telugu, Tamil, etc.)
-- normal: everything else (technical answers, "I don't know", greetings, etc.)
-
-Candidate said: "{answer}"
-
-Classification:"""
-    try:
-        result, _usage = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=10)
-        result = result.strip().lower().replace(".", "")
-        if result in ("personal_question", "abusive"):
-            return result
-    except Exception as e:
-        print(f"[Guard] Classification failed: {e}")
-    return "normal"
-
-
 def send_abuse_email(session, answer: str):
     """Send email to admin reporting abusive candidate behavior."""
     if not SMTP_USER or not SMTP_PASS or not ADMIN_EMAIL:
@@ -1011,8 +1117,8 @@ def detect_ai_answer(answer: str, session: dict, turn_index: int):
     Uses Sapling API if available, falls back to LLM-based detection."""
     if not ANTICHEAT_FEATURES.get("ai_answer_detect", {}).get("enabled", True):
         return
-    if not answer or len(answer.split()) < 10:
-        return  # Too short to detect
+    if not answer or len(answer.split()) < 50:
+        return  # Too short for reliable detection (Sapling precision drops below ~200 words)
 
     result = {"checked": True, "is_ai": False, "score": 0.0, "method": "", "sapling": None, "llm": None}
 
@@ -1093,6 +1199,9 @@ JSON:"""
         session["conversation"][turn_index]["ai_detection"] = result
         if database.is_available():
             database.update_session_ai_detection(session["id"], turn_index, result)
+            # This jsonb_set bypassed the cache; drop the stale blob so the next
+            # read repopulates from Postgres (which now has this ai_detection).
+            redis_cache.delete_session(session["id"])
 
     if result["is_ai"]:
         print(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
@@ -1246,6 +1355,280 @@ Rules:
 
     session["conversation"].append({"question": greeting, "answer": None, "turn": 0})
     return greeting
+
+
+# ── End-of-Interview Evaluation ─────────────────────────────────────────
+# Runs ONCE when the interview ends, and ONLY if the candidate actually
+# answered enough questions to be judged fairly. Scores the whole transcript
+# with a rubric tuned to the candidate's level.
+
+MIN_ANSWERS_FOR_EVAL = int(os.getenv("MIN_ANSWERS_FOR_EVAL", "8"))
+EVAL_SWEEP_INTERVAL_SEC = int(os.getenv("EVAL_SWEEP_INTERVAL_SEC", "300"))  # how often the sweeper wakes
+EVAL_SWEEP_GRACE_SEC = int(os.getenv("EVAL_SWEEP_GRACE_SEC", "120"))        # don't touch a session updated more recently than this
+
+# Shared output contract. Kept separate from the rubric text so the {...} braces
+# here never collide with prompt placeholders (we fill with str.replace, not
+# str.format, precisely so these JSON braces survive untouched).
+_EVAL_JSON_SCHEMA = """{
+  "overall_score": <integer 0-10>,
+  "recommendation": "strong_yes|yes|maybe|no|strong_no",
+  "level_fit": "below_level|at_level|above_level",
+  "verdict": "one-line hire verdict",
+  "per_question": [{"q": <question number>, "question": "<first ~10 words>", "score": <0-10>, "comment": "one short clause"}],
+  "communication_score": <integer 0-10>,
+  "communication": "1-2 sentences on clarity, structure, and how they explain reasoning",
+  "strengths": ["short bullet", "..."],
+  "weaknesses": ["short bullet", "..."],
+  "topic_breakdown": [{"topic": "", "score": <0-10>, "comment": ""}],
+  "red_flags": ["only genuine concerns; [] if none"],
+  "summary": "3-4 sentence overall assessment"
+}"""
+
+# Appended to every level rubric: the numbered transcript, the per-question and
+# communication scoring instructions, and the JSON contract.
+_EVAL_TASK = """FULL TRANSCRIPT (each question is numbered [Q1], [Q2], ...; [A1] is the answer to [Q1]):
+{transcript}
+
+In addition to the overall assessment, do BOTH of these:
+- Score EVERY numbered question individually in "per_question", referencing its number. Judge each answer's technical merit at THIS candidate's level.
+- Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
+
+Return ONLY valid JSON, no prose, no markdown fences:
+""" + _EVAL_JSON_SCHEMA
+
+_EVAL_PROMPT_FRESHER = """You are a senior VLSI interviewer writing the final evaluation of a TRAINED FRESHER / FRESH GRADUATE after a mock interview.
+
+Candidate: {name} | Domain: {domain} | Claimed level: {level} | Experience: {years} years
+Questions answered: {num_answers}
+
+You are judging POTENTIAL and FUNDAMENTALS, not production depth. This person has little or no industry experience — calibrate accordingly.
+
+What a STRONG fresher looks like:
+- Understands the "why" behind concepts, not just textbook definitions
+- Reasons from first principles even without tool or production exposure
+- Honest about limits — "I haven't done that, but my understanding is..." is a POSITIVE signal
+- Shows real learning from coursework, training, or academic / internship projects
+- Curiosity and structured thinking
+
+RED FLAGS to call out explicitly:
+- Polished, textbook-perfect answers that sound memorized rather than understood
+- Claiming hands-on production / tape-out experience inconsistent with a fresher profile
+- Buzzword stacking with no underlying reasoning
+- Contradicting themselves across answers
+
+Do NOT penalize: lack of tool / flow / production experience, an honest "I don't know", or nervous, informal phrasing.
+
+Calibrate scoring to a FRESHER bar: a fresher with genuinely strong fundamentals can score 8-9. Do not expect senior-level depth.
+
+""" + _EVAL_TASK
+
+_EVAL_PROMPT_JUNIOR = """You are a senior VLSI interviewer writing the final evaluation of an EXPERIENCED JUNIOR engineer (1-5 years) after a mock interview.
+
+Candidate: {name} | Domain: {domain} | Claimed level: {level} | Experience: {years} years
+Questions answered: {num_answers}
+
+You are judging hands-on competence in their stated area — they claim real industry experience, so demonstrated depth must back up the claim.
+
+What a STRONG junior looks like:
+- Concrete hands-on experience with the tools / flow they list; can describe what THEY actually did
+- Real debugging stories — specific problems, how they root-caused and fixed them
+- Ownership of at least part of a block / flow, with awareness of the surrounding steps
+- Can go one or two levels deeper when probed, not just surface-level recall
+
+RED FLAGS to call out explicitly:
+- Vague or evasive about tools listed on their resume (names ICC2 / VCS / Virtuoso etc. but can't discuss real usage)
+- All theory, no project specifics — "we did placement" with no detail on their own role
+- Can't explain decisions they claim to have made
+- Knowledge that stops exactly at the textbook boundary
+- Gaps between claimed experience and demonstrated ability
+
+Calibrate to a JUNIOR bar: expect hands-on competence in their stated area, but NOT architecture-level or cross-domain mastery. Penalize gaps between claimed experience and demonstrated depth more heavily than you would for a fresher.
+
+""" + _EVAL_TASK
+
+_EVAL_PROMPT_SENIOR = """You are a senior VLSI interviewer writing the final evaluation of an EXPERIENCED SENIOR engineer (5+ years) after a mock interview.
+
+Candidate: {name} | Domain: {domain} | Claimed level: {level} | Experience: {years} years
+Questions answered: {num_answers}
+
+You are judging depth, judgement, and leadership. Surface-level correctness is NOT enough at this level.
+
+What a STRONG senior looks like:
+- Tradeoff and architecture-level reasoning — explains WHY, weighs alternatives, discusses corner cases and failure modes
+- Drives the conversation, anticipates follow-ups, handles ambiguity and open-ended questions
+- Cross-step / cross-domain awareness (e.g. how PD choices ripple into timing, power, or DV)
+- Methodology and signoff judgement; can set direction and mentor
+- War stories with real complexity and measurable impact
+
+RED FLAGS to call out explicitly:
+- Only operational / "button-pushing" knowledge — runs the tool but can't reason about why
+- Cannot discuss tradeoffs, alternatives, or failure modes
+- Dated knowledge or vague generalities where depth is expected
+- Cannot handle open-ended or ambiguous questions
+- Title / years not backed by demonstrated depth (the most serious flag at this level)
+
+Calibrate to a SENIOR bar: a senior who only recites correct fundamentals should score LOW. Reserve high scores for genuine depth, judgement, and ownership.
+
+""" + _EVAL_TASK
+
+EVAL_PROMPTS = {
+    "trained_fresher": _EVAL_PROMPT_FRESHER,
+    "experienced_junior": _EVAL_PROMPT_JUNIOR,
+    "experienced_senior": _EVAL_PROMPT_SENIOR,
+}
+# Pristine copies for the admin "Reset to Default" action.
+_DEFAULT_EVAL_PROMPTS = dict(EVAL_PROMPTS)
+
+
+def get_eval_prompt(level: str) -> str:
+    """Pick the eval prompt for a level. fresh_graduate reuses the fresher rubric,
+    matching how _load_prompt maps it for question generation."""
+    if level == "fresh_graduate":
+        level = "trained_fresher"
+    return EVAL_PROMPTS.get(level, EVAL_PROMPTS["trained_fresher"])
+
+
+def _fill_eval_prompt(template: str, **kw) -> str:
+    """Substitute {key} placeholders without str.format — the JSON schema in the
+    template contains literal braces that str.format would choke on."""
+    out = template
+    for k, v in kw.items():
+        out = out.replace("{" + k + "}", str(v))
+    return out
+
+
+def _answered_count(session) -> int:
+    """How many questions the candidate actually answered (non-empty answer)."""
+    return sum(1 for e in session.get("conversation", [])
+               if (e.get("answer") or "").strip())
+
+
+def _build_eval_transcript(session, max_chars: int = 8000) -> str:
+    """Render the conversation as numbered Q/A pairs so the evaluator can map a
+    per-question score back to each question by its number."""
+    lines = []
+    n = 0
+    for e in session.get("conversation", []):
+        q = (e.get("question") or "").strip()
+        if not q:
+            continue
+        n += 1
+        a = (e.get("answer") or "").strip()
+        lines.append(f"[Q{n}] {q}")
+        lines.append(f"[A{n}] {a if a else '(no answer)'}")
+    return "\n".join(lines)[:max_chars]
+
+
+def evaluate_interview(session) -> dict:
+    """Score the full interview once it ends. Gated on MIN_ANSWERS_FOR_EVAL.
+    Idempotent (skips if already evaluated) and safe to run in a background
+    thread — it persists via targeted jsonb_set, never a full session writeback."""
+    sid = session.get("id", "")
+
+    # Don't evaluate twice (e.g. should_end fires, then the client calls /end-session).
+    existing = session.get("evaluation")
+    if existing and existing.get("status") in ("done", "skipped"):
+        return existing
+
+    answered = _answered_count(session)
+    if answered < MIN_ANSWERS_FOR_EVAL:
+        result = {"status": "skipped", "answered": answered,
+                  "reason": f"only {answered} answered (need {MIN_ANSWERS_FOR_EVAL})"}
+        session["evaluation"] = result
+        if database.is_available():
+            database.save_session_evaluation(sid, result)
+            redis_cache.delete_session(sid)
+        print(f"[Eval] Skipped {sid[:8]} — {answered}/{MIN_ANSWERS_FOR_EVAL} answered")
+        return result
+
+    resume = session.get("resume", {})
+    level = resume.get("level", "trained_fresher")
+    prompt = _fill_eval_prompt(
+        get_eval_prompt(level),
+        name=resume.get("candidate_name", "Candidate"),
+        domain=str(resume.get("domain", "VLSI")).replace("_", " "),
+        level=level.replace("_", " "),
+        years=resume.get("years_experience", 0),
+        num_answers=answered,
+        transcript=_build_eval_transcript(session),
+    )
+
+    model = RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+    t0 = time.time()
+    try:
+        raw, usage = call_llm([{"role": "user", "content": prompt}],
+                              model_id=model, temperature=0.2, max_tokens=1800)
+    except Exception as e:
+        print(f"[Eval] LLM call failed for {sid[:8]}: {e}")
+        result = {"status": "error", "answered": answered, "error": str(e)}
+        session["evaluation"] = result
+        if database.is_available():
+            database.save_session_evaluation(sid, result)
+            redis_cache.delete_session(sid)
+        return result
+    eval_ms = round((time.time() - t0) * 1000)
+
+    parsed = safe_json(raw) or {}
+    result = {
+        "status": "done",
+        "answered": answered,
+        "level": level,
+        "model": model,
+        "latency_ms": eval_ms,
+        "cost_usd": round(usage["cost_usd"], 6),
+        "ts": time.time(),
+        **parsed,
+    }
+    if not parsed:
+        result["parse_error"] = True
+        result["raw_response"] = raw[:2000]
+
+    session["evaluation"] = result
+
+    obs = _obs_entry("LLM_evaluation", model, eval_ms, "success" if parsed else "failure",
+                     input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
+                     cost_usd=usage["cost_usd"])
+    session.setdefault("obs_log", []).append(obs)
+
+    if database.is_available():
+        database.save_session_evaluation(sid, result)
+        database.append_session_obs(sid, obs)
+        redis_cache.delete_session(sid)  # these jsonb_set writes bypassed the cache
+
+    print(f"[Eval] {sid[:8]} ({level}): score={result.get('overall_score', '?')} "
+          f"rec={result.get('recommendation', '?')} {eval_ms}ms ${usage['cost_usd']:.4f}")
+    return result
+
+
+def _evaluate_async(session):
+    """Run evaluation off the request path so the candidate's closing message
+    isn't delayed. Call only AFTER the final full-session writeback, so the
+    thread's targeted jsonb_set lands on top of it rather than being overwritten."""
+    threading.Thread(target=evaluate_interview, args=(session,), daemon=True).start()
+
+
+def _eval_sweeper_loop():
+    """Catch sessions whose foreground eval never ran (browser closed, worker
+    restart, missing [END_INTERVIEW]). Picks up any ended session without an
+    evaluation that's been idle past the grace window."""
+    while True:
+        try:
+            time.sleep(EVAL_SWEEP_INTERVAL_SEC)
+            if not database.is_available():
+                continue
+            pending = database.list_ended_sessions_needing_eval(EVAL_SWEEP_GRACE_SEC)
+            if pending:
+                print(f"[EvalSweep] {len(pending)} ended session(s) need evaluation")
+            for sess in pending:
+                try:
+                    evaluate_interview(sess)
+                except Exception as e:
+                    print(f"[EvalSweep] {sess.get('id', '?')[:8]} failed: {e}")
+        except Exception as e:
+            print(f"[EvalSweep] loop error: {e}")
+
+
+threading.Thread(target=_eval_sweeper_loop, daemon=True, name="eval-sweeper").start()
 
 
 # ── API Endpoints ────────────────────────────────────────────────────────
@@ -1414,6 +1797,7 @@ def create_session_endpoint(data: dict):
 
 @app.post("/api/start-interview")
 def start_interview(data: dict):
+    _sync_runtime_config()
     sid = data.get("session_id")
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
@@ -1440,6 +1824,7 @@ def start_interview(data: dict):
 
 @app.post("/api/transcribe")
 def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form("")):
+    _sync_runtime_config()
     audio_bytes = audio.file.read()
     ext = audio.filename.rsplit(".", 1)[-1] if audio.filename else "webm"
     # Pick the STT prompt by the candidate's domain (from resume).
@@ -1458,6 +1843,7 @@ def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form(""
 
 @app.post("/api/submit-answer")
 def submit_answer(data: dict):
+    _sync_runtime_config()
     sid = data.get("session_id")
     answer = data.get("answer", "")
     session = sessions.get(sid)
@@ -1479,6 +1865,10 @@ def submit_answer(data: dict):
 
     sessions[sid] = session
 
+    # Evaluate after the writeback so the eval thread's jsonb_set isn't clobbered.
+    if result["should_end"]:
+        _evaluate_async(session)
+
     total_ms = round((time.time() - t0_total) * 1000)
     llm_ms = result.get("llm_ms", 0)
     print(f"[Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms + TTS: {tts_ms}ms)")
@@ -1495,6 +1885,7 @@ def submit_answer(data: dict):
 @app.post("/api/stream-answer")
 def stream_answer(data: dict):
     """SSE endpoint: LLM streams tokens → sentence buffer → TTS per sentence → audio chunks to client."""
+    _sync_runtime_config()
     sid = data.get("session_id")
     answer = data.get("answer", "")
     session = sessions.get(sid)
@@ -1516,6 +1907,7 @@ def stream_answer(data: dict):
             session["phase"] = "ended"
             audio_bytes = tts_chunk(end_msg)
             sessions[sid] = session
+            _evaluate_async(session)  # hard-limit end returns early — evaluate here too
             yield f"data: {json.dumps({'type': 'text', 'content': end_msg, 'done': True, 'should_end': True})}\n\n"
             if audio_bytes:
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
@@ -1624,6 +2016,10 @@ def stream_answer(data: dict):
         # Save session to DB
         sessions[sid] = session
 
+        # Evaluate after the writeback so the eval thread's jsonb_set isn't clobbered.
+        if is_end:
+            _evaluate_async(session)
+
         total_ms = round((time.time() - t0) * 1000)
         print(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks)")
 
@@ -1639,8 +2035,13 @@ def end_session(data: dict):
     session = sessions.get(sid)
     if session:
         session["phase"] = "ended"
+        # Evaluate synchronously, then KEEP the session row. The admin review reads
+        # from active_sessions, so deleting here would make every completed interview
+        # (and its evaluation) vanish from the review. The submit/stream end paths
+        # already keep ended sessions; this stays consistent with them.
+        evaluate_interview(session)
         save_candidate_session(session)
-        del sessions[sid]
+        sessions[sid] = session
     return {"ok": True}
 
 
@@ -1799,46 +2200,41 @@ AVAILABLE_MODELS = [
 
 @app.get("/api/admin/llm-config")
 async def get_llm_config(_=Depends(require_admin)):
+    _sync_runtime_config()
     return {"qgen_model": RUNTIME_CONFIG["qgen_model"], "eval_model": RUNTIME_CONFIG["eval_model"], "available_models": AVAILABLE_MODELS}
 
 @app.post("/api/admin/llm-config")
 async def set_llm_config(data: dict, _=Depends(require_admin)):
     if "qgen_model" in data: RUNTIME_CONFIG["qgen_model"] = data["qgen_model"]
     if "eval_model" in data: RUNTIME_CONFIG["eval_model"] = data["eval_model"]
+    _persist_runtime_config()
     return {"status": "success", "qgen_model": RUNTIME_CONFIG["qgen_model"], "eval_model": RUNTIME_CONFIG["eval_model"]}
 
-EDITABLE_PROMPTS = {
-    "eval_prompt": """You are a senior VLSI interview evaluator. Score this candidate's answer.
-
-CANDIDATE: {domain} | {level} | {years} years experience
-QUESTION ({question_type}, {difficulty}): {question}
-ANSWER: {answer}
-
-Score 0-10 and return ONLY valid JSON:
-{{"score": 0, "quality": "strong|adequate|weak|honest_admission", "accuracy": "correct|partial|incorrect|not_applicable",
-"quadrant": "genuine_expert|genuine_nervous|honest_confused|dangerous_fake",
-"score_reasoning": "1-2 sentence explanation",
-"expected_points": ["point1", "point2"],
-"missing_points": ["missed1"],
-"level_gap": 0,
-"notes": "brief evaluator note"}}
-
-Rules:
-- Score relative to candidate's level (fresh grad scored differently than senior)
-- "I don't know" = honest_admission, score 5-6 (shows integrity)
-- Textbook-perfect answers from freshers = suspicious, note it
-- Partial but genuine answers score higher than memorized-sounding complete ones
-- 0-3: wrong/no answer, 4-5: partial, 6-7: adequate, 8-9: strong, 10: exceptional""",
-}
-
 @app.get("/api/admin/llm-prompts")
-async def get_llm_prompts(_=Depends(require_admin)):
-    return {"eval_prompt": EDITABLE_PROMPTS["eval_prompt"]}
+async def get_llm_prompts(level: str = "", _=Depends(require_admin)):
+    """Return the editable evaluation prompts. The admin UI shows one level at a
+    time; `eval_prompt` is that level's prompt (back-compat for the single textarea)."""
+    lvl = "trained_fresher" if level in ("", "fresh_graduate") else level
+    if lvl not in EVAL_PROMPTS:
+        lvl = "trained_fresher"
+    return {
+        "level": lvl,
+        "levels": list(EVAL_PROMPTS.keys()),
+        "eval_prompt": EVAL_PROMPTS[lvl],
+        "eval_prompts": EVAL_PROMPTS,
+    }
 
 @app.post("/api/admin/llm-prompts")
 async def set_llm_prompts(data: dict, _=Depends(require_admin)):
+    if data.get("reset_eval"):
+        EVAL_PROMPTS.update(_DEFAULT_EVAL_PROMPTS)
+        return {"status": "success", "reset": True}
     if "eval_prompt" in data:
-        EDITABLE_PROMPTS["eval_prompt"] = data["eval_prompt"]
+        lvl = data.get("level", "trained_fresher")
+        if lvl == "fresh_graduate":
+            lvl = "trained_fresher"
+        if lvl in EVAL_PROMPTS:
+            EVAL_PROMPTS[lvl] = data["eval_prompt"]
     return {"status": "success"}
 
 @app.get("/api/admin/qgen-prompt")
@@ -1868,14 +2264,17 @@ async def get_interview_prompt_admin(domain: str = "physical_design", level: str
 @app.post("/api/toggle-tts")
 async def toggle_tts(data: dict):
     RUNTIME_CONFIG["tts_enabled"] = data.get("enabled", True)
+    _persist_runtime_config()
     return {"ok": True, "tts_enabled": RUNTIME_CONFIG["tts_enabled"]}
 
 @app.get("/api/tts-status")
 async def tts_status():
+    _sync_runtime_config()
     return {"tts_enabled": RUNTIME_CONFIG["tts_enabled"]}
 
 @app.get("/api/admin/stt-config")
 async def get_stt_config(_=Depends(require_admin)):
+    _sync_runtime_config()
     return {
         "provider": RUNTIME_CONFIG["stt_provider"],
         "model": RUNTIME_CONFIG["stt_model"],
@@ -1893,6 +2292,7 @@ async def set_stt_config(data: dict, _=Depends(require_admin)):
         RUNTIME_CONFIG["stt_provider"] = data["provider"]
     if "model" in data:
         RUNTIME_CONFIG["stt_model"] = data["model"]
+    _persist_runtime_config()
     print(f"[STT Config] Changed to {RUNTIME_CONFIG['stt_provider']}/{RUNTIME_CONFIG['stt_model']}")
     return {"status": "success", "provider": RUNTIME_CONFIG["stt_provider"], "model": RUNTIME_CONFIG["stt_model"]}
 
@@ -1900,6 +2300,7 @@ async def set_stt_config(data: dict, _=Depends(require_admin)):
 async def set_interview_voice(data: dict, _=Depends(require_admin)):
     RUNTIME_CONFIG["tts_provider"] = data.get("provider", "deepgram")
     RUNTIME_CONFIG["tts_voice"] = data.get("voice", "")
+    _persist_runtime_config()
     return {"ok": True, "provider": RUNTIME_CONFIG["tts_provider"], "voice": RUNTIME_CONFIG["tts_voice"]}
 
 @app.post("/api/admin/test-tts")
@@ -2010,7 +2411,7 @@ def _build_session_obs(sid, session):
     total_input_tokens = sum(l.get("input_tokens", 0) for l in logs)
     total_output_tokens = sum(l.get("output_tokens", 0) for l in logs)
     by_step = {}
-    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "STT", "TTS", "TTS_greeting"]:
+    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "LLM_evaluation", "STT", "TTS", "TTS_greeting"]:
         step_logs = [l for l in logs if l.get("step") == step]
         step_lats = [l["latency_ms"] for l in step_logs if l.get("latency_ms")]
         step_cost = sum(l.get("cost_usd", 0) for l in step_logs)
@@ -2038,8 +2439,25 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
     session = sessions.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
+    # Map per-question eval scores back onto turns. evaluate_interview numbers the
+    # transcript [Q1], [Q2]... over conversation entries that have a question, so we
+    # reproduce that exact counter here and look up each item by its "q" number.
+    evaluation = session.get("evaluation", {}) or {}
+    pq_by_num = {}
+    for item in evaluation.get("per_question", []) or []:
+        try:
+            pq_by_num[int(item.get("q"))] = item
+        except (TypeError, ValueError):
+            continue
+
     turn_log = []
+    qnum = 0
     for entry in session.get("conversation", []):
+        has_q = bool((entry.get("question") or "").strip())
+        if has_q:
+            qnum += 1
+        pq = pq_by_num.get(qnum) if has_q else None
+        comment = (pq or {}).get("comment", "")
         turn_log.append({
             "turn": entry.get("turn", 0),
             "phase": "interview",
@@ -2048,14 +2466,14 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             "question_type": "interview",
             "topic": "",
             "difficulty": "basic",
-            "score": "",
+            "score": (pq or {}).get("score", ""),
             "quality": "",
             "accuracy": "",
             "quadrant": "",
-            "notes": "",
+            "notes": comment,
             "word_count": len((entry.get("answer") or "").split()),
             "answer_duration_sec": 0,
-            "score_reasoning": "",
+            "score_reasoning": comment,
             "expected_points": [],
             "missing_points": [],
             "level_gap": 0,
@@ -2081,6 +2499,7 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
         "expert_reviews": [],
         "eval_model": RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini"),
         "qgen_model": RUNTIME_CONFIG.get("qgen_model", "gpt-4o-mini"),
+        "evaluation": session.get("evaluation", {}),
         "observability": _build_session_obs(sid, session),
     }
 
@@ -2106,7 +2525,7 @@ def obs_summary(window: int = 86400, _=Depends(require_admin)):
 
     # Step breakdown
     by_step = {}
-    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "STT", "TTS", "TTS_greeting"]:
+    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "LLM_evaluation", "STT", "TTS", "TTS_greeting"]:
         step_logs = [l for l in all_logs if l.get("step") == step]
         step_lats = sorted([l["latency_ms"] for l in step_logs if l.get("latency_ms")])
         if step_lats:
@@ -2174,4 +2593,5 @@ if __name__ == "__main__":
     print(f"  STT: gpt-4o-mini-transcribe")
     print(f"  Bedrock: {'ready' if bedrock_client else 'not configured'}")
     print(f"  Grok: {'ready' if xai_client else 'not configured'}")
+    print(f"  Redis cache: {'ready' if redis_cache.is_available() else 'not configured'}")
     uvicorn.run("main:app", host="0.0.0.0", port=8001, workers=4)

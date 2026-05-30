@@ -2,7 +2,6 @@
 VLSI Interview Platform — PostgreSQL Database Module
 """
 import os
-import time
 from contextlib import contextmanager
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -76,6 +75,16 @@ def get_conn():
     try:
         yield conn
     finally:
+        # Reads use psycopg's default (autocommit off), so a plain SELECT opens an
+        # implicit transaction the callers never close. Roll it back here so the
+        # connection returns to the pool IDLE instead of INTRANS/INERROR — otherwise
+        # the pool rolls it back itself and logs a noisy warning on every read.
+        # Writers commit before this runs, leaving the connection IDLE (a no-op here).
+        try:
+            if conn.info.transaction_status != 0:  # 0 == TransactionStatus.IDLE
+                conn.rollback()
+        except Exception:
+            pass
         _pool.putconn(conn)
 
 
@@ -110,206 +119,6 @@ def get_or_create_candidate(candidate_key, candidate_name, domain="physical_desi
     except Exception as e:
         print(f"[DB] get_or_create_candidate failed: {e}")
         return None
-
-
-def get_candidate_sessions(candidate_key):
-    """Returns list of past session summaries for a candidate."""
-    if not _db_available:
-        return []
-    try:
-        from psycopg.rows import dict_row
-        with get_conn() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                # Get all sessions for this candidate
-                cur.execute("""
-                    SELECT s.id as db_id, s.session_id, s.overall_score, s.difficulty_level,
-                           s.turns_completed, s.started_at, s.grade, s.mode,
-                           s.early_end_reason, s.warmup_performance
-                    FROM sessions s
-                    JOIN candidates c ON s.candidate_id = c.id
-                    WHERE c.candidate_key = %s
-                    ORDER BY s.started_at ASC
-                """, (candidate_key,))
-                sessions = cur.fetchall()
-
-                return [
-                    {
-                        "session_id": sess["session_id"],
-                        "date": sess["started_at"].strftime("%Y-%m-%d %H:%M") if sess["started_at"] else "",
-                        "overall_score": sess["overall_score"] or 0,
-                        "difficulty_level": sess["difficulty_level"] or 1,
-                        "turns_completed": sess["turns_completed"] or 0,
-                        "warmup_performance": sess["warmup_performance"] or "pending",
-                    }
-                    for sess in sessions
-                ]
-    except Exception as e:
-        print(f"[DB] get_candidate_sessions failed: {e}")
-        return []
-
-
-def get_candidate_session_count(candidate_key):
-    """Fast check: how many completed sessions does this candidate have?"""
-    if not _db_available:
-        return 0
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT COUNT(*) FROM sessions s
-                    JOIN candidates c ON s.candidate_id = c.id
-                    WHERE c.candidate_key = %s
-                """, (candidate_key,))
-                return cur.fetchone()[0]
-    except Exception as e:
-        print(f"[DB] get_candidate_session_count failed: {e}")
-        return 0
-
-
-def save_session(session_id, candidate_id, mode, domain, level, difficulty_level,
-                 turns_completed, overall_score, grade, trajectory, warmup_performance,
-                 end_reason, started_at):
-    """Save complete session data to DB. Idempotent."""
-    if not _db_available or not candidate_id:
-        return None
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO sessions
-                        (session_id, candidate_id, mode, domain, level, difficulty_level,
-                         turns_completed, overall_score, grade, trajectory, warmup_performance,
-                         end_reason, started_at, ended_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s), NOW())
-                    ON CONFLICT (session_id) DO UPDATE SET
-                        difficulty_level = EXCLUDED.difficulty_level,
-                        turns_completed = EXCLUDED.turns_completed,
-                        overall_score = EXCLUDED.overall_score,
-                        grade = EXCLUDED.grade,
-                        trajectory = EXCLUDED.trajectory,
-                        warmup_performance = EXCLUDED.warmup_performance,
-                        end_reason = EXCLUDED.end_reason,
-                        ended_at = NOW()
-                    RETURNING id
-                """, (session_id, candidate_id, mode, domain, level, difficulty_level,
-                      turns_completed, overall_score, grade, trajectory, warmup_performance,
-                      end_reason, started_at))
-                db_id = cur.fetchone()[0]
-                conn.commit()
-                print(f"[DB] Session {session_id[:8]} saved: score={overall_score}, turns={turns_completed}")
-                return db_id
-    except Exception as e:
-        print(f"[DB] save_session failed: {e}")
-        return None
-
-
-def save_turn(db_session_id, turn_number, phase, question, question_type, topic,
-              difficulty, interviewer_mode, answer, answer_duration_sec, word_count):
-    """Save a single turn. Returns turn DB id."""
-    if not _db_available or not db_session_id:
-        return None
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO turns (session_id, turn_number, phase, question, question_type,
-                                       topic, difficulty, interviewer_mode, answer,
-                                       answer_duration_sec, word_count)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id
-                """, (db_session_id, turn_number, phase, question, question_type,
-                      topic, difficulty, interviewer_mode, answer or "",
-                      answer_duration_sec, word_count))
-                conn.commit()
-                return cur.fetchone()[0]
-    except Exception as e:
-        print(f"[DB] save_turn failed: {e}")
-        return None
-
-
-def save_evaluation(turn_id, score, quality, accuracy, quadrant, score_reasoning,
-                    expected_points, missing_points, level_gap, notes):
-    """Save evaluation for a turn."""
-    if not _db_available or not turn_id:
-        return
-    try:
-        import json
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO evaluations (turn_id, score, quality, accuracy, quadrant,
-                                             score_reasoning, expected_points, missing_points,
-                                             level_gap, notes)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (turn_id, score, quality, accuracy, quadrant, score_reasoning,
-                      json.dumps(expected_points or []), json.dumps(missing_points or []),
-                      level_gap, notes))
-                conn.commit()
-    except Exception as e:
-        print(f"[DB] save_evaluation failed: {e}")
-
-
-def save_behavioral(turn_id, filler_rate, pronoun_rate, correction_rate,
-                    thinking_pause_sec, above_level, contradiction, behavioral_flags):
-    """Save behavioral signals for a turn."""
-    if not _db_available or not turn_id:
-        return
-    try:
-        import json
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO behavioral_signals (turn_id, filler_rate, pronoun_rate,
-                                                    correction_rate, thinking_pause_sec,
-                                                    above_level, contradiction, behavioral_flags)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, (turn_id, filler_rate, pronoun_rate, correction_rate,
-                      thinking_pause_sec, above_level, contradiction,
-                      json.dumps(behavioral_flags or [])))
-                conn.commit()
-    except Exception as e:
-        print(f"[DB] save_behavioral failed: {e}")
-
-
-def save_llm_call(session_id, step, model, input_tokens, output_tokens,
-                  latency_ms, cost_usd, status, error=""):
-    """Save LLM call to DB for cost tracking."""
-    if not _db_available:
-        return
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO llm_calls (session_id, step, model, input_tokens, output_tokens,
-                                           latency_ms, cost_usd, status, error)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (session_id, step, model, input_tokens or 0, output_tokens or 0,
-                      latency_ms, cost_usd or 0, status, error or ""))
-                conn.commit()
-    except Exception as e:
-        print(f"[DB] save_llm_call failed: {e}")
-
-
-def save_report(db_session_id, technical_score, theory_score, communication_score,
-                behavior_score, overall_score, topic_breakdown, strengths, weaknesses):
-    """Save final interview report."""
-    if not _db_available or not db_session_id:
-        return
-    try:
-        import json
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO reports (session_id, technical_score, theory_score,
-                                         communication_score, behavior_score, overall_score,
-                                         topic_breakdown, strengths, weaknesses)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (db_session_id, technical_score, theory_score, communication_score,
-                      behavior_score, overall_score, json.dumps(topic_breakdown or {}),
-                      json.dumps(strengths or []), json.dumps(weaknesses or [])))
-                conn.commit()
-    except Exception as e:
-        print(f"[DB] save_report failed: {e}")
 
 
 def save_active_session(session_id, session_data):
@@ -391,6 +200,36 @@ def list_active_sessions():
         return []
 
 
+def list_ended_sessions_needing_eval(grace_sec: int = 120, limit: int = 50):
+    """Ended sessions with no evaluation, untouched for at least grace_sec.
+    The grace window keeps the sweeper from racing the foreground end-handler that
+    just spawned its own eval thread."""
+    if not _db_available:
+        return []
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT session_data FROM active_sessions
+                    WHERE session_data->>'phase' = 'ended'
+                      AND (session_data->'evaluation' IS NULL
+                           OR session_data->'evaluation' = 'null'::jsonb)
+                      AND updated_at < NOW() - (%s || ' seconds')::interval
+                    ORDER BY updated_at ASC
+                    LIMIT %s
+                """, (str(grace_sec), limit))
+                out = []
+                for (data,) in cur.fetchall():
+                    if isinstance(data, str):
+                        data = json.loads(data)
+                    out.append(data)
+                return out
+    except Exception as e:
+        print(f"[DB] list_ended_sessions_needing_eval failed: {e}")
+        return []
+
+
 def list_active_session_keys():
     """List all active session keys."""
     if not _db_available:
@@ -444,6 +283,98 @@ def update_session_ai_detection(session_id, turn_index, detection):
                 return True
     except Exception as e:
         print(f"[DB] update_session_ai_detection failed: {e}")
+        return False
+
+
+def get_app_config(key):
+    """Read shared app config (e.g. runtime LLM/TTS/STT settings). None on miss."""
+    if not _db_available:
+        return None
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT config_value FROM app_config WHERE config_key = %s", (key,))
+                row = cur.fetchone()
+                if row:
+                    val = row[0]
+                    if isinstance(val, str):
+                        import json
+                        return json.loads(val)
+                    return val
+                return None
+    except Exception as e:
+        print(f"[DB] get_app_config failed: {e}")
+        return None
+
+
+def save_app_config(key, value):
+    """Upsert shared app config. Durable source of truth across workers/restarts."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO app_config (config_key, config_value, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (config_key) DO UPDATE SET
+                        config_value = EXCLUDED.config_value,
+                        updated_at = NOW()
+                """, (key, json.dumps(value)))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] save_app_config failed: {e}")
+        return False
+
+
+def save_session_evaluation(session_id, evaluation):
+    """Merge the end-of-interview evaluation into the session blob via jsonb_set.
+    The evaluation runs in a background thread, so it targets ONLY the top-level
+    'evaluation' key rather than rewriting the whole blob — a full read-modify-write
+    would race the foreground turn handler and the ai_detection writer."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE active_sessions
+                    SET session_data = jsonb_set(session_data, '{evaluation}', %s::jsonb, true),
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                """, (json.dumps(evaluation), session_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] save_session_evaluation failed: {e}")
+        return False
+
+
+def append_session_obs(session_id, entry):
+    """Append one observability entry to the session's obs_log via jsonb concat.
+    Each UPDATE takes the row lock, so concurrent appends serialize and none are
+    lost — unlike a full-blob writeback, which would clobber the rest of the session."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE active_sessions
+                    SET session_data = jsonb_set(
+                            session_data, '{obs_log}',
+                            COALESCE(session_data->'obs_log', '[]'::jsonb) || %s::jsonb, true),
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                """, (json.dumps([entry]), session_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] append_session_obs failed: {e}")
         return False
 
 
