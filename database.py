@@ -401,6 +401,36 @@ def list_active_sessions():
         return []
 
 
+def list_ended_sessions_needing_eval(grace_sec: int = 120, limit: int = 50):
+    """Ended sessions with no evaluation, untouched for at least grace_sec.
+    The grace window keeps the sweeper from racing the foreground end-handler that
+    just spawned its own eval thread."""
+    if not _db_available:
+        return []
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT session_data FROM active_sessions
+                    WHERE session_data->>'phase' = 'ended'
+                      AND (session_data->'evaluation' IS NULL
+                           OR session_data->'evaluation' = 'null'::jsonb)
+                      AND updated_at < NOW() - (%s || ' seconds')::interval
+                    ORDER BY updated_at ASC
+                    LIMIT %s
+                """, (str(grace_sec), limit))
+                out = []
+                for (data,) in cur.fetchall():
+                    if isinstance(data, str):
+                        data = json.loads(data)
+                    out.append(data)
+                return out
+    except Exception as e:
+        print(f"[DB] list_ended_sessions_needing_eval failed: {e}")
+        return []
+
+
 def list_active_session_keys():
     """List all active session keys."""
     if not _db_available:

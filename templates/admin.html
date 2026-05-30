@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<script src="https://js.puter.com/v2/"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VLSI.AI — Platform</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -556,7 +555,7 @@ textarea::placeholder{color:var(--t4)}
           <select id="vc-provider" onchange="onProviderChange()" style="width:100%;padding:8px;border:1px solid var(--b);border-radius:6px;font-size:12px;font-family:inherit;background:var(--off)">
             <option value="inworld">Inworld TTS</option>
             <option value="deepgram">Deepgram Aura</option>
-            <option value="puter">Puter TTS (free, unlimited)</option>
+            <option value="kugel">Kugel TTS</option>
             <option value="mistral">Mistral Voxtral (voice clone)</option>
             <option value="browser">Browser speechSynthesis (free)</option>
           </select>
@@ -565,7 +564,7 @@ textarea::placeholder{color:var(--t4)}
         <!-- Voice Selection -->
         <div style="margin-bottom:16px;padding:14px;background:var(--w);border:1px solid var(--b);border-radius:8px">
           <div style="font-size:12px;font-weight:600;margin-bottom:8px">Voice</div>
-          <select id="vc-voice" onchange="toggleOpenAIOpts()" style="width:100%;padding:8px;border:1px solid var(--b);border-radius:6px;font-size:12px;font-family:inherit;background:var(--off)">
+          <select id="vc-voice" style="width:100%;padding:8px;border:1px solid var(--b);border-radius:6px;font-size:12px;font-family:inherit;background:var(--off)">
             <optgroup label="Inworld — Female" id="vc-voices-inworld">
               <option value="Sarah">Sarah (American)</option>
               <option value="Emma">Emma (British)</option>
@@ -586,58 +585,8 @@ textarea::placeholder{color:var(--t4)}
               <option value="default--jhuwmpq8kd6shf2emd0ma__ranjitha">Ranjitha (clone)</option>
               <option value="default--jhuwmpq8kd6shf2emd0ma__rita">Ritu (clone)</option>
             </optgroup>
-            <optgroup label="Puter — xAI" id="vc-voices-puter">
-              <option value="xai:eve">Eve (female, energetic)</option>
-              <option value="xai:ara">Ara (female, warm)</option>
-              <option value="xai:rex">Rex (male, confident)</option>
-              <option value="xai:sal">Sal (neutral, balanced)</option>
-              <option value="xai:leo">Leo (male, authoritative)</option>
-            </optgroup>
-            <optgroup label="Puter — Gemini" id="vc-voices-puter-gemini">
-              <option value="gemini:Puck">Puck</option>
-              <option value="gemini:Kore">Kore</option>
-              <option value="gemini:Charon">Charon</option>
-              <option value="gemini:Fenrir">Fenrir</option>
-              <option value="gemini:Aoede">Aoede</option>
-              <option value="gemini:Leda">Leda</option>
-              <option value="gemini:Orus">Orus</option>
-              <option value="gemini:Zephyr">Zephyr</option>
-            </optgroup>
-            <optgroup label="Puter — AWS Polly" id="vc-voices-puter-aws-polly">
-              <option value="aws-polly:Joanna">Joanna (American female)</option>
-              <option value="aws-polly:Matthew">Matthew (American male)</option>
-              <option value="aws-polly:Ivy">Ivy (American child)</option>
-              <option value="aws-polly:Joey">Joey (American male)</option>
-              <option value="aws-polly:Amy">Amy (British female)</option>
-              <option value="aws-polly:Brian">Brian (British male)</option>
-              <option value="aws-polly:Aditi">Aditi (Indian female)</option>
-              <option value="aws-polly:Raveena">Raveena (Indian female)</option>
-              <option value="aws-polly:Kajal">Kajal (Indian female)</option>
-              <option value="aws-polly:Camila">Camila (Portuguese female)</option>
-              <option value="aws-polly:Lucia">Lucia (Spanish female)</option>
-              <option value="aws-polly:Celine">Celine (French female)</option>
-            </optgroup>
-            <optgroup label="Puter — ElevenLabs" id="vc-voices-puter-elevenlabs">
-              <option value="elevenlabs:21m00Tcm4TlvDq8ikWAM">Rachel (American female)</option>
-              <option value="elevenlabs:AZnzlk1XvdvUeBnXmlld">Domi (American female)</option>
-              <option value="elevenlabs:EXAVITQu4vr4xnSDxMaL">Bella (American female)</option>
-              <option value="elevenlabs:MF3mGyEYCl7XYWbV9V6O">Elli (young female)</option>
-              <option value="elevenlabs:jsCqWAovK2LkecY7zXl4">Freya (female)</option>
-              <option value="elevenlabs:ErXwobaYiN019PkySvjV">Antoni (male)</option>
-              <option value="elevenlabs:TxGEqnHWrfWFTfGW9XjX">Josh (male)</option>
-              <option value="elevenlabs:pNInz6obpgDQGcFmaJgB">Adam (male)</option>
-            </optgroup>
-            <optgroup label="Puter — OpenAI" id="vc-voices-puter-openai">
-              <option value="openai:alloy">Alloy</option>
-              <option value="openai:ash">Ash</option>
-              <option value="openai:ballad">Ballad</option>
-              <option value="openai:coral">Coral</option>
-              <option value="openai:echo">Echo</option>
-              <option value="openai:fable">Fable</option>
-              <option value="openai:nova">Nova</option>
-              <option value="openai:onyx">Onyx</option>
-              <option value="openai:sage">Sage</option>
-              <option value="openai:shimmer">Shimmer</option>
+            <optgroup label="Kugel" id="vc-voices-kugel">
+              <option value="1285">Voice 1285</option>
             </optgroup>
             <optgroup label="Deepgram Aura" id="vc-voices-deepgram">
               <option value="aura-asteria-en">Asteria (female)</option>
@@ -663,7 +612,7 @@ textarea::placeholder{color:var(--t4)}
         <!-- Voice Clone -->
         <div style="padding:14px;background:var(--w);border:1px solid var(--b);border-radius:8px">
           <div style="font-size:12px;font-weight:600;margin-bottom:8px">Clone Your Voice <span style="font-size:9px;font-weight:400;color:var(--t3)">(Inworld API only)</span></div>
-          <div style="font-size:10px;color:var(--t3);margin-bottom:10px">Upload 30-120 seconds of clear speech audio. Uses Inworld instant voice cloning. Puter/ElevenLabs do not support cloning.</div>
+          <div style="font-size:10px;color:var(--t3);margin-bottom:10px">Upload 30-120 seconds of clear speech audio. Uses Inworld instant voice cloning.</div>
           <input type="text" id="vc-clone-name" placeholder="Voice name (e.g. Kira)" style="width:100%;padding:7px 10px;border:1px solid var(--b);border-radius:6px;font-size:11px;font-family:inherit;background:var(--off);margin-bottom:8px">
           <input type="file" id="vc-clone-file" accept="audio/*,.mp3,.wav,.webm,.m4a" style="font-size:11px;margin-bottom:8px">
           <button onclick="cloneVoice()" id="vc-clone-btn" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:500;cursor:pointer;font-family:inherit;width:100%">Upload & Clone Voice</button>
@@ -678,33 +627,6 @@ textarea::placeholder{color:var(--t4)}
         <div style="padding:14px;background:var(--w);border:1px solid var(--b);border-radius:8px;margin-bottom:12px">
           <div style="font-size:11px;font-weight:500;color:var(--t3);margin-bottom:6px">Test text</div>
           <textarea id="vc-test-text" rows="4" style="width:100%;padding:10px;border:1px solid var(--b);border-radius:6px;font-size:12px;font-family:inherit;background:var(--off);resize:vertical">Hi Rahul, welcome to the interview. I'm going to ask you about clock tree synthesis today. Let's start with a simple question, what is clock skew and why does it matter?</textarea>
-          <!-- AWS Polly-specific options -->
-          <div id="vc-polly-opts" style="display:none;margin-top:8px;padding:10px;background:var(--off);border-radius:6px;border:1px solid var(--b)">
-            <div style="display:flex;gap:8px;align-items:center">
-              <label style="font-size:10px;font-weight:500;color:var(--t3);min-width:50px">Engine</label>
-              <select id="vc-polly-engine" style="flex:1;padding:5px 8px;border:1px solid var(--b);border-radius:4px;font-size:11px;font-family:inherit;background:var(--w)">
-                <option value="generative">Generative (most natural)</option>
-                <option value="long-form">Long-form (extended content)</option>
-                <option value="neural" selected>Neural (enhanced)</option>
-                <option value="standard">Standard (basic)</option>
-              </select>
-            </div>
-          </div>
-          <!-- OpenAI-specific options -->
-          <div id="vc-openai-opts" style="display:none;margin-top:8px;padding:10px;background:var(--off);border-radius:6px;border:1px solid var(--b)">
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-              <label style="font-size:10px;font-weight:500;color:var(--t3);min-width:50px">Model</label>
-              <select id="vc-openai-model" style="flex:1;padding:5px 8px;border:1px solid var(--b);border-radius:4px;font-size:11px;font-family:inherit;background:var(--w)">
-                <option value="gpt-4o-mini-tts">gpt-4o-mini-tts (default)</option>
-                <option value="tts-1">tts-1 (fast)</option>
-                <option value="tts-1-hd">tts-1-hd (quality)</option>
-              </select>
-            </div>
-            <div style="display:flex;gap:8px;align-items:start">
-              <label style="font-size:10px;font-weight:500;color:var(--t3);min-width:50px;padding-top:5px">Tone</label>
-              <input id="vc-openai-instructions" type="text" placeholder="e.g. calm professional interviewer, slight Indian accent" style="flex:1;padding:5px 8px;border:1px solid var(--b);border-radius:4px;font-size:11px;font-family:inherit;background:var(--w)">
-            </div>
-          </div>
           <div style="display:flex;gap:8px;margin-top:8px">
             <button onclick="testVoice()" id="vc-test-btn" style="flex:1;padding:9px;background:#16a34a;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit">▶ Play Voice</button>
             <button onclick="stopVoiceTest()" style="padding:9px 16px;background:var(--w);color:var(--t2);border:1px solid var(--b);border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit">■ Stop</button>
@@ -1419,8 +1341,6 @@ function onProviderChange() {
   document.querySelectorAll('#vc-voice optgroup').forEach(g => g.style.display = 'none');
   if (provider === 'inworld') {
     document.querySelectorAll('#vc-voice optgroup[id*="inworld"]').forEach(g => g.style.display = '');
-  } else if (provider === 'puter') {
-    document.querySelectorAll('#vc-voice optgroup[id*="puter"]').forEach(g => g.style.display = '');
   } else {
     const group = document.getElementById('vc-voices-' + provider);
     if (group) group.style.display = '';
@@ -1430,16 +1350,6 @@ function onProviderChange() {
   // Select first visible option
   const visible = document.querySelector('#vc-voice optgroup:not([style*="none"]) option');
   if (visible) document.getElementById('vc-voice').value = visible.value;
-  // Show OpenAI opts if puter+openai voice selected
-  toggleOpenAIOpts();
-}
-
-function toggleOpenAIOpts() {
-  const voice = document.getElementById('vc-voice').value;
-  const openaiDiv = document.getElementById('vc-openai-opts');
-  const pollyDiv = document.getElementById('vc-polly-opts');
-  if (openaiDiv) openaiDiv.style.display = voice.startsWith('openai:') ? '' : 'none';
-  if (pollyDiv) pollyDiv.style.display = voice.startsWith('aws-polly:') ? '' : 'none';
 }
 
 async function setInterviewVoice() {
@@ -1547,39 +1457,6 @@ async function testVoice() {
       return;
     }
 
-    if (provider === 'puter') {
-      // Client-side Puter TTS — free, no API key
-      const [puterProvider, puterVoice] = voice.split(':');
-      status.textContent = 'Calling Puter TTS (' + puterProvider + '/' + puterVoice + ')...';
-      const t0 = Date.now();
-      const opts = { provider: puterProvider, voice: puterVoice };
-      // Provider-specific params
-      if (puterProvider === 'aws-polly') {
-        const pollyVoice = puterVoice;
-        const standardOnly = ['Aditi', 'Raveena'];
-        const indianVoices = ['Aditi', 'Raveena', 'Kajal'];
-        if (standardOnly.includes(pollyVoice)) {
-          opts.engine = 'standard';
-        } else {
-          opts.engine = document.getElementById('vc-polly-engine').value || 'neural';
-        }
-        opts.language = indianVoices.includes(pollyVoice) ? 'en-IN' : 'en-US';
-      }
-      if (puterProvider === 'openai') {
-        opts.model = document.getElementById('vc-openai-model').value || 'gpt-4o-mini-tts';
-        const instr = document.getElementById('vc-openai-instructions').value.trim();
-        if (instr) opts.instructions = instr;
-      }
-      if (puterProvider === 'elevenlabs') { opts.model = 'eleven_multilingual_v2'; }
-      const audio = await puter.ai.txt2speech(text, opts);
-      status.textContent = `Playing (Puter ${puterProvider}) — ${Date.now()-t0}ms`;
-      _vcTestAudio = audio;
-      audio.onended = () => { status.textContent = `Done — ${Date.now()-t0}ms`; };
-      audio.play();
-      btn.disabled = false; btn.textContent = '▶ Play Voice';
-      return;
-    }
-
     // Server-side TTS
     const r = await fetch('/api/admin/test-tts', {
       method: 'POST', credentials: 'include',
@@ -1589,7 +1466,8 @@ async function testVoice() {
     const d = await r.json();
     if (d.audio) {
       const bytes = Uint8Array.from(atob(d.audio), c => c.charCodeAt(0));
-      const blob = new Blob([bytes], {type: 'audio/mpeg'});
+      const mime = provider === 'kugel' ? 'audio/wav' : 'audio/mpeg';
+      const blob = new Blob([bytes], {type: mime});
       const url = URL.createObjectURL(blob);
       _vcTestAudio = new Audio(url);
       _vcTestAudio.onended = () => { URL.revokeObjectURL(url); status.textContent = `Done — ${d.latency_ms}ms`; };

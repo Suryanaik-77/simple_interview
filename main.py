@@ -32,6 +32,9 @@ DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 INWORLD_API_KEY = os.getenv("INWORLD_API_KEY", "")
 INWORLD_VOICE_ID = os.getenv("INWORLD_VOICE_ID", "Sarah")
 INWORLD_MODEL_ID = os.getenv("INWORLD_MODEL_ID", "inworld-tts-1.5-mini")
+KUGEL_API_KEY = os.getenv("KUGEL_API_KEY", "")
+KUGEL_MODEL_ID = os.getenv("KUGEL_MODEL_ID", "kugel-2.5")
+KUGEL_SAMPLE_RATE = int(os.getenv("KUGEL_SAMPLE_RATE", "24000"))
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
 JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
@@ -326,6 +329,7 @@ _TTS_PRICING = {
     "deepgram": 0.015,
     "inworld": 0.015,
     "openai": 0.015,
+    "kugel": 0.046,  # ~€0.043/min (Turbo) ≈ $0.046/1K chars at ~1000 chars/min English
 }
 
 
@@ -465,6 +469,44 @@ def stream_llm(messages, model_id="", temperature=0.5, max_tokens=500):
             yield chunk.choices[0].delta.content
 
 
+def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 24000) -> bytes:
+    """Wrap raw PCM s16le bytes in a WAV header. Kugel returns raw PCM, but the
+    browser <audio> element and the rest of the pipeline expect a container."""
+    import struct
+    data_size = len(pcm_bytes)
+    byte_rate = sample_rate * 2  # mono, 16-bit
+    header = b"RIFF" + struct.pack("<I", 36 + data_size) + b"WAVE"
+    header += b"fmt " + struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, byte_rate, 2, 16)
+    header += b"data" + struct.pack("<I", data_size)
+    return header + pcm_bytes
+
+
+def _kugel_tts(text: str, voice: str) -> bytes:
+    """Call Kugel TTS and return playable WAV bytes (PCM wrapped). Returns b'' on failure."""
+    if not KUGEL_API_KEY or not text.strip():
+        return b""
+    try:
+        voice_id = int(voice) if voice and str(voice).isdigit() else None
+    except (TypeError, ValueError):
+        voice_id = None
+    body = {"text": text[:10000], "model_id": KUGEL_MODEL_ID, "sample_rate": KUGEL_SAMPLE_RATE}
+    if voice_id is not None:
+        body["voice_id"] = voice_id
+    try:
+        r = http_requests.post(
+            "https://api.kugelaudio.com/v1/tts/generate",
+            headers={"Authorization": f"Bearer {KUGEL_API_KEY}",
+                     "Content-Type": "application/json; charset=utf-8"},
+            json=body, timeout=15,
+        )
+        r.raise_for_status()
+        sr = int(r.headers.get("X-Sample-Rate", KUGEL_SAMPLE_RATE))
+        return _pcm_to_wav(r.content, sample_rate=sr)
+    except Exception as e:
+        print(f"[TTS] Kugel error: {e}")
+        return b""
+
+
 def tts_chunk(text: str) -> bytes:
     """Generate TTS audio bytes for a text chunk. Returns raw audio bytes."""
     if not RUNTIME_CONFIG.get("tts_enabled", True) or not text.strip():
@@ -481,6 +523,11 @@ def tts_chunk(text: str) -> bytes:
             return r.content
         except Exception as e:
             print(f"[TTS Stream] Deepgram error: {e}")
+
+    if provider == "kugel" and KUGEL_API_KEY:
+        wav = _kugel_tts(text[:2000], voice)
+        if wav:
+            return wav
 
     if provider == "inworld" and INWORLD_API_KEY:
         try:
@@ -847,6 +894,14 @@ def synthesize_speech(text: str) -> tuple[str, int]:
             return base64.b64encode(r.content).decode(), latency
         except Exception as e:
             print(f"[TTS] Deepgram error: {e}")
+
+    # Kugel
+    if provider == "kugel" and KUGEL_API_KEY:
+        wav = _kugel_tts(text[:2000], voice)
+        latency = round((time.time() - t0) * 1000)
+        if wav:
+            print(f"[TTS] Kugel {latency}ms — {len(text)} chars (voice={voice})")
+            return base64.b64encode(wav).decode(), latency
 
     # Inworld
     if provider == "inworld" and INWORLD_API_KEY:
@@ -1331,7 +1386,9 @@ Rules:
 # answered enough questions to be judged fairly. Scores the whole transcript
 # with a rubric tuned to the candidate's level.
 
-MIN_ANSWERS_FOR_EVAL = 8
+MIN_ANSWERS_FOR_EVAL = int(os.getenv("MIN_ANSWERS_FOR_EVAL", "8"))
+EVAL_SWEEP_INTERVAL_SEC = int(os.getenv("EVAL_SWEEP_INTERVAL_SEC", "300"))  # how often the sweeper wakes
+EVAL_SWEEP_GRACE_SEC = int(os.getenv("EVAL_SWEEP_GRACE_SEC", "120"))        # don't touch a session updated more recently than this
 
 # Shared output contract. Kept separate from the rubric text so the {...} braces
 # here never collide with prompt placeholders (we fill with str.replace, not
@@ -1572,6 +1629,30 @@ def _evaluate_async(session):
     isn't delayed. Call only AFTER the final full-session writeback, so the
     thread's targeted jsonb_set lands on top of it rather than being overwritten."""
     threading.Thread(target=evaluate_interview, args=(session,), daemon=True).start()
+
+
+def _eval_sweeper_loop():
+    """Catch sessions whose foreground eval never ran (browser closed, worker
+    restart, missing [END_INTERVIEW]). Picks up any ended session without an
+    evaluation that's been idle past the grace window."""
+    while True:
+        try:
+            time.sleep(EVAL_SWEEP_INTERVAL_SEC)
+            if not database.is_available():
+                continue
+            pending = database.list_ended_sessions_needing_eval(EVAL_SWEEP_GRACE_SEC)
+            if pending:
+                print(f"[EvalSweep] {len(pending)} ended session(s) need evaluation")
+            for sess in pending:
+                try:
+                    evaluate_interview(sess)
+                except Exception as e:
+                    print(f"[EvalSweep] {sess.get('id', '?')[:8]} failed: {e}")
+        except Exception as e:
+            print(f"[EvalSweep] loop error: {e}")
+
+
+threading.Thread(target=_eval_sweeper_loop, daemon=True, name="eval-sweeper").start()
 
 
 # ── API Endpoints ────────────────────────────────────────────────────────
