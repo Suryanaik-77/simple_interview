@@ -1117,8 +1117,8 @@ def detect_ai_answer(answer: str, session: dict, turn_index: int):
     Uses Sapling API if available, falls back to LLM-based detection."""
     if not ANTICHEAT_FEATURES.get("ai_answer_detect", {}).get("enabled", True):
         return
-    if not answer or len(answer.split()) < 10:
-        return  # Too short to detect
+    if not answer or len(answer.split()) < 50:
+        return  # Too short for reliable detection (Sapling precision drops below ~200 words)
 
     result = {"checked": True, "is_ai": False, "score": 0.0, "method": "", "sapling": None, "llm": None}
 
