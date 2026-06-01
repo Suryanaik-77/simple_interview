@@ -803,22 +803,17 @@ def _get_stt_prompt(domain: str) -> str:
     return _OPENAI_STT_PROMPT
 
 
-def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") -> tuple[str, int, int]:
-    """Returns (transcript, latency_ms, speakers). speakers=0 means not measured (OpenAI path)."""
+def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") -> tuple[str, int]:
+    """Returns (transcript, latency_ms)."""
     provider = RUNTIME_CONFIG.get("stt_provider", "openai")
     model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
     tmp_path = None
     t0 = time.time()
 
-    # Deepgram STT with keyword boosting + diarization (background-voice anti-cheat signal)
+    # Deepgram STT with VLSI keyword boosting
     if provider == "deepgram" and DEEPGRAM_API_KEY:
         try:
-            # nova-2 general is single-speaker-tuned and collapses uneven-volume
-            # voices into speaker 0. nova-2-meeting is trained on multi-speaker
-            # audio and labels them correctly — same price, same latency, same keyword support.
-            dg_model = "nova-2-meeting" if model == "nova-2" else model
-            url = (f"https://api.deepgram.com/v1/listen?model={dg_model}"
-                   f"&language=en&smart_format=true&diarize=true&utterances=true&{_DG_KEYWORDS}")
+            url = f"https://api.deepgram.com/v1/listen?model={model}&language=en&smart_format=true&{_DG_KEYWORDS}"
             r = http_requests.post(url,
                 headers={"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": f"audio/{ext}"},
                 data=audio_bytes, timeout=15)
@@ -826,24 +821,9 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
             data = r.json()
             alt = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0]
             text = alt.get("transcript", "").strip()
-            # Per-word speaker counts (filter Deepgram's occasional 1-word mis-splits with >=3).
-            word_counts: dict[int, int] = {}
-            for w in alt.get("words", []):
-                spk = w.get("speaker")
-                if spk is not None:
-                    word_counts[spk] = word_counts.get(spk, 0) + 1
-            speakers_word = sum(1 for n in word_counts.values() if n >= 3)
-            # Per-utterance speakers — sometimes catches separations that per-word labeling misses.
-            utt_speakers = {u.get("speaker") for u in data.get("results", {}).get("utterances", [])
-                            if u.get("speaker") is not None}
-            speakers_utt = len(utt_speakers)
-            speakers = max(speakers_word, speakers_utt)
             latency = round((time.time() - t0) * 1000)
-            diag = (f" word_diarize={dict(sorted(word_counts.items()))}"
-                    f" utt_speakers={sorted(utt_speakers)} → speakers={speakers}"
-                    if word_counts or utt_speakers else " diarize=none")
-            print(f"[STT] Deepgram/{dg_model} {latency}ms — {len(text)} chars{diag}")
-            return text, latency, speakers
+            print(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars")
+            return text, latency
         except Exception as e:
             print(f"[STT] Deepgram error: {e}, falling back to OpenAI")
 
@@ -865,12 +845,12 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
         # and contains "Common terms:" so those substrings cover all variants).
         if text and ("This is a VLSI" in text or "VLSI semiconductor" in text or "Common terms:" in text):
             print(f"[STT] OpenAI/{model} {latency}ms — HALLUCINATION filtered (prompt echo)")
-            return "", latency, 0
+            return "", latency
         print(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars (domain={domain or 'generic'})")
-        return text, latency, 0
+        return text, latency
     except Exception as e:
         print(f"[STT] Error: {e}")
-        return "", round((time.time() - t0) * 1000), 0
+        return "", round((time.time() - t0) * 1000)
     finally:
         if tmp_path:
             try: os.unlink(tmp_path)
@@ -1788,19 +1768,15 @@ def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form(""
     # Pick the STT prompt by the candidate's domain (from resume).
     session = sessions.get(session_id)
     domain = (session.get("resume", {}).get("domain", "") if session else "") or ""
-    transcript, stt_ms, speakers = transcribe_audio(audio_bytes, ext, domain=domain)
+    transcript, stt_ms = transcribe_audio(audio_bytes, ext, domain=domain)
     # Store STT timing + cost in session
     stt_model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
     if session:
         session.setdefault("obs_log", []).append(
             _obs_entry("STT", stt_model, stt_ms, "success" if transcript else "failure",
                        chars=len(transcript), cost_usd=_calc_stt_cost(stt_model, stt_ms)))
-        if speakers > 1:
-            session.setdefault("background_voice_events", []).append(
-                {"ts": time.time(), "speakers": speakers, "transcript": transcript[:200]})
-            print(f"[Anti-cheat] Background voice detected (session={session_id}, speakers={speakers})")
         sessions[session_id] = session
-    return {"transcript": transcript, "stt_ms": stt_ms, "speakers": speakers}
+    return {"transcript": transcript, "stt_ms": stt_ms}
 
 
 @app.post("/api/submit-answer")
