@@ -10,6 +10,7 @@ import os, time, json, re, secrets, tempfile, base64, threading, smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from urllib.parse import quote
 from secrets_proxy import get_secret
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Request, Response, WebSocket, WebSocketDisconnect
@@ -756,8 +757,9 @@ VLSI_KEYWORDS = [
     "regression", "waveform", "debug",
 ]
 
-# Deepgram keywords format: "word:boost" (boost 1-10)
-_DG_KEYWORDS = "&".join(f"keywords={k}:5" for k in VLSI_KEYWORDS[:50])
+# Deepgram keywords format: "word:boost" (boost 1-10). Multi-word entries
+# must be URL-encoded — unencoded spaces would make the query string invalid → 400.
+_DG_KEYWORDS = "&".join(f"keywords={quote(k)}:5" for k in VLSI_KEYWORDS[:50])
 
 # Generic STT prompt — fallback when domain is unknown or its file is missing.
 _OPENAI_STT_PROMPT = (

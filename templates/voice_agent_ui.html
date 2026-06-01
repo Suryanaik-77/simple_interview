@@ -124,6 +124,7 @@
         }
 
         .detail-val { font-size: 12px; color: #222; }
+        .detail-val.alert { color: #c0392b; font-weight: 500; }
 
         .skills-wrap { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
 
@@ -393,6 +394,11 @@
             <div class="detail-row">
                 <div class="detail-label">experience</div>
                 <div class="detail-val" id="d-exp">0 years</div>
+            </div>
+
+            <div class="detail-row" id="bg-voice-row" style="display:none;">
+                <div class="detail-label">background voice detected</div>
+                <div class="detail-val alert" id="bg-voice-val">0</div>
             </div>
 
         </div>
@@ -1646,6 +1652,7 @@
                         if (txt) _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
                         if ((td.speakers || 0) > 1) {
                             bgVoiceCount++;
+                            updateBgVoiceBadge();
                             sendAntiCheat('background_voice', `speakers:${td.speakers},count:${bgVoiceCount}`);
                             console.log(`[Anti-cheat] Background voice detected (speakers=${td.speakers}, total=${bgVoiceCount})`);
                         }
@@ -1678,6 +1685,7 @@
                 _lastSttMs = td.stt_ms || 0;
                 if ((td.speakers || 0) > 1) {
                     bgVoiceCount++;
+                    updateBgVoiceBadge();
                     sendAntiCheat('background_voice', `speakers:${td.speakers},count:${bgVoiceCount}`);
                     console.log(`[Anti-cheat] Background voice detected (speakers=${td.speakers}, total=${bgVoiceCount})`);
                 }
@@ -1996,6 +2004,15 @@
     let tabSwitchCount = 0;
     let tabLeaveWarnings = 0;
     let bgVoiceCount = 0;
+    function updateBgVoiceBadge() {
+        const row = document.getElementById('bg-voice-row');
+        const val = document.getElementById('bg-voice-val');
+        if (!row || !val) return;
+        if (bgVoiceCount > 0) {
+            row.style.display = '';
+            val.textContent = bgVoiceCount;
+        }
+    }
     let screenShareStream = null;
 
     // Tab switch warning overlay
