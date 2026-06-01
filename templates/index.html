@@ -60,6 +60,24 @@ body { font-family: 'Inter', sans-serif; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 .pulse { animation: pulse 1.5s infinite; }
 .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; }
+/* Report card */
+.score-ring { --pct: 0; width:140px; height:140px; border-radius:50%;
+  background: conic-gradient(var(--ring-col, #ea580c) calc(var(--pct)*1%), #f3f4f6 0);
+  display:flex; align-items:center; justify-content:center; position:relative; }
+.score-ring::before { content:''; position:absolute; inset:10px; background:#fff; border-radius:50%; }
+.score-ring > .score-inner { position:relative; text-align:center; }
+.pq-row { padding:10px 12px; border-bottom:1px solid #f3f4f6; display:flex; gap:14px; align-items:flex-start; }
+.pq-row:last-child { border-bottom:none; }
+.pq-num { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; color:#9ca3af; padding-top:2px; min-width:34px; }
+.pq-q { font-size:13px; color:#111827; flex:1; line-height:1.45; }
+.pq-c { font-size:11px; color:#6b7280; margin-top:3px; }
+.pq-score { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:13px; font-weight:600; min-width:48px; text-align:right; }
+.topic-bar { height:6px; background:#f3f4f6; border-radius:3px; overflow:hidden; flex:1; }
+.topic-fill { height:100%; border-radius:3px; transition:width .6s ease; }
+.chip-good { background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0; }
+.chip-warn { background:#fffbeb; color:#d97706; border:1px solid #fde68a; }
+.chip-bad  { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; }
+.chip { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; }
 </style>
 </head>
 <body class="bg-surface-dim min-h-screen flex">
@@ -117,7 +135,7 @@ body { font-family: 'Inter', sans-serif; }
   <div class="max-w-[1040px] mx-auto px-4 md:px-8 py-5 md:py-8">
 
     <!-- ── Top Bar: Welcome + Status ── -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
+    <div id="lobby-top" class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
       <div>
         <h2 class="text-xl md:text-2xl font-bold text-text-primary tracking-tight" id="welcome-text">Welcome! <span class="inline-block">&#128075;</span></h2>
         <p class="text-sm text-text-secondary mt-0.5">Let's get you all set for your AI interview.</p>
@@ -134,6 +152,8 @@ body { font-family: 'Inter', sans-serif; }
         </button>
       </div>
     </div>
+
+    <div id="lobby-view">
 
     <!-- ── Row 1: Mic + Camera ── -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
@@ -348,6 +368,106 @@ body { font-family: 'Inter', sans-serif; }
       </div>
     </div>
 
+    </div><!-- /#lobby-view -->
+
+    <!-- ═══ REPORT CARD VIEW (shown when ?show_report=1) ═══ -->
+    <div id="report-view" class="hidden">
+
+      <!-- Hero: overall score + verdict -->
+      <div class="card mb-5">
+        <div class="flex flex-col md:flex-row items-center gap-6">
+          <div class="score-ring" id="rc-ring">
+            <div class="score-inner">
+              <div class="text-4xl font-bold text-text-primary" id="rc-score">–</div>
+              <div class="text-[10px] uppercase tracking-[0.18em] text-text-tertiary mt-0.5">out of 10</div>
+            </div>
+          </div>
+          <div class="flex-1 text-center md:text-left">
+            <div class="flex items-center justify-center md:justify-start gap-2 mb-1.5">
+              <span class="chip" id="rc-fit-chip">Level Fit</span>
+              <span class="chip chip-good" id="rc-comm-chip">Communication 0/10</span>
+            </div>
+            <h2 class="text-xl md:text-2xl font-bold text-text-primary tracking-tight" id="rc-verdict">Interview Complete</h2>
+            <p class="text-sm text-text-secondary mt-1.5" id="rc-meta">–</p>
+          </div>
+          <div class="flex flex-col gap-2 w-full md:w-auto">
+            <button onclick="location.href='/'" class="px-5 py-2 rounded-full bg-brand text-white text-sm font-semibold hover:bg-brand-dark transition-colors">
+              <span class="material-symbols-outlined text-sm align-middle mr-1">restart_alt</span>New Interview
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- "Skipped / pending / error" alternate card (toggled by JS) -->
+      <div class="card mb-5 hidden" id="rc-alt">
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-outlined text-warn">info</span>
+          <div>
+            <h3 class="text-sm font-semibold text-text-primary mb-1" id="rc-alt-title">Report unavailable</h3>
+            <p class="text-xs text-text-secondary" id="rc-alt-body">–</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Strengths + Areas to Improve -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5" id="rc-strengths-grid">
+        <div class="card">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="material-symbols-outlined text-success">check_circle</span>
+            <h3 class="text-sm font-semibold text-text-primary">Strengths</h3>
+          </div>
+          <ul class="space-y-2" id="rc-strengths"></ul>
+        </div>
+        <div class="card">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="material-symbols-outlined text-warn">trending_up</span>
+            <h3 class="text-sm font-semibold text-text-primary">Areas to Improve</h3>
+          </div>
+          <ul class="space-y-2" id="rc-weaknesses"></ul>
+        </div>
+      </div>
+
+      <!-- Topic breakdown -->
+      <div class="card mb-5" id="rc-topics-card">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="material-symbols-outlined text-brand">donut_small</span>
+          <h3 class="text-sm font-semibold text-text-primary">Topic Breakdown</h3>
+        </div>
+        <div class="space-y-3" id="rc-topics"></div>
+      </div>
+
+      <!-- Communication note -->
+      <div class="card mb-5 hidden" id="rc-comm-card">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="material-symbols-outlined text-brand">forum</span>
+          <h3 class="text-sm font-semibold text-text-primary">Communication</h3>
+        </div>
+        <p class="text-sm text-text-secondary leading-relaxed" id="rc-comm-text">–</p>
+      </div>
+
+      <!-- Per-question table -->
+      <div class="card mb-5" id="rc-pq-card">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-brand">list_alt</span>
+            <h3 class="text-sm font-semibold text-text-primary">Per-Question Scores</h3>
+          </div>
+          <span class="text-[11px] text-text-tertiary" id="rc-pq-count">0 questions</span>
+        </div>
+        <div class="border border-outline rounded-xl overflow-hidden" id="rc-pq-list"></div>
+      </div>
+
+      <!-- Final summary -->
+      <div class="card mb-5 hidden" id="rc-summary-card">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="material-symbols-outlined text-brand">description</span>
+          <h3 class="text-sm font-semibold text-text-primary">Overall Assessment</h3>
+        </div>
+        <p class="text-sm text-text-secondary leading-relaxed" id="rc-summary-text">–</p>
+      </div>
+
+    </div><!-- /#report-view -->
+
     <!-- Footer -->
     <div class="text-center text-[10px] text-text-tertiary py-3">
       By continuing you agree to our <a href="#" class="underline">Terms of Service</a> and <a href="#" class="underline">Privacy Policy</a>
@@ -526,6 +646,202 @@ async function startInterview() {
     alert('Error starting interview.');
   }
 }
+
+// ── REPORT CARD ──
+function scoreColor(s) {
+  if (s == null) return '#9ca3af';
+  if (s >= 8) return '#16a34a';
+  if (s >= 5) return '#d97706';
+  return '#dc2626';
+}
+function fitChip(fit) {
+  const map = {
+    'above_level': { txt: 'Above Level', cls: 'chip-good' },
+    'at_level':    { txt: 'At Level',    cls: 'chip-good' },
+    'below_level': { txt: 'Below Level', cls: 'chip-warn' },
+  };
+  return map[fit] || { txt: 'Level Fit', cls: 'chip-warn' };
+}
+function renderReport(report) {
+  document.getElementById('lobby-top').classList.add('hidden');
+  document.getElementById('lobby-view').classList.add('hidden');
+  document.getElementById('report-view').classList.remove('hidden');
+
+  const cand = report.candidate || {};
+  const firstName = (cand.name || 'Candidate').split(' ')[0];
+  document.title = firstName + "'s Report — VLSI.AI";
+
+  // Update sidebar identity
+  if (cand.name) {
+    document.getElementById('sb-name').textContent = cand.name;
+    document.getElementById('sb-avatar').textContent = cand.name.slice(0,2).toUpperCase();
+  }
+
+  const status = report.status;
+  const scores = report.scores || {};
+
+  // Branch on status — skipped/error/pending get the alt card
+  if (status !== 'done') {
+    document.getElementById('rc-strengths-grid').classList.add('hidden');
+    document.getElementById('rc-topics-card').classList.add('hidden');
+    document.getElementById('rc-pq-card').classList.add('hidden');
+    document.getElementById('rc-alt').classList.remove('hidden');
+    document.getElementById('rc-score').textContent = '–';
+    document.getElementById('rc-verdict').textContent = 'Interview Complete';
+
+    if (status === 'skipped') {
+      const answered = scores.answered || 0;
+      document.getElementById('rc-alt-title').textContent = 'Not enough answers to score';
+      document.getElementById('rc-alt-body').textContent =
+        `You answered ${answered} question(s). We need at least 8 answered questions before we can produce a full evaluation. Try a new interview when you're ready.`;
+    } else if (status === 'error') {
+      document.getElementById('rc-alt-title').textContent = 'Evaluation failed';
+      document.getElementById('rc-alt-body').textContent =
+        'Something went wrong producing your report. Please try a new interview.';
+    } else if (status === 'pending') {
+      document.getElementById('rc-alt-title').textContent = 'Report still being prepared';
+      document.getElementById('rc-alt-body').textContent =
+        'Your evaluation is still running. This page will refresh automatically. If it does not, come back in a minute.';
+      // soft auto-refresh
+      setTimeout(() => location.reload(), 8000);
+    } else {
+      document.getElementById('rc-alt-title').textContent = 'No report data';
+      document.getElementById('rc-alt-body').textContent = 'Start a new interview from the lobby.';
+    }
+    document.getElementById('rc-meta').textContent =
+      `${cand.domain || ''} · ${cand.level || ''}`.replace(/^ · | · $/, '');
+    return;
+  }
+
+  // status === 'done'
+  const overall = scores.overall_score;
+  document.getElementById('rc-score').textContent = (overall != null ? overall : '–');
+  const ring = document.getElementById('rc-ring');
+  ring.style.setProperty('--pct', (overall || 0) * 10);
+  ring.style.setProperty('--ring-col', scoreColor(overall));
+
+  const fit = fitChip(scores.level_fit);
+  const fitEl = document.getElementById('rc-fit-chip');
+  fitEl.textContent = fit.txt;
+  fitEl.className = 'chip ' + fit.cls;
+
+  const comm = scores.communication_score;
+  const commEl = document.getElementById('rc-comm-chip');
+  commEl.textContent = 'Communication ' + (comm != null ? comm : '–') + '/10';
+  commEl.className = 'chip ' + (comm == null ? 'chip-warn' : (comm >= 8 ? 'chip-good' : (comm >= 5 ? 'chip-warn' : 'chip-bad')));
+
+  document.getElementById('rc-verdict').textContent = scores.verdict || 'Interview Complete';
+  const metaBits = [cand.domain, cand.level, (scores.answered ? `${scores.answered} answered` : null)].filter(Boolean);
+  document.getElementById('rc-meta').textContent = metaBits.join(' · ');
+
+  // Strengths
+  const sList = document.getElementById('rc-strengths');
+  sList.innerHTML = '';
+  (scores.strengths || []).forEach(s => {
+    const li = document.createElement('li');
+    li.className = 'flex gap-2 items-start text-sm text-text-primary';
+    li.innerHTML = '<span class="material-symbols-outlined text-success text-base mt-0.5">check</span><span>' + escapeHtml(s) + '</span>';
+    sList.appendChild(li);
+  });
+  if (!sList.children.length) {
+    sList.innerHTML = '<li class="text-xs text-text-tertiary">No specific strengths called out.</li>';
+  }
+
+  // Weaknesses
+  const wList = document.getElementById('rc-weaknesses');
+  wList.innerHTML = '';
+  (scores.weaknesses || []).forEach(w => {
+    const li = document.createElement('li');
+    li.className = 'flex gap-2 items-start text-sm text-text-primary';
+    li.innerHTML = '<span class="material-symbols-outlined text-warn text-base mt-0.5">north_east</span><span>' + escapeHtml(w) + '</span>';
+    wList.appendChild(li);
+  });
+  if (!wList.children.length) {
+    wList.innerHTML = '<li class="text-xs text-text-tertiary">Nothing flagged for improvement — well done!</li>';
+  }
+
+  // Topic breakdown
+  const tBox = document.getElementById('rc-topics');
+  tBox.innerHTML = '';
+  const topics = scores.topic_breakdown || [];
+  if (!topics.length) {
+    document.getElementById('rc-topics-card').classList.add('hidden');
+  } else {
+    topics.forEach(t => {
+      const s = t.score != null ? t.score : 0;
+      const col = scoreColor(s);
+      const row = document.createElement('div');
+      row.innerHTML = `
+        <div class="flex justify-between items-baseline mb-1.5">
+          <span class="text-sm font-medium text-text-primary">${escapeHtml(t.topic || 'Topic')}</span>
+          <span class="text-xs font-semibold" style="color:${col}">${s}/10</span>
+        </div>
+        <div class="topic-bar"><div class="topic-fill" style="width:${s*10}%; background:${col}"></div></div>
+        ${t.comment ? `<p class="text-[11px] text-text-tertiary mt-1.5">${escapeHtml(t.comment)}</p>` : ''}
+      `;
+      tBox.appendChild(row);
+    });
+  }
+
+  // Communication paragraph
+  if (scores.communication) {
+    document.getElementById('rc-comm-card').classList.remove('hidden');
+    document.getElementById('rc-comm-text').textContent = scores.communication;
+  }
+
+  // Per-question
+  const pqBox = document.getElementById('rc-pq-list');
+  pqBox.innerHTML = '';
+  const pq = scores.per_question || [];
+  document.getElementById('rc-pq-count').textContent = pq.length + ' question' + (pq.length === 1 ? '' : 's');
+  if (!pq.length) {
+    document.getElementById('rc-pq-card').classList.add('hidden');
+  } else {
+    pq.forEach(q => {
+      const s = q.score != null ? q.score : 0;
+      const col = scoreColor(s);
+      const row = document.createElement('div');
+      row.className = 'pq-row';
+      row.innerHTML = `
+        <div class="pq-num">Q${q.q || '?'}</div>
+        <div class="pq-q">
+          ${escapeHtml(q.question || '')}
+          ${q.comment ? `<div class="pq-c">${escapeHtml(q.comment)}</div>` : ''}
+        </div>
+        <div class="pq-score" style="color:${col}">${s}/10</div>
+      `;
+      pqBox.appendChild(row);
+    });
+  }
+
+  // Summary
+  if (scores.summary) {
+    document.getElementById('rc-summary-card').classList.remove('hidden');
+    document.getElementById('rc-summary-text').textContent = scores.summary;
+  }
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+(function maybeShowReport() {
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('show_report') !== '1') return;
+  let raw = null;
+  try { raw = localStorage.getItem('interview_report'); } catch(e) {}
+  if (!raw) {
+    renderReport({ status: 'error', candidate: {} });
+    return;
+  }
+  let report;
+  try { report = JSON.parse(raw); } catch(e) {
+    renderReport({ status: 'error', candidate: {} });
+    return;
+  }
+  renderReport(report);
+})();
 
 // ── ANTI-CHEAT (silent) ──
 (function() {

@@ -1938,34 +1938,44 @@
         }
 
         if (interviewEnded) {
-            // Already ended - generate and show report
-            document.getElementById('sub-label').textContent = 'generating report...';
-            try {
-                const r = await fetch('/api/generate-report', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionId })
-                });
-                if (!r.ok) {
-                    const err = await r.text();
-                    console.error('Report API error:', r.status, err);
-                    document.getElementById('sub-label').textContent = r.status === 404
-                        ? 'session expired — please start a new interview'
-                        : 'server error generating report — check console';
+            // Already ended — poll the report endpoint until eval status is terminal.
+            document.getElementById('sub-label').textContent = 'preparing your report...';
+            const MAX_ATTEMPTS = 30;   // ~75s total at 2.5s
+            const DELAY_MS     = 2500;
+            for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+                try {
+                    const r = await fetch('/api/generate-report', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: sessionId })
+                    });
+                    if (!r.ok) {
+                        const err = await r.text();
+                        console.error('Report API error:', r.status, err);
+                        document.getElementById('sub-label').textContent = r.status === 404
+                            ? 'session expired — please start a new interview'
+                            : 'server error generating report — check console';
+                        return;
+                    }
+                    const report = await r.json();
+                    if (report.status === 'pending') {
+                        document.getElementById('sub-label').textContent =
+                            'preparing your report... (' + (attempt + 1) + ')';
+                        await new Promise(res => setTimeout(res, DELAY_MS));
+                        continue;
+                    }
+                    // done | skipped | error | not_ended — all terminal, render in index.
+                    localStorage.setItem('interview_report', JSON.stringify(report));
+                    window.location.href = '/?show_report=1';
+                    return;
+                } catch (e) {
+                    console.error('Report error:', e);
+                    document.getElementById('sub-label').textContent = 'network error — check if server is running';
                     return;
                 }
-                const report = await r.json();
-                if (!report.scores) {
-                    console.error('Invalid report data:', report);
-                    document.getElementById('sub-label').textContent = 'invalid report data — check console';
-                    return;
-                }
-                localStorage.setItem('interview_report', JSON.stringify(report));
-                window.location.href = '/?show_report=1';
-            } catch (e) {
-                console.error('Report error:', e);
-                document.getElementById('sub-label').textContent = 'network error — check if server is running';
             }
+            document.getElementById('sub-label').textContent =
+                'report taking longer than expected — please refresh in a moment';
             return;
         }
 

@@ -1994,10 +1994,72 @@ def get_session_endpoint(session_id: str):
 
 @app.post("/api/generate-report")
 def generate_report(data: dict):
-    sid = data.get("session_id")
+    """Return the candidate-facing report card.
+
+    Status values the frontend gates on:
+      done     — evaluation finished, `scores` populated
+      pending  — interview ended but eval still running (frontend should poll)
+      skipped  — not enough answered questions to score; `scores` is the stub
+                 from evaluate_interview() so the UI can still show a message
+      error    — evaluation failed (LLM error, parse error, etc.)
+      not_ended — interview is still in progress (shouldn't happen via normal flow)
+    """
+    sid = data.get("session_id") or ""
     session = sessions.get(sid)
-    if not session: return {"report": "No session found."}
-    return {"report": "Interview completed.", "session_id": sid, "turns": session["turn"]}
+    if not session and database.is_available():
+        session = database.get_active_session(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    phase = session.get("phase", "")
+    evaluation = session.get("evaluation") or {}
+    resume = session.get("resume", {}) or {}
+
+    candidate = {
+        "name": resume.get("candidate_name", "Candidate"),
+        "domain": str(resume.get("domain", "")).replace("_", " ").title(),
+        "level": str(resume.get("level", "")).replace("_", " ").title(),
+        "years_experience": resume.get("years_experience", 0),
+    }
+
+    if phase != "ended":
+        return {"status": "not_ended", "session_id": sid, "phase": phase,
+                "turns": session.get("turn", 0), "candidate": candidate}
+
+    status = evaluation.get("status")
+    if not status:
+        return {"status": "pending", "session_id": sid, "phase": phase,
+                "turns": session.get("turn", 0), "candidate": candidate}
+
+    if status == "skipped":
+        return {"status": "skipped", "session_id": sid, "phase": phase,
+                "turns": session.get("turn", 0), "candidate": candidate,
+                "scores": {"status": "skipped",
+                           "answered": evaluation.get("answered", 0),
+                           "reason": evaluation.get("reason", "")}}
+
+    if status == "error":
+        return {"status": "error", "session_id": sid, "phase": phase,
+                "turns": session.get("turn", 0), "candidate": candidate,
+                "error": evaluation.get("error", "Evaluation failed")}
+
+    # status == "done" — strip admin-only fields before returning to candidate.
+    scores = {
+        "overall_score": evaluation.get("overall_score"),
+        "level_fit": evaluation.get("level_fit"),
+        "verdict": evaluation.get("verdict"),
+        "communication_score": evaluation.get("communication_score"),
+        "communication": evaluation.get("communication"),
+        "strengths": evaluation.get("strengths", []),
+        "weaknesses": evaluation.get("weaknesses", []),
+        "per_question": evaluation.get("per_question", []),
+        "topic_breakdown": evaluation.get("topic_breakdown", []),
+        "summary": evaluation.get("summary", ""),
+        "answered": evaluation.get("answered", 0),
+    }
+    return {"status": "done", "session_id": sid, "phase": phase,
+            "turns": session.get("turn", 0), "candidate": candidate,
+            "scores": scores}
 
 
 # ── Anti-cheat Config ──────────────────────────────────────────────────
