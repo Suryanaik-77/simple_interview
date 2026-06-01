@@ -3,8 +3,9 @@ VLSI Interview Platform — PostgreSQL Database Module
 """
 import os
 from contextlib import contextmanager
+from secrets_proxy import get_secret
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = get_secret("DATABASE_URL")
 
 _pool = None
 _db_available = False

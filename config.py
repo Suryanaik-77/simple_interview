@@ -7,28 +7,28 @@ To add a new difficulty level: extend DIFFICULTY_LABELS and update matrices in a
 """
 
 import os
-from dotenv import load_dotenv
+from secrets_proxy import get_secret, backend as _secrets_backend
 
-load_dotenv()
+print(f"Secrets backend: {_secrets_backend()}")
 
 # ── Environment ───────────────────────────────────────────────────────────────
-ENV            = os.getenv("ENV", "development")
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:8001").split(",")
+ENV            = get_secret("ENV", "development")
+ALLOWED_ORIGINS = get_secret("ALLOWED_ORIGINS", "http://localhost:8001").split(",")
 
 # ── AI keys ───────────────────────────────────────────────────────────────────
-OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
-CEREBRAS_API_KEY  = os.getenv("CEREBRAS_API_KEY", "")
+OPENAI_API_KEY    = get_secret("OPENAI_API_KEY")
+CEREBRAS_API_KEY  = get_secret("CEREBRAS_API_KEY")
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 import secrets
-JWT_SECRET     = os.getenv("JWT_SECRET", secrets.token_hex(32))
+JWT_SECRET     = get_secret("JWT_SECRET") or secrets.token_hex(32)
 JWT_ALGO       = "HS256"
 JWT_EXPIRE_MIN = 480
 
-ADMIN_USER    = os.getenv("ADMIN_USER",    "admin")
-ADMIN_PASS    = os.getenv("ADMIN_PASS",    "changeme_before_deploy")
-REVIEWER_USER = os.getenv("REVIEWER_USER", "reviewer")
-REVIEWER_PASS = os.getenv("REVIEWER_PASS", "changeme_before_deploy")
+ADMIN_USER    = get_secret("ADMIN_USER",    "admin")
+ADMIN_PASS    = get_secret("ADMIN_PASS",    "changeme_before_deploy")
+REVIEWER_USER = get_secret("REVIEWER_USER", "reviewer")
+REVIEWER_PASS = get_secret("REVIEWER_PASS", "changeme_before_deploy")
 
 # ── AI Clients ────────────────────────────────────────────────────────────────
 from openai import OpenAI
@@ -40,19 +40,19 @@ if CEREBRAS_API_KEY:
     cerebras_client = OpenAI(api_key=CEREBRAS_API_KEY, base_url="https://api.cerebras.ai/v1")
     print("Cerebras LLM ready.")
 
-XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+XAI_API_KEY = get_secret("XAI_API_KEY")
 xai_client = None
 if XAI_API_KEY:
     xai_client = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1")
     print("xAI Grok ready.")
 
 # ── TTS toggle ────────────────────────────────────────────────────────────────
-TTS_ENABLED = os.getenv("TTS_ENABLED", "true").lower() == "true"
+TTS_ENABLED = get_secret("TTS_ENABLED", "true").lower() == "true"
 
 # ── Parakeet AI Trap ─────────────────────────────────────────────────────────
 
 # ── AI content detection ──────────────────────────────────────────────────────
-SAPLING_API_KEY = os.getenv("SAPLING_API_KEY", "")
+SAPLING_API_KEY = get_secret("SAPLING_API_KEY")
 if SAPLING_API_KEY:
     print("Sapling AI content detector ready.")
 

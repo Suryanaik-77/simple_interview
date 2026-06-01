@@ -6,11 +6,11 @@ round-trips (every turn reads and writes the whole session blob). Postgres stays
 the source of truth; Redis is best-effort — if it is unset or unreachable the app
 falls back to Postgres transparently, mirroring database.is_available().
 """
-import os
 import json
+from secrets_proxy import get_secret
 
-REDIS_URL = os.getenv("REDIS_URL", "")
-SESSION_TTL = int(os.getenv("REDIS_SESSION_TTL", "7200"))  # seconds; refreshed on every write
+REDIS_URL = get_secret("REDIS_URL")
+SESSION_TTL = int(get_secret("REDIS_SESSION_TTL", "7200"))  # seconds; refreshed on every write
 _KEY = "sess:"
 
 _client = None

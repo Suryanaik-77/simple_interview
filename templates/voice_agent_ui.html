@@ -1644,6 +1644,11 @@
                     .then(td => {
                         const txt = (td.transcript || '').trim();
                         if (txt) _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
+                        if ((td.speakers || 0) > 1) {
+                            bgVoiceCount++;
+                            sendAntiCheat('background_voice', `speakers:${td.speakers},count:${bgVoiceCount}`);
+                            console.log(`[Anti-cheat] Background voice detected (speakers=${td.speakers}, total=${bgVoiceCount})`);
+                        }
                     })
                     .catch(() => {})
                     .finally(() => { _pendingChunkSTT = null; });
@@ -1671,6 +1676,11 @@
                 const td = await tr.json();
                 txt = (td.transcript || '').trim();
                 _lastSttMs = td.stt_ms || 0;
+                if ((td.speakers || 0) > 1) {
+                    bgVoiceCount++;
+                    sendAntiCheat('background_voice', `speakers:${td.speakers},count:${bgVoiceCount}`);
+                    console.log(`[Anti-cheat] Background voice detected (speakers=${td.speakers}, total=${bgVoiceCount})`);
+                }
             }
 
             if (interviewEnded) return;
@@ -1985,6 +1995,7 @@
     // ════════════════════════════════════════════════════════════
     let tabSwitchCount = 0;
     let tabLeaveWarnings = 0;
+    let bgVoiceCount = 0;
     let screenShareStream = null;
 
     // Tab switch warning overlay

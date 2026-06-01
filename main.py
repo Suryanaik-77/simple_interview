@@ -10,8 +10,7 @@ import os, time, json, re, secrets, tempfile, base64, threading, smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from dotenv import load_dotenv
-load_dotenv()
+from secrets_proxy import get_secret
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -27,25 +26,25 @@ app = FastAPI(title="Simple Interview Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ── Config ───────────────────────────────────────────────────────────────
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
-INWORLD_API_KEY = os.getenv("INWORLD_API_KEY", "")
-INWORLD_VOICE_ID = os.getenv("INWORLD_VOICE_ID", "Sarah")
-INWORLD_MODEL_ID = os.getenv("INWORLD_MODEL_ID", "inworld-tts-1.5-mini")
-KUGEL_API_KEY = os.getenv("KUGEL_API_KEY", "")
-KUGEL_MODEL_ID = os.getenv("KUGEL_MODEL_ID", "kugel-2.5")
-KUGEL_SAMPLE_RATE = int(os.getenv("KUGEL_SAMPLE_RATE", "24000"))
-XAI_API_KEY = os.getenv("XAI_API_KEY", "")
-CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
-JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
-ADMIN_USER = os.getenv("ADMIN_USER", "admin")
-ADMIN_PASS = os.getenv("ADMIN_PASS", "admin123")
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASS = os.getenv("SMTP_PASS", "")
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "gsuryanaik7@gmail.com")
-SAPLING_API_KEY = os.getenv("SAPLING_API_KEY", "")
+OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
+DEEPGRAM_API_KEY = get_secret("DEEPGRAM_API_KEY")
+INWORLD_API_KEY = get_secret("INWORLD_API_KEY")
+INWORLD_VOICE_ID = get_secret("INWORLD_VOICE_ID", "Sarah")
+INWORLD_MODEL_ID = get_secret("INWORLD_MODEL_ID", "inworld-tts-1.5-mini")
+KUGEL_API_KEY = get_secret("KUGEL_API_KEY")
+KUGEL_MODEL_ID = get_secret("KUGEL_MODEL_ID", "kugel-2.5")
+KUGEL_SAMPLE_RATE = int(get_secret("KUGEL_SAMPLE_RATE", "24000"))
+XAI_API_KEY = get_secret("XAI_API_KEY")
+CEREBRAS_API_KEY = get_secret("CEREBRAS_API_KEY")
+JWT_SECRET = get_secret("JWT_SECRET") or secrets.token_hex(32)
+ADMIN_USER = get_secret("ADMIN_USER", "admin")
+ADMIN_PASS = get_secret("ADMIN_PASS", "admin123")
+SMTP_HOST = get_secret("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(get_secret("SMTP_PORT", "587"))
+SMTP_USER = get_secret("SMTP_USER")
+SMTP_PASS = get_secret("SMTP_PASS")
+ADMIN_EMAIL = get_secret("ADMIN_EMAIL", "gsuryanaik7@gmail.com")
+SAPLING_API_KEY = get_secret("SAPLING_API_KEY")
 
 from openai import OpenAI
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
@@ -802,26 +801,35 @@ def _get_stt_prompt(domain: str) -> str:
     return _OPENAI_STT_PROMPT
 
 
-def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") -> tuple[str, int]:
-    """Returns (transcript, latency_ms). Supports OpenAI and Deepgram STT with VLSI keyword boosting."""
+def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") -> tuple[str, int, int]:
+    """Returns (transcript, latency_ms, speakers). speakers=0 means not measured (OpenAI path)."""
     provider = RUNTIME_CONFIG.get("stt_provider", "openai")
     model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
     tmp_path = None
     t0 = time.time()
 
-    # Deepgram STT with keyword boosting
+    # Deepgram STT with keyword boosting + diarization (background-voice anti-cheat signal)
     if provider == "deepgram" and DEEPGRAM_API_KEY:
         try:
-            url = f"https://api.deepgram.com/v1/listen?model={model}&language=en&smart_format=true&{_DG_KEYWORDS}"
+            url = f"https://api.deepgram.com/v1/listen?model={model}&language=en&smart_format=true&diarize=true&{_DG_KEYWORDS}"
             r = http_requests.post(url,
                 headers={"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": f"audio/{ext}"},
                 data=audio_bytes, timeout=15)
             r.raise_for_status()
             data = r.json()
-            text = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript", "").strip()
+            alt = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0]
+            text = alt.get("transcript", "").strip()
+            # Count speakers with >=3 words — filters Deepgram's occasional 1-word mis-splits.
+            word_counts: dict[int, int] = {}
+            for w in alt.get("words", []):
+                spk = w.get("speaker")
+                if spk is not None:
+                    word_counts[spk] = word_counts.get(spk, 0) + 1
+            speakers = sum(1 for n in word_counts.values() if n >= 3)
             latency = round((time.time() - t0) * 1000)
-            print(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars")
-            return text, latency
+            extra = f" speakers={speakers}" if speakers > 1 else ""
+            print(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars{extra}")
+            return text, latency, speakers
         except Exception as e:
             print(f"[STT] Deepgram error: {e}, falling back to OpenAI")
 
@@ -843,12 +851,12 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
         # and contains "Common terms:" so those substrings cover all variants).
         if text and ("This is a VLSI" in text or "VLSI semiconductor" in text or "Common terms:" in text):
             print(f"[STT] OpenAI/{model} {latency}ms — HALLUCINATION filtered (prompt echo)")
-            return "", latency
+            return "", latency, 0
         print(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars (domain={domain or 'generic'})")
-        return text, latency
+        return text, latency, 0
     except Exception as e:
         print(f"[STT] Error: {e}")
-        return "", round((time.time() - t0) * 1000)
+        return "", round((time.time() - t0) * 1000), 0
     finally:
         if tmp_path:
             try: os.unlink(tmp_path)
@@ -1766,15 +1774,19 @@ def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form(""
     # Pick the STT prompt by the candidate's domain (from resume).
     session = sessions.get(session_id)
     domain = (session.get("resume", {}).get("domain", "") if session else "") or ""
-    transcript, stt_ms = transcribe_audio(audio_bytes, ext, domain=domain)
+    transcript, stt_ms, speakers = transcribe_audio(audio_bytes, ext, domain=domain)
     # Store STT timing + cost in session
     stt_model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
     if session:
         session.setdefault("obs_log", []).append(
             _obs_entry("STT", stt_model, stt_ms, "success" if transcript else "failure",
                        chars=len(transcript), cost_usd=_calc_stt_cost(stt_model, stt_ms)))
+        if speakers > 1:
+            session.setdefault("background_voice_events", []).append(
+                {"ts": time.time(), "speakers": speakers, "transcript": transcript[:200]})
+            print(f"[Anti-cheat] Background voice detected (session={session_id}, speakers={speakers})")
         sessions[session_id] = session
-    return {"transcript": transcript, "stt_ms": stt_ms}
+    return {"transcript": transcript, "stt_ms": stt_ms, "speakers": speakers}
 
 
 @app.post("/api/submit-answer")
