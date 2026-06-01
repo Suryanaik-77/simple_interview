@@ -829,8 +829,9 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
                     word_counts[spk] = word_counts.get(spk, 0) + 1
             speakers = sum(1 for n in word_counts.values() if n >= 3)
             latency = round((time.time() - t0) * 1000)
-            extra = f" speakers={speakers}" if speakers > 1 else ""
-            print(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars{extra}")
+            # Always log the raw breakdown so we can see whether diarization is firing.
+            diag = f" diarize={dict(sorted(word_counts.items()))} → speakers={speakers}" if word_counts else " diarize=none"
+            print(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars{diag}")
             return text, latency, speakers
         except Exception as e:
             print(f"[STT] Deepgram error: {e}, falling back to OpenAI")
