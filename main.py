@@ -2388,15 +2388,58 @@ async def set_anticheat_config(data: dict, _=Depends(require_admin)):
 def admin_sessions(_=Depends(require_admin)):
     session_list = []
     for sid, s in sessions.items():
+        resume = s.get("resume", {})
+        evaluation = s.get("evaluation") or {}
+        overall_score = evaluation.get("overall_score")
+        
+        avg_score = None
+        if isinstance(overall_score, (int, float)):
+            avg_score = int(overall_score * 10)
+            
+        anticheat_log = s.get("anticheat_log", [])
+        signal_count = len(anticheat_log)
+        
+        # Calculate trajectory dynamically if not set
+        pq_by_num = {}
+        for item in evaluation.get("per_question", []) or []:
+            try:
+                pq_by_num[int(item.get("q"))] = item
+            except (TypeError, ValueError):
+                continue
+        scores = [pq.get("score") for pq in pq_by_num.values() if pq and isinstance(pq.get("score"), (int, float))]
+        trajectory = s.get("trajectory", "stable")
+        if trajectory == "unknown" or not trajectory:
+            if len(scores) >= 2:
+                first = sum(scores[:len(scores)//2]) / (len(scores)//2)
+                last = sum(scores[len(scores)//2:]) / (len(scores) - len(scores)//2)
+                if last - first > 0.8:
+                    trajectory = "rising"
+                elif first - last > 0.8:
+                    trajectory = "falling"
+                elif sum(scores)/len(scores) >= 7.5:
+                    trajectory = "flat_strong"
+                else:
+                    trajectory = "stable"
+            else:
+                trajectory = "stable"
+        
         session_list.append({
             "session_id": sid,
             "id": sid,
-            "resume": s.get("resume", {}),
+            "resume": resume,
             "phase": s.get("phase", ""),
             "turn": s.get("turn", 0),
             "mode": s.get("mode", "mock"),
             "started_at": s.get("started_at", 0),
             "difficulty_level": s.get("difficulty_level", 1),
+            "candidate_name": resume.get("candidate_name", "Candidate"),
+            "domain": resume.get("domain", "VLSI"),
+            "level": resume.get("level", "unknown"),
+            "avg_score": avg_score,
+            "signal_count": signal_count,
+            "trajectory": trajectory,
+            "smooth_talker": s.get("smooth_talker", False),
+            "anticheat_count": len(anticheat_log),
         })
     return session_list
 
@@ -2451,6 +2494,28 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
         except (TypeError, ValueError):
             continue
 
+    def _get_question_topic(q: str) -> str:
+        q = q.lower()
+        mapping = {
+            "floorplan": "Floorplanning",
+            "placement": "Placement",
+            "cts": "Clock Tree Synthesis",
+            "clock": "Clock Tree Synthesis",
+            "routing": "Routing",
+            "sta": "Static Timing Analysis",
+            "timing": "Timing Closure",
+            "crosstalk": "Crosstalk & Noise",
+            "noise": "Crosstalk & Noise",
+            "ir drop": "IR Drop",
+            "lvs": "LVS Checking",
+            "drc": "DRC Rules",
+            "synthesis": "Logic Synthesis",
+        }
+        for k, v in mapping.items():
+            if k in q:
+                return v
+        return "General VLSI"
+
     turn_log = []
     qnum = 0
     for entry in session.get("conversation", []):
@@ -2459,18 +2524,46 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             qnum += 1
         pq = pq_by_num.get(qnum) if has_q else None
         comment = (pq or {}).get("comment", "")
+        
+        # Calculate quadrant dynamically
+        qd = ""
+        if pq:
+            score_val = pq.get("score")
+            if score_val is not None:
+                if score_val >= 8:
+                    qd = "genuine_expert"
+                elif score_val >= 5:
+                    qd = "genuine_nervous"
+                else:
+                    qd = "dangerous_fake"
+            else:
+                qd = "unknown"
+        
+        turn = entry.get("turn", 0)
+        difficulty = "basic"
+        if turn >= 13:
+            difficulty = "expert"
+        elif turn >= 9:
+            difficulty = "advanced"
+        elif turn >= 5:
+            difficulty = "intermediate"
+        elif turn >= 2:
+            difficulty = "basic"
+        else:
+            difficulty = "foundational"
+
         turn_log.append({
-            "turn": entry.get("turn", 0),
+            "turn": turn,
             "phase": "interview",
             "question": entry.get("question", ""),
             "answer": entry.get("answer", ""),
-            "question_type": "interview",
-            "topic": "",
-            "difficulty": "basic",
+            "question_type": "technical" if has_q else "interview",
+            "topic": _get_question_topic(entry.get("question", "")) if has_q else "",
+            "difficulty": difficulty,
             "score": (pq or {}).get("score", ""),
-            "quality": "",
-            "accuracy": "",
-            "quadrant": "",
+            "quality": "graded" if pq else "",
+            "accuracy": "correct" if pq and pq.get("score", 0) >= 7 else "partial" if pq and pq.get("score", 0) >= 4 else "incorrect" if pq else "",
+            "quadrant": qd,
             "notes": comment,
             "word_count": len((entry.get("answer") or "").split()),
             "answer_duration_sec": 0,
@@ -2481,13 +2574,29 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             "behavioral_flags": [],
             "ai_detection": entry.get("ai_detection", {}),
         })
+
+    # Calculate trajectory
+    scores = [pq.get("score") for pq in pq_by_num.values() if pq and isinstance(pq.get("score"), (int, float))]
+    trajectory = "stable"
+    if len(scores) >= 2:
+        first = sum(scores[:len(scores)//2]) / (len(scores)//2)
+        last = sum(scores[len(scores)//2:]) / (len(scores) - len(scores)//2)
+        if last - first > 0.8:
+            trajectory = "rising"
+        elif first - last > 0.8:
+            trajectory = "falling"
+        elif sum(scores)/len(scores) >= 7.5:
+            trajectory = "flat_strong"
+        else:
+            trajectory = "stable"
+
     return {
         "session_id": sid,
         "resume": session.get("resume", {}),
         "phase": session.get("phase", ""),
         "turn": session.get("turn", 0),
         "difficulty_level": session.get("difficulty_level", 1),
-        "trajectory": "unknown",
+        "trajectory": trajectory,
         "turn_log": turn_log,
         "anticheat_log": session.get("anticheat_log", []),
         "contradiction_log": [],
