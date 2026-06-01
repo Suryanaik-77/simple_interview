@@ -813,7 +813,12 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
     # Deepgram STT with keyword boosting + diarization (background-voice anti-cheat signal)
     if provider == "deepgram" and DEEPGRAM_API_KEY:
         try:
-            url = f"https://api.deepgram.com/v1/listen?model={model}&language=en&smart_format=true&diarize=true&{_DG_KEYWORDS}"
+            # nova-2 general is single-speaker-tuned and collapses uneven-volume
+            # voices into speaker 0. nova-2-meeting is trained on multi-speaker
+            # audio and labels them correctly — same price, same latency, same keyword support.
+            dg_model = "nova-2-meeting" if model == "nova-2" else model
+            url = (f"https://api.deepgram.com/v1/listen?model={dg_model}"
+                   f"&language=en&smart_format=true&diarize=true&utterances=true&{_DG_KEYWORDS}")
             r = http_requests.post(url,
                 headers={"Authorization": f"Token {DEEPGRAM_API_KEY}", "Content-Type": f"audio/{ext}"},
                 data=audio_bytes, timeout=15)
@@ -821,17 +826,23 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
             data = r.json()
             alt = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0]
             text = alt.get("transcript", "").strip()
-            # Count speakers with >=3 words — filters Deepgram's occasional 1-word mis-splits.
+            # Per-word speaker counts (filter Deepgram's occasional 1-word mis-splits with >=3).
             word_counts: dict[int, int] = {}
             for w in alt.get("words", []):
                 spk = w.get("speaker")
                 if spk is not None:
                     word_counts[spk] = word_counts.get(spk, 0) + 1
-            speakers = sum(1 for n in word_counts.values() if n >= 3)
+            speakers_word = sum(1 for n in word_counts.values() if n >= 3)
+            # Per-utterance speakers — sometimes catches separations that per-word labeling misses.
+            utt_speakers = {u.get("speaker") for u in data.get("results", {}).get("utterances", [])
+                            if u.get("speaker") is not None}
+            speakers_utt = len(utt_speakers)
+            speakers = max(speakers_word, speakers_utt)
             latency = round((time.time() - t0) * 1000)
-            # Always log the raw breakdown so we can see whether diarization is firing.
-            diag = f" diarize={dict(sorted(word_counts.items()))} → speakers={speakers}" if word_counts else " diarize=none"
-            print(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars{diag}")
+            diag = (f" word_diarize={dict(sorted(word_counts.items()))}"
+                    f" utt_speakers={sorted(utt_speakers)} → speakers={speakers}"
+                    if word_counts or utt_speakers else " diarize=none")
+            print(f"[STT] Deepgram/{dg_model} {latency}ms — {len(text)} chars{diag}")
             return text, latency, speakers
         except Exception as e:
             print(f"[STT] Deepgram error: {e}, falling back to OpenAI")
