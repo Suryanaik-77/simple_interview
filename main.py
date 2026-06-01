@@ -938,10 +938,12 @@ def synthesize_speech(text: str) -> tuple[str, int]:
 _PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
 def _load_prompt(level: str, domain: str) -> str:
-    """Load prompt from file. Falls back to trained_fresher if file not found."""
-    # fresh_graduate uses trained_fresher prompts
-    if level == "fresh_graduate":
-        level = "trained_fresher"
+    """Load prompt from file. fresh_graduate and trained_fresher both use the
+    experienced_junior prompts — the easier 'what is X' prompts were dropped
+    because trained-fresher questions were testing too low. Falls back to
+    experienced_junior_physical_design if the requested file is missing."""
+    if level in ("fresh_graduate", "trained_fresher"):
+        level = "experienced_junior"
     filename = f"{level}_{domain}.md"
     filepath = os.path.join(_PROMPTS_DIR, filename)
     try:
@@ -950,8 +952,8 @@ def _load_prompt(level: str, domain: str) -> str:
         print(f"[Prompt] Loaded {filename}")
         return prompt
     except FileNotFoundError:
-        print(f"[Prompt] {filename} not found, falling back to trained_fresher_physical_design.md")
-        fallback = os.path.join(_PROMPTS_DIR, "trained_fresher_physical_design.md")
+        print(f"[Prompt] {filename} not found, falling back to experienced_junior_physical_design.md")
+        fallback = os.path.join(_PROMPTS_DIR, "experienced_junior_physical_design.md")
         with open(fallback, "r") as f:
             return f.read()
 
@@ -966,7 +968,7 @@ def get_interview_prompt(level: str, domain: str) -> str:
     return _PROMPT_CACHE[key]
 
 # Keep _BASE for backward compatibility (admin prompt viewer, playground)
-_BASE = _load_prompt("trained_fresher", "physical_design")
+_BASE = _load_prompt("experienced_junior", "physical_design")
 
 
 def build_interview_prompt(session):
@@ -1410,7 +1412,6 @@ def _load_eval_prompt(level: str) -> str:
     return rubric + _EVAL_TASK
 
 EVAL_PROMPTS = {
-    "trained_fresher":    _load_eval_prompt("trained_fresher"),
     "experienced_junior": _load_eval_prompt("experienced_junior"),
     "experienced_senior": _load_eval_prompt("experienced_senior"),
 }
@@ -1419,11 +1420,11 @@ _DEFAULT_EVAL_PROMPTS = dict(EVAL_PROMPTS)
 
 
 def get_eval_prompt(level: str) -> str:
-    """Pick the eval prompt for a level. fresh_graduate reuses the fresher rubric,
-    matching how _load_prompt maps it for question generation."""
-    if level == "fresh_graduate":
-        level = "trained_fresher"
-    return EVAL_PROMPTS.get(level, EVAL_PROMPTS["trained_fresher"])
+    """Pick the eval prompt for a level. fresh_graduate and trained_fresher both
+    use the experienced_junior rubric, matching how _load_prompt maps them."""
+    if level in ("fresh_graduate", "trained_fresher"):
+        level = "experienced_junior"
+    return EVAL_PROMPTS.get(level, EVAL_PROMPTS["experienced_junior"])
 
 
 def _fill_eval_prompt(template: str, **kw) -> str:
@@ -2152,9 +2153,9 @@ async def set_llm_config(data: dict, _=Depends(require_admin)):
 async def get_llm_prompts(level: str = "", _=Depends(require_admin)):
     """Return the editable evaluation prompts. The admin UI shows one level at a
     time; `eval_prompt` is that level's prompt (back-compat for the single textarea)."""
-    lvl = "trained_fresher" if level in ("", "fresh_graduate") else level
+    lvl = "experienced_junior" if level in ("", "fresh_graduate", "trained_fresher") else level
     if lvl not in EVAL_PROMPTS:
-        lvl = "trained_fresher"
+        lvl = "experienced_junior"
     return {
         "level": lvl,
         "levels": list(EVAL_PROMPTS.keys()),
@@ -2168,30 +2169,30 @@ async def set_llm_prompts(data: dict, _=Depends(require_admin)):
         EVAL_PROMPTS.update(_DEFAULT_EVAL_PROMPTS)
         return {"status": "success", "reset": True}
     if "eval_prompt" in data:
-        lvl = data.get("level", "trained_fresher")
-        if lvl == "fresh_graduate":
-            lvl = "trained_fresher"
+        lvl = data.get("level", "experienced_junior")
+        if lvl in ("fresh_graduate", "trained_fresher"):
+            lvl = "experienced_junior"
         if lvl in EVAL_PROMPTS:
             EVAL_PROMPTS[lvl] = data["eval_prompt"]
     return {"status": "success"}
 
 @app.get("/api/admin/qgen-prompt")
-async def get_qgen_prompt(domain: str = "physical_design", level: str = "trained_fresher", name: str = "Sample", _=Depends(require_admin)):
+async def get_qgen_prompt(domain: str = "physical_design", level: str = "experienced_junior", name: str = "Sample", _=Depends(require_admin)):
     prompt = get_interview_prompt(level, domain)
     prompt += f"\nCANDIDATE: {name} | {level.replace('_',' ')} | Tools: not specified"
     return {"prompt": prompt}
 
 
 @app.get("/api/admin/interview-prompt")
-async def get_interview_prompt_admin(domain: str = "physical_design", level: str = "trained_fresher", _=Depends(require_admin)):
+async def get_interview_prompt_admin(domain: str = "physical_design", level: str = "experienced_junior", _=Depends(require_admin)):
     """Return the raw interviewer prompt file for the given domain + level.
     Used by the LLM Config viewer in the admin UI."""
     valid_domains = {"physical_design", "analog_layout", "design_verification"}
     valid_levels = {"trained_fresher", "experienced_junior", "experienced_senior", "fresh_graduate"}
     if domain not in valid_domains or level not in valid_levels:
         raise HTTPException(400, f"Invalid domain or level. Allowed domains: {valid_domains}, levels: {valid_levels}")
-    # _load_prompt remaps fresh_graduate → trained_fresher internally; we report the actual file used.
-    effective_level = "trained_fresher" if level == "fresh_graduate" else level
+    # fresh_graduate and trained_fresher both route to experienced_junior prompts now.
+    effective_level = "experienced_junior" if level in ("fresh_graduate", "trained_fresher") else level
     filename = f"{effective_level}_{domain}.md"
     prompt = get_interview_prompt(level, domain)
     return {"prompt": prompt, "filename": filename, "level": level, "domain": domain}
