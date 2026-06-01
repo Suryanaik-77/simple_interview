@@ -1396,85 +1396,21 @@ In addition to the overall assessment, do BOTH of these:
 Return ONLY valid JSON, no prose, no markdown fences:
 """ + _EVAL_JSON_SCHEMA
 
-_EVAL_PROMPT_FRESHER = """You are a senior VLSI interviewer writing the final evaluation of a TRAINED FRESHER / FRESH GRADUATE after a mock interview.
+_EVAL_PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eval_prompts")
 
-Candidate: {name} | Domain: {domain} | Claimed level: {level} | Experience: {years} years
-Questions answered: {num_answers}
-
-You are judging POTENTIAL and FUNDAMENTALS, not production depth. This person has little or no industry experience — calibrate accordingly.
-
-What a STRONG fresher looks like:
-- Understands the "why" behind concepts, not just textbook definitions
-- Reasons from first principles even without tool or production exposure
-- Honest about limits — "I haven't done that, but my understanding is..." is a POSITIVE signal
-- Shows real learning from coursework, training, or academic / internship projects
-- Curiosity and structured thinking
-
-RED FLAGS to call out explicitly:
-- Polished, textbook-perfect answers that sound memorized rather than understood
-- Claiming hands-on production / tape-out experience inconsistent with a fresher profile
-- Buzzword stacking with no underlying reasoning
-- Contradicting themselves across answers
-
-Do NOT penalize: lack of tool / flow / production experience, an honest "I don't know", or nervous, informal phrasing.
-
-Calibrate scoring to a FRESHER bar: a fresher with genuinely strong fundamentals can score 8-9. Do not expect senior-level depth.
-
-""" + _EVAL_TASK
-
-_EVAL_PROMPT_JUNIOR = """You are a senior VLSI interviewer writing the final evaluation of an EXPERIENCED JUNIOR engineer (1-5 years) after a mock interview.
-
-Candidate: {name} | Domain: {domain} | Claimed level: {level} | Experience: {years} years
-Questions answered: {num_answers}
-
-You are judging hands-on competence in their stated area — they claim real industry experience, so demonstrated depth must back up the claim.
-
-What a STRONG junior looks like:
-- Concrete hands-on experience with the tools / flow they list; can describe what THEY actually did
-- Real debugging stories — specific problems, how they root-caused and fixed them
-- Ownership of at least part of a block / flow, with awareness of the surrounding steps
-- Can go one or two levels deeper when probed, not just surface-level recall
-
-RED FLAGS to call out explicitly:
-- Vague or evasive about tools listed on their resume (names ICC2 / VCS / Virtuoso etc. but can't discuss real usage)
-- All theory, no project specifics — "we did placement" with no detail on their own role
-- Can't explain decisions they claim to have made
-- Knowledge that stops exactly at the textbook boundary
-- Gaps between claimed experience and demonstrated ability
-
-Calibrate to a JUNIOR bar: expect hands-on competence in their stated area, but NOT architecture-level or cross-domain mastery. Penalize gaps between claimed experience and demonstrated depth more heavily than you would for a fresher.
-
-""" + _EVAL_TASK
-
-_EVAL_PROMPT_SENIOR = """You are a senior VLSI interviewer writing the final evaluation of an EXPERIENCED SENIOR engineer (5+ years) after a mock interview.
-
-Candidate: {name} | Domain: {domain} | Claimed level: {level} | Experience: {years} years
-Questions answered: {num_answers}
-
-You are judging depth, judgement, and leadership. Surface-level correctness is NOT enough at this level.
-
-What a STRONG senior looks like:
-- Tradeoff and architecture-level reasoning — explains WHY, weighs alternatives, discusses corner cases and failure modes
-- Drives the conversation, anticipates follow-ups, handles ambiguity and open-ended questions
-- Cross-step / cross-domain awareness (e.g. how PD choices ripple into timing, power, or DV)
-- Methodology and signoff judgement; can set direction and mentor
-- War stories with real complexity and measurable impact
-
-RED FLAGS to call out explicitly:
-- Only operational / "button-pushing" knowledge — runs the tool but can't reason about why
-- Cannot discuss tradeoffs, alternatives, or failure modes
-- Dated knowledge or vague generalities where depth is expected
-- Cannot handle open-ended or ambiguous questions
-- Title / years not backed by demonstrated depth (the most serious flag at this level)
-
-Calibrate to a SENIOR bar: a senior who only recites correct fundamentals should score LOW. Reserve high scores for genuine depth, judgement, and ownership.
-
-""" + _EVAL_TASK
+def _load_eval_prompt(level: str) -> str:
+    """Load level-specific rubric from eval_prompts/{level}.md and append the
+    shared task + JSON schema. Keeping _EVAL_TASK inline (not in the file)
+    means the JSON contract has a single source of truth."""
+    path = os.path.join(_EVAL_PROMPTS_DIR, f"{level}.md")
+    with open(path, "r", encoding="utf-8") as f:
+        rubric = f.read().rstrip() + "\n\n"
+    return rubric + _EVAL_TASK
 
 EVAL_PROMPTS = {
-    "trained_fresher": _EVAL_PROMPT_FRESHER,
-    "experienced_junior": _EVAL_PROMPT_JUNIOR,
-    "experienced_senior": _EVAL_PROMPT_SENIOR,
+    "trained_fresher":    _load_eval_prompt("trained_fresher"),
+    "experienced_junior": _load_eval_prompt("experienced_junior"),
+    "experienced_senior": _load_eval_prompt("experienced_senior"),
 }
 # Pristine copies for the admin "Reset to Default" action.
 _DEFAULT_EVAL_PROMPTS = dict(EVAL_PROMPTS)

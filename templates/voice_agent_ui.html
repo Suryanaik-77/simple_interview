@@ -761,18 +761,20 @@
                                 let rG = Math.max(0, Math.min(1, (riX - rMin) / rW));
                                 currentGaze = (lG + rG) / 2;
 
-                                // Vertical gaze — use nose tip Y relative to face height
-                                // When looking up: nose tip moves up relative to face
-                                // When looking down: nose tip moves down
-                                // More reliable than iris Y (iris barely moves vertically)
-                                const faceTop = lm[10].y;     // forehead top
-                                const faceBot = lm[152].y;    // chin bottom
-                                const faceHeight = Math.abs(faceBot - faceTop);
+                                // Vertical gaze — iris Y inside the eye socket.
+                                // 159/145 = left eye upper/lower lid; 386/374 = right eye upper/lower lid.
+                                // 0 = iris near upper lid (looking up), 1 = near lower lid (looking down).
+                                const faceH = Math.abs(lm[152].y - lm[10].y);
+                                const lUp = lm[159].y, lDn = lm[145].y;
+                                const rUp = lm[386].y, rDn = lm[374].y;
+                                const lOpen = (lDn - lUp) / faceH;
+                                const rOpen = (rDn - rUp) / faceH;
                                 let gazeY = 0.5;
-                                if (faceHeight > 0.05) {
-                                    // Nose position within face: 0 = top, 1 = bottom
-                                    const noseY = (noseTip.y - Math.min(faceTop, faceBot)) / faceHeight;
-                                    gazeY = Math.max(0, Math.min(1, noseY));
+                                // Blink/squint gate: closed eye → iris-Y is meaningless, leave at center
+                                if (lOpen > 0.015 && rOpen > 0.015) {
+                                    const lY = (lm[468].y - lUp) / (lDn - lUp);
+                                    const rY = (lm[473].y - rUp) / (rDn - rUp);
+                                    gazeY = Math.max(0, Math.min(1, (lY + rY) / 2));
                                 }
 
                                 // Eyes looking away — horizontal
@@ -780,10 +782,15 @@
                                     eyeReading = true;
                                     eyeDirection = currentGaze < 0.40 ? 'left' : 'right';
                                 }
-                                // Eyes looking up (above laptop — e.g. notes on wall, person behind)
-                                else if (gazeY < 0.52) {
+                                // Eyes looking up (notes on wall, second screen above)
+                                else if (gazeY < 0.30) {
                                     eyeReading = true;
                                     eyeDirection = 'up';
+                                }
+                                // Eyes looking down (notes/phone in lap, second screen below)
+                                else if (gazeY > 0.72) {
+                                    eyeReading = true;
+                                    eyeDirection = 'down';
                                 }
                             }
                         }
