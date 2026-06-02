@@ -395,6 +395,11 @@
                 <div class="detail-val" id="d-exp">0 years</div>
             </div>
 
+            <div class="detail-row" id="gaze-row" style="display:none">
+                <div class="detail-label">gaze (RF model)</div>
+                <div class="detail-val" id="d-gaze">straight</div>
+            </div>
+
         </div>
 
         <div class="sidebar-footer">
@@ -596,6 +601,9 @@
 
         // Latest detection result (set by MediaPipe callback)
         let latestResult = { present: false, headTurned: false, direction: null, eyeReading: false, eyeDirection: null, gazeX: 0.5, gazeY: 0.5, eyeScanning: false };
+        let latestLandmarks = null;
+        let gazeAwayStreak = 0;
+        let gazeAwayEvents = 0;
 
         // Warning overlay for camera (face not detected)
         // Shared warning popup style
@@ -700,10 +708,12 @@
                 faceMesh.onResults((results) => {
                     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
                         latestResult = { present: false, headTurned: false, direction: null, eyeReading: false, eyeDirection: null, gazeX: -1, eyeScanning: false };
+                        latestLandmarks = null;
                         return;
                     }
 
                     const lm = results.multiFaceLandmarks[0];
+                    latestLandmarks = lm;
 
                     // ── HEAD TURN DETECTION ──
                     // Key landmarks (normalized 0-1):
@@ -907,6 +917,120 @@
         }
 
         setInterval(checkPresence, CHECK_INTERVAL);
+
+        // ── Server-side gaze classifier (MediaPipe + RandomForest ensemble) ──
+        // Once per second, extract the same 90 features the model was trained on
+        // and POST them to /api/anticheat/gaze. Three consecutive non-straight
+        // predictions emit a single eye_away event.
+        const RIGHT_EYE_OUTLINE = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246];
+        const LEFT_EYE_OUTLINE  = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398];
+        const RIGHT_IRIS = [468, 469, 470, 471, 472];
+        const LEFT_IRIS  = [473, 474, 475, 476, 477];
+        const R_OUTER = 33,  R_INNER = 133;
+        const L_INNER = 362, L_OUTER = 263;
+        const R_UP = 159, R_DN = 145;
+        const L_UP = 386, L_DN = 374;
+
+        function extractGazeFeatures(lm) {
+            // Mirrors extract_features() in eye_tracking/extract_and_train.py.
+            // Returns a flat array of 90 floats in the exact training order, or null.
+            const get = i => lm[i];
+            if (!get(R_INNER) || !get(L_INNER) || !get(R_OUTER) || !get(L_OUTER)) return null;
+            const rIn = get(R_INNER), lIn = get(L_INNER);
+            const rOut = get(R_OUTER), lOut = get(L_OUTER);
+            const originX = (rIn.x + lIn.x) / 2;
+            const originY = (rIn.y + lIn.y) / 2;
+            const sdx = rOut.x - lOut.x, sdy = rOut.y - lOut.y;
+            const scale = Math.sqrt(sdx*sdx + sdy*sdy);
+            if (scale < 1e-6) return null;
+
+            const out = new Array(90);
+            let k = 0;
+            const push = idxList => {
+                for (const i of idxList) {
+                    const p = lm[i];
+                    if (!p) return false;
+                    out[k++] = (p.x - originX) / scale;
+                    out[k++] = (p.y - originY) / scale;
+                }
+                return true;
+            };
+            if (!push(RIGHT_EYE_OUTLINE)) return null;   // 32
+            if (!push(LEFT_EYE_OUTLINE))  return null;   // 32
+            if (!push(RIGHT_IRIS))        return null;   // 10
+            if (!push(LEFT_IRIS))         return null;   // 10
+
+            // Engineered ratios — must match Python order: r_h, l_h, r_v, l_v, r_ear, l_ear
+            const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+            const dot  = (ax, ay, bx, by) => ax*bx + ay*by;
+            const rUp = get(R_UP), rDn = get(R_DN), lUp_p = get(L_UP), lDn_p = get(L_DN);
+            const rIrisC = get(RIGHT_IRIS[0]), lIrisC = get(LEFT_IRIS[0]);
+            if (!rUp || !rDn || !lUp_p || !lDn_p || !rIrisC || !lIrisC) return null;
+
+            const rEyeW = dist(rIn, rOut) + 1e-6;
+            const lEyeW = dist(lIn, lOut) + 1e-6;
+            const rEyeH = dist(rUp, rDn) + 1e-6;
+            const lEyeH = dist(lUp_p, lDn_p) + 1e-6;
+
+            const r_h = dot(rIrisC.x - rOut.x, rIrisC.y - rOut.y,
+                            rIn.x   - rOut.x, rIn.y   - rOut.y) / (rEyeW * rEyeW);
+            const l_h = dot(lIrisC.x - lOut.x, lIrisC.y - lOut.y,
+                            lIn.x   - lOut.x, lIn.y   - lOut.y) / (lEyeW * lEyeW);
+            const r_v = dot(rIrisC.x - rUp.x, rIrisC.y - rUp.y,
+                            rDn.x   - rUp.x, rDn.y   - rUp.y) / (rEyeH * rEyeH);
+            const l_v = dot(lIrisC.x - lUp_p.x, lIrisC.y - lUp_p.y,
+                            lDn_p.x - lUp_p.x, lDn_p.y - lUp_p.y) / (lEyeH * lEyeH);
+            const r_ear = rEyeH / rEyeW;
+            const l_ear = lEyeH / lEyeW;
+
+            out[k++] = r_h; out[k++] = l_h; out[k++] = r_v; out[k++] = l_v;
+            out[k++] = r_ear; out[k++] = l_ear;
+
+            for (let i = 0; i < 90; i++) if (!Number.isFinite(out[i])) return null;
+            return out;
+        }
+
+        let gazeBusy = false;
+        async function gazeTick() {
+            if (gazeBusy || !sessionOn || interviewEnded) return;
+            if (!latestLandmarks || latestLandmarks.length < 478) return;
+            const feats = extractGazeFeatures(latestLandmarks);
+            if (!feats) return;
+            gazeBusy = true;
+            try {
+                const r = await fetch('/api/anticheat/gaze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ features: feats }),
+                });
+                if (!r.ok) return;
+                const d = await r.json();
+                if (d.ignored) return;
+                const row = document.getElementById('gaze-row');
+                const valEl = document.getElementById('d-gaze');
+                if (row) row.style.display = 'flex';
+                if (valEl) {
+                    valEl.textContent = d.gaze + (d.confidence != null ? ' (' + (d.confidence*100).toFixed(0) + '%)' : '');
+                    valEl.style.color = d.gaze === 'straight' ? '#16a34a' : '#dc2626';
+                }
+                if (d.gaze === 'straight') {
+                    gazeAwayStreak = 0;
+                } else {
+                    gazeAwayStreak++;
+                    if (gazeAwayStreak >= 3) {
+                        gazeAwayEvents++;
+                        sendAntiCheat('eye_away',
+                            `model:rf_ensemble,direction:${d.gaze},streak:${gazeAwayStreak},events:${gazeAwayEvents}`);
+                        gazeAwayStreak = 0;
+                    }
+                }
+            } catch (e) {
+                console.warn('[Gaze] inference failed:', e.message);
+            } finally {
+                gazeBusy = false;
+            }
+        }
+        setInterval(gazeTick, 1000);
     })();
 
     function updateQuestionCount(n) {

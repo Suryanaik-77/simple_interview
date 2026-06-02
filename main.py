@@ -2133,11 +2133,39 @@ ANTICHEAT_FEATURES = {
     },
 "eye_away": {
         "label": "Eye Tracking",
-        "description": "Track if candidate is reading from another screen or notes",
+        "description": "Server-side gaze classifier (MediaPipe + RandomForest ensemble) flags when candidate looks off-screen",
         "category": "camera",
-        "enabled": False,
+        "enabled": True,
     },
 }
+
+
+# ── Gaze classifier ───────────────────────────────────────────────────
+# Server-side ensemble (ExtraTrees, trained on eye + iris landmarks from
+# MediaPipe FaceLandmarker) classifying gaze as left / right / straight.
+# Browser extracts 90 features per frame and POSTs them here for inference.
+GAZE_MODEL_PATH   = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "models", "gaze_ensemble_model.pkl")
+_GAZE_BUNDLE      = None
+_GAZE_DEFAULT_LBL = ["left", "right", "straight"]
+
+
+def _load_gaze_bundle():
+    global _GAZE_BUNDLE
+    if _GAZE_BUNDLE is not None:
+        return _GAZE_BUNDLE
+    try:
+        import joblib
+        bundle = joblib.load(GAZE_MODEL_PATH)
+        _GAZE_BUNDLE = bundle
+        labels = bundle.get("label_names") or _GAZE_DEFAULT_LBL
+        n_feat = len(bundle.get("feature_columns", []) or [])
+        print(f"[Gaze] Loaded {os.path.basename(GAZE_MODEL_PATH)} — "
+              f"model={bundle.get('name', '?')}, features={n_feat}, classes={labels}")
+        return bundle
+    except Exception as e:
+        print(f"[Gaze] Failed to load model from {GAZE_MODEL_PATH}: {e}")
+        return None
 
 @app.post("/api/anticheat-event")
 def anticheat_event(data: dict):
@@ -2147,6 +2175,7 @@ def anticheat_event(data: dict):
         "tab_switch": "tab_switch", "window_blur": "window_blur",
         "paste_event": "paste_detect", "screen_share": "screen_share",
         "dom_overlay": "dom_overlay", "canary_triggered": "canary_trigger",
+        "eye_away": "eye_away",
     }
     feature_key = feature_map.get(event_type)
     if feature_key and not ANTICHEAT_FEATURES.get(feature_key, {}).get("enabled", True):
@@ -2167,6 +2196,47 @@ def anticheat_event(data: dict):
 @app.get("/api/anticheat-settings")
 async def anticheat_settings():
     return {k: v["enabled"] for k, v in ANTICHEAT_FEATURES.items()}
+
+
+@app.post("/api/anticheat/gaze")
+def anticheat_gaze(data: dict):
+    """Pure gaze inference. Browser extracts the 90-float feature vector from
+    MediaPipe FaceLandmarker and POSTs it here once per second. Returns the
+    predicted direction plus per-class probabilities. The browser owns the
+    consecutive-frames debounce; this endpoint stays stateless."""
+    if not ANTICHEAT_FEATURES.get("eye_away", {}).get("enabled", False):
+        return {"ok": True, "ignored": True, "reason": "feature_disabled"}
+    bundle = _load_gaze_bundle()
+    if not bundle:
+        raise HTTPException(503, "Gaze model unavailable")
+    feats = data.get("features")
+    expected = len(bundle.get("feature_columns", []) or []) or 90
+    if not isinstance(feats, list) or len(feats) != expected:
+        raise HTTPException(400, f"Expected 'features' as a list of {expected} floats")
+    try:
+        import numpy as np
+        x = np.asarray(feats, dtype=np.float32).reshape(1, -1)
+        if not np.all(np.isfinite(x)):
+            raise HTTPException(400, "Features contain NaN or inf")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "Could not parse features as floats")
+
+    model  = bundle["model"]
+    labels = bundle.get("label_names") or _GAZE_DEFAULT_LBL
+    t0 = time.time()
+    pred_idx = int(model.predict(x)[0])
+    proba = None
+    if hasattr(model, "predict_proba"):
+        proba = model.predict_proba(x)[0].tolist()
+    latency_ms = round((time.time() - t0) * 1000)
+
+    out = {"ok": True, "gaze": labels[pred_idx], "latency_ms": latency_ms}
+    if proba is not None:
+        out["confidence"] = float(max(proba))
+        out["proba"] = {labels[i]: float(p) for i, p in enumerate(proba)}
+    return out
 
 @app.post("/api/sim/ai-done")
 async def sim_ai_done(data: dict):

@@ -22,6 +22,11 @@ boto3
 # Grok (xAI)
 httpx
 
+# Gaze classifier (server-side sklearn inference for eye-tracking anti-cheat)
+scikit-learn
+numpy
+joblib
+
 # Optional: Silero VAD (reduces latency ~1000ms per turn)
 # pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
