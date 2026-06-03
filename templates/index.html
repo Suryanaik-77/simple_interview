@@ -101,11 +101,16 @@ body { font-family: 'Inter', sans-serif; }
     </div>
   </div>
   <nav class="flex-1 px-3 py-4 space-y-1">
-    <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-sidebar-active text-brand text-sm font-semibold">
+    <a href="/" id="nav-lobby" class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-sidebar-active text-brand text-sm font-semibold">
       <span class="material-symbols-outlined text-lg">meeting_room</span> Lobby
     </a>
     <a href="/admin" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-secondary hover:bg-sidebar-hover hover:text-text-primary text-sm transition-colors">
       <span class="material-symbols-outlined text-lg">dashboard</span> Dashboard
+    </a>
+    <a id="nav-report" onclick="showReportView()" href="#" class="hidden items-center gap-3 px-3 py-2.5 rounded-lg text-text-secondary hover:bg-sidebar-hover hover:text-text-primary text-sm transition-colors">
+      <span class="material-symbols-outlined text-lg">bar_chart_4_bars</span>
+      My Report
+      <span class="ml-auto w-1.5 h-1.5 rounded-full bg-brand animate-pulse"></span>
     </a>
     <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-secondary hover:bg-sidebar-hover hover:text-text-primary text-sm transition-colors">
       <span class="material-symbols-outlined text-lg">history</span> History
@@ -154,6 +159,22 @@ body { font-family: 'Inter', sans-serif; }
     </div>
 
     <div id="lobby-view">
+
+    <!-- ── Report Available Banner (shown when a past report exists) ── -->
+    <div id="report-banner" class="hidden mb-5">
+      <div class="card border-brand/30 bg-gradient-to-r from-brand-light to-white flex flex-col md:flex-row items-center gap-4">
+        <div class="w-12 h-12 rounded-full bg-brand text-white flex items-center justify-center flex-shrink-0 shadow-md">
+          <span class="material-symbols-outlined text-2xl">workspace_premium</span>
+        </div>
+        <div class="flex-1 text-center md:text-left">
+          <h3 class="text-sm font-bold text-text-primary">Your Interview Report is Ready!</h3>
+          <p class="text-xs text-text-secondary mt-0.5">View your full performance breakdown — scores, strengths, and detailed feedback.</p>
+        </div>
+        <button onclick="showReportView()" class="px-5 py-2 bg-brand text-white text-sm font-semibold rounded-full hover:bg-brand-dark transition-colors flex items-center gap-1.5 flex-shrink-0">
+          <span class="material-symbols-outlined text-sm">bar_chart_4_bars</span> View Report
+        </button>
+      </div>
+    </div>
 
     <!-- ── Row 1: Mic + Camera ── -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
@@ -370,7 +391,7 @@ body { font-family: 'Inter', sans-serif; }
 
     </div><!-- /#lobby-view -->
 
-    <!-- ═══ REPORT CARD VIEW (shown when ?show_report=1) ═══ -->
+    <!-- ═══ REPORT CARD VIEW (shown when ?show_report=1 or nav link clicked) ═══ -->
     <div id="report-view" class="hidden">
 
       <!-- Hero: overall score + verdict -->
@@ -391,6 +412,9 @@ body { font-family: 'Inter', sans-serif; }
             <p class="text-sm text-text-secondary mt-1.5" id="rc-meta">–</p>
           </div>
           <div class="flex flex-col gap-2 w-full md:w-auto">
+            <button onclick="backToLobby()" class="px-5 py-2 rounded-full border border-outline text-text-secondary text-sm font-semibold hover:bg-surface-dim transition-colors flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-sm">arrow_back</span> Back to Lobby
+            </button>
             <button onclick="location.href='/'" class="px-5 py-2 rounded-full bg-brand text-white text-sm font-semibold hover:bg-brand-dark transition-colors">
               <span class="material-symbols-outlined text-sm align-middle mr-1">restart_alt</span>New Interview
             </button>
@@ -807,6 +831,8 @@ function renderReport(report) {
         <div class="pq-q">
           ${escapeHtml(q.question || '')}
           ${q.comment ? `<div class="pq-c">${escapeHtml(q.comment)}</div>` : ''}
+          ${(q.expected_points || []).length ? `<div class="text-[11px] text-text-secondary mt-1.5"><strong>Expected:</strong> ${(q.expected_points || []).map(p => escapeHtml(p)).join(' · ')}</div>` : ''}
+          ${(q.missing_points || []).length ? `<div class="text-[11px] text-danger mt-1"><strong>Missing:</strong> ${(q.missing_points || []).map(p => escapeHtml(p)).join(' · ')}</div>` : ''}
         </div>
         <div class="pq-score" style="color:${col}">${s}/10</div>
       `;
@@ -826,11 +852,50 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-(function maybeShowReport() {
-  const qs = new URLSearchParams(location.search);
-  if (qs.get('show_report') !== '1') return;
+function showReportView() {
   let raw = null;
   try { raw = localStorage.getItem('interview_report'); } catch(e) {}
+  if (!raw) {
+    renderReport({ status: 'error', candidate: {} });
+  } else {
+    let report;
+    try { report = JSON.parse(raw); } catch(e) {
+      renderReport({ status: 'error', candidate: {} });
+      return;
+    }
+    renderReport(report);
+  }
+  // Update nav state
+  const navLobby = document.getElementById('nav-lobby');
+  const navReport = document.getElementById('nav-report');
+  if (navLobby) { navLobby.className = navLobby.className.replace('bg-sidebar-active text-brand font-semibold','text-text-secondary hover:bg-sidebar-hover hover:text-text-primary'); }
+  if (navReport) { navReport.className = navReport.className.replace('hidden','flex') + ' bg-sidebar-active text-brand font-semibold'; navReport.className = navReport.className.replace('text-text-secondary hover:bg-sidebar-hover hover:text-text-primary',''); }
+}
+
+function backToLobby() {
+  document.getElementById('lobby-view').classList.remove('hidden');
+  document.getElementById('report-view').classList.add('hidden');
+  document.getElementById('lobby-top').classList.remove('hidden');
+  // Restore nav
+  const navLobby = document.getElementById('nav-lobby');
+  const navReport = document.getElementById('nav-report');
+  if (navLobby) navLobby.className = 'flex items-center gap-3 px-3 py-2.5 rounded-lg bg-sidebar-active text-brand text-sm font-semibold';
+  if (navReport) navReport.className = 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-secondary hover:bg-sidebar-hover hover:text-text-primary text-sm transition-colors';
+}
+
+(function maybeShowReport() {
+  // Check if a report exists in localStorage to show nav link + banner
+  let raw = null;
+  try { raw = localStorage.getItem('interview_report'); } catch(e) {}
+  if (raw) {
+    const navReport = document.getElementById('nav-report');
+    if (navReport) navReport.classList.replace('hidden','flex');
+    const banner = document.getElementById('report-banner');
+    if (banner) banner.classList.remove('hidden');
+  }
+  // Auto-show report if URL param present
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('show_report') !== '1') return;
   if (!raw) {
     renderReport({ status: 'error', candidate: {} });
     return;

@@ -1378,7 +1378,7 @@ _EVAL_JSON_SCHEMA = """{
   "recommendation": "strong_yes|yes|maybe|no|strong_no",
   "level_fit": "below_level|at_level|above_level",
   "verdict": "one-line hire verdict",
-  "per_question": [{"q": <question number>, "question": "<first ~10 words>", "score": <0-10>, "comment": "one short clause"}],
+  "per_question": [{"q": <question number>, "question": "<first ~10 words>", "score": <0-10>, "comment": "one short clause", "expected_points": ["point 1", "point 2"], "missing_points": ["point 3"]}],
   "communication_score": <integer 0-10>,
   "communication": "1-2 sentences on clarity, structure, and how they explain reasoning",
   "strengths": ["short bullet", "..."],
@@ -1395,6 +1395,9 @@ _EVAL_TASK = """FULL TRANSCRIPT (each question is numbered [Q1], [Q2], ...; [A1]
 
 In addition to the overall assessment, do BOTH of these:
 - Score EVERY numbered question individually in "per_question", referencing its number. Judge each answer's technical merit at THIS candidate's level.
+- For each question in "per_question", populate:
+  - "expected_points": A list of key technical concepts/keywords expected in a correct answer.
+  - "missing_points": The subset of expected concepts that the candidate omitted or explained incorrectly (use an empty list [] if they covered all expected points).
 - Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
 
 Return ONLY valid JSON, no prose, no markdown fences:
@@ -2638,8 +2641,8 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             "word_count": len((entry.get("answer") or "").split()),
             "answer_duration_sec": 0,
             "score_reasoning": comment,
-            "expected_points": [],
-            "missing_points": [],
+            "expected_points": (pq or {}).get("expected_points", []),
+            "missing_points": (pq or {}).get("missing_points", []),
             "level_gap": 0,
             "behavioral_flags": [],
             "ai_detection": entry.get("ai_detection", {}),

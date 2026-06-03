@@ -2394,48 +2394,184 @@ function renderAcDetail(d) {
   }
   const obsHtml = buildObsHtml(obs);
 
-    return `
-  <div style="padding:0 0 24px">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
-      <div style="flex:1">
-        <div style="font-size:16px;font-weight:500">${escH(d.resume?.candidate_name||'Session')} — Anti-Cheat Report</div>
-        <div style="font-size:11px;color:var(--t3);margin-top:3px">${escH(d.resume?.domain||'').replace('_',' ')} · ${escH(d.resume?.level||'').replace(/_/g,' ')} · ${d.turn||0} turns</div>
+  // ── Build evaluation report card HTML ──────────────────────────────────
+  const ev = d.evaluation || {};
+  function buildReportCardHtml(ev, tl) {
+    if (!ev || !ev.overall_score) {
+      return `<div style="text-align:center;padding:32px;color:var(--t4);font-size:13px">
+        <div style="font-size:28px;margin-bottom:8px">📋</div>
+        Evaluation not yet available for this session.<br>
+        <span style="font-size:11px">Evaluation runs automatically after the interview ends.</span>
+      </div>`;
+    }
+    const sc = ev.overall_score || 0;
+    const pct = sc * 10;
+    const scCol = sc >= 8 ? 'var(--green)' : sc >= 5 ? 'var(--amber)' : 'var(--red)';
+    const commSc = ev.communication_score || 0;
+    const commCol = commSc >= 8 ? 'var(--green)' : commSc >= 5 ? 'var(--amber)' : 'var(--red)';
+    const fitMap = { below_level: { l:'Below Level', c:'var(--red)', bg:'var(--rb)', bd:'var(--rbd)' }, at_level: { l:'At Level', c:'var(--green)', bg:'var(--gb)', bd:'var(--gbd)' }, above_level: { l:'Above Level', c:'var(--blue)', bg:'var(--bb)', bd:'var(--bbd)' } };
+    const fit = fitMap[ev.level_fit] || { l: ev.level_fit||'—', c:'var(--t3)', bg:'var(--sf)', bd:'var(--b)' };
+    const recMap = { strong_yes:'✅ Strong Yes', yes:'✅ Yes', maybe:'🤔 Maybe', no:'❌ No', strong_no:'❌ Strong No' };
+    const recLabel = recMap[ev.recommendation] || ev.recommendation || '—';
+
+    // Score ring (CSS conic-gradient via inline style)
+    const ringHtml = `<div style="width:100px;height:100px;border-radius:50%;background:conic-gradient(${scCol} ${pct}%,#f3f4f6 0);display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0">
+      <div style="position:absolute;inset:8px;background:white;border-radius:50%"></div>
+      <div style="position:relative;text-align:center">
+        <div style="font-size:26px;font-weight:600;letter-spacing:-1px;color:${scCol}">${sc}</div>
+        <div style="font-size:9px;color:var(--t4);text-transform:uppercase;letter-spacing:.5px">/10</div>
       </div>
-      <div style="text-align:right">
-        <div style="font-size:24px;font-weight:500;color:${risk_color};font-family:var(--mono)">${risk_label}</div>
-        <div style="font-size:11px;color:var(--t3);margin-top:2px">${sc_count} active signal${sc_count!==1?'s':''}</div>
+    </div>`;
+
+    const strengthsHtml = (ev.strengths||[]).map(s=>`<div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:7px"><span style="color:var(--green);font-size:14px;flex-shrink:0;line-height:1.4">✓</span><span style="font-size:12px;color:var(--t2)">${escH(s)}</span></div>`).join('') || '<div style="font-size:11px;color:var(--t4)">None noted</div>';
+    const weaknessesHtml = (ev.weaknesses||[]).map(w=>`<div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:7px"><span style="color:var(--amber);font-size:14px;flex-shrink:0;line-height:1.4">⚠</span><span style="font-size:12px;color:var(--t2)">${escH(w)}</span></div>`).join('') || '<div style="font-size:11px;color:var(--t4)">None noted</div>';
+
+    // Topic breakdown
+    const topics = ev.topic_breakdown || [];
+    const topicsHtml = topics.length ? topics.map(t => {
+      const tsc = t.score || 0;
+      const tcol = tsc >= 8 ? 'var(--green)' : tsc >= 5 ? 'var(--amber)' : 'var(--red)';
+      return `<div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:12px;color:var(--t)">${escH(t.topic||'—')}</span>
+          <span style="font-size:11px;font-weight:600;font-family:var(--mono);color:${tcol}">${tsc}/10</span>
+        </div>
+        <div style="height:5px;background:var(--sf);border-radius:3px;overflow:hidden;margin-bottom:3px"><div style="height:100%;width:${tsc*10}%;background:${tcol};border-radius:3px;transition:width .5s"></div></div>
+        ${t.comment ? `<div style="font-size:10px;color:var(--t3)">${escH(t.comment)}</div>` : ''}
+      </div>`;
+    }).join('') : '<div style="font-size:11px;color:var(--t4)">No topic breakdown available</div>';
+
+    // Per-question breakdown with expected/missing points
+    const scoredTurns = (tl||[]).filter(h => h.quality && h.phase !== 'warmup');
+    let qIdx = 0;
+    const pqHtml = scoredTurns.length ? scoredTurns.map(h => {
+      qIdx++;
+      const qsc = h.score || 0;
+      const qcol = qsc >= 8 ? 'var(--green)' : qsc >= 5 ? 'var(--amber)' : 'var(--red)';
+      const exp = h.expected_points || [];
+      const mis = h.missing_points || [];
+      return `<div style="padding:12px 14px;border-bottom:1px solid var(--b);display:flex;gap:12px;align-items:flex-start">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--t4);min-width:28px;padding-top:2px">Q${h.turn||qIdx}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:var(--t);font-weight:500;margin-bottom:3px">${escH(h.question||'').substring(0,90)}${(h.question||'').length>90?'…':''}</div>
+          ${h.notes ? `<div style="font-size:11px;color:var(--t3);margin-bottom:5px">${escH(h.notes)}</div>` : ''}
+          ${exp.length ? `<div style="font-size:10px;margin-bottom:3px"><span style="color:var(--t4);font-weight:500">Expected: </span><span style="color:var(--t3)">${exp.map(escH).join(' · ')}</span></div>` : ''}
+          ${mis.length ? `<div style="font-size:10px"><span style="color:var(--red);font-weight:500">Missing: </span><span style="color:var(--red);opacity:.8">${mis.map(escH).join(' · ')}</span></div>` : (exp.length ? `<div style="font-size:10px;color:var(--green)">✓ All expected points covered</div>` : '')}
+        </div>
+        <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:${qcol};min-width:40px;text-align:right">${qsc}/10</div>
+      </div>`;
+    }).join('') : '<div style="padding:24px;text-align:center;color:var(--t4);font-size:12px">No scored questions yet</div>';
+
+    return `
+    <div style="display:flex;align-items:center;gap:16px;padding:18px;background:var(--off);border:1px solid var(--b);border-radius:10px;margin-bottom:14px;flex-wrap:wrap">
+      ${ringHtml}
+      <div style="flex:1;min-width:180px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          <span style="font-size:11px;font-weight:500;padding:3px 9px;border-radius:4px;background:${fit.bg};color:${fit.c};border:1px solid ${fit.bd}">${fit.l}</span>
+          <span style="font-size:11px;font-weight:500;padding:3px 9px;border-radius:4px;background:var(--off);color:${commCol};border:1px solid var(--b)">Comm: ${commSc}/10</span>
+          <span style="font-size:11px;padding:3px 9px;border-radius:4px;background:var(--off);color:var(--t3);border:1px solid var(--b)">${recLabel}</span>
+        </div>
+        <div style="font-size:15px;font-weight:500;color:var(--t);margin-bottom:3px">${escH(ev.verdict||'Interview evaluated')}</div>
+        ${ev.communication ? `<div style="font-size:11px;color:var(--t3)">${escH(ev.communication)}</div>` : ''}
       </div>
     </div>
-    <div style="margin-bottom:6px"><div class="risk-meter"><div class="risk-fill" style="width:${risk_pct}%;background:${risk_color}"></div></div><div style="display:flex;justify-content:space-between;font-size:10px;color:var(--t3)"><span>Clean</span><span>Critical (7+)</span></div></div>
 
-    <div class="two-col" style="margin-top:18px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
       <div class="card">
-        <div class="sec-label" style="margin-bottom:9px">Browser-side events</div>
-        ${eventsHtml}
+        <div class="sec-label" style="margin-bottom:9px;color:var(--green)">Strengths</div>
+        ${strengthsHtml}
       </div>
       <div class="card">
-        <div class="sec-label" style="margin-bottom:9px">Behavioral deviation signals</div>
-        ${behHtml}
-        ${d.smooth_talker_detected ? `<div style="margin-top:10px;padding:9px 11px;background:var(--ab);border:1px solid var(--abd);border-radius:8px;font-size:11px;color:#78350F"><strong>Smooth talker detected</strong> — ${(d.smooth_talker_signals||[]).slice(0,2).map(escH).join('; ')}</div>` : ''}
+        <div class="sec-label" style="margin-bottom:9px;color:var(--amber)">Areas to Improve</div>
+        ${weaknessesHtml}
       </div>
     </div>
 
     <div class="card" style="margin-bottom:14px">
-      <div class="sec-label" style="margin-bottom:10px">Question-by-question log</div>
-      <div class="tbl-wrap" style="margin:0">
-        <table>
-          <thead><tr><th>Q#</th><th>Topic</th><th>Difficulty</th><th>Score</th><th>Quadrant</th><th>Flags</th><th>AI Detect</th></tr></thead>
-          <tbody>${turnsHtml || '<tr><td colspan="7" class="empty-state">No technical questions yet</td></tr>'}</tbody>
-        </table>
+      <div class="sec-label" style="margin-bottom:12px">Topic Breakdown</div>
+      ${topicsHtml}
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0">
+        <div class="sec-label" style="margin-bottom:0">Per-Question Scores</div>
+        <span style="font-size:10px;color:var(--t4)">${scoredTurns.length} questions</span>
+      </div>
+      <div style="border:1px solid var(--b);border-radius:8px;overflow:hidden;margin-top:10px">
+        ${pqHtml}
       </div>
     </div>
 
-    <div class="card">
-      <div class="sec-label" style="margin-bottom:10px">Notable moments</div>
-      ${notable}
+    ${ev.summary ? `<div class="card"><div class="sec-label" style="margin-bottom:8px">Overall Assessment</div><div style="font-size:12px;color:var(--t2);line-height:1.6">${escH(ev.summary)}</div></div>` : ''}
+    `;
+  }
+  const reportCardHtml = buildReportCardHtml(ev, tl);
+
+    return `
+  <div style="padding:0 0 24px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div style="font-size:16px;font-weight:500">${escH(d.resume?.candidate_name||'Session')}</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:3px">${escH(d.resume?.domain||'').replace('_',' ')} · ${escH(d.resume?.level||'').replace(/_/g,' ')} · ${d.turn||0} turns</div>
+      </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <!-- Tabs -->
+    <div style="display:flex;gap:0;border:1px solid var(--b);border-radius:9px;overflow:hidden;margin-bottom:18px;background:var(--off)">
+      <button onclick="adminDetailTab(this,'tab-report')" id="tab-btn-report" style="flex:1;padding:9px 14px;font-size:12px;font-weight:500;font-family:inherit;border:none;cursor:pointer;background:#fff;color:var(--t);border-right:1px solid var(--b);border-radius:0">
+        📋 Report Card
+      </button>
+      <button onclick="adminDetailTab(this,'tab-anticheat')" id="tab-btn-anticheat" style="flex:1;padding:9px 14px;font-size:12px;font-weight:500;font-family:inherit;border:none;cursor:pointer;background:transparent;color:var(--t3);border-right:1px solid var(--b);border-radius:0">
+        🛡 Anti-Cheat
+      </button>
+      <button onclick="adminDetailTab(this,'tab-obs')" id="tab-btn-obs" style="flex:1;padding:9px 14px;font-size:12px;font-weight:500;font-family:inherit;border:none;cursor:pointer;background:transparent;color:var(--t3);border-radius:0">
+        📡 Observability
+      </button>
+    </div>
+
+    <!-- Tab: Report Card -->
+    <div id="tab-report">
+      ${reportCardHtml}
+    </div>
+
+    <!-- Tab: Anti-Cheat -->
+    <div id="tab-anticheat" style="display:none">
+      <div style="margin-bottom:6px"><div class="risk-meter"><div class="risk-fill" style="width:${risk_pct}%;background:${risk_color}"></div></div><div style="display:flex;justify-content:space-between;font-size:10px;color:var(--t3)"><span>Clean</span><span>Critical (7+)</span></div></div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;margin-top:8px">
+        <div style="font-size:22px;font-weight:500;color:${risk_color};font-family:var(--mono)">${risk_label}</div>
+        <div style="font-size:11px;color:var(--t3)">${sc_count} active signal${sc_count!==1?'s':''}</div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <div class="sec-label" style="margin-bottom:9px">Browser-side events</div>
+          ${eventsHtml}
+        </div>
+        <div class="card">
+          <div class="sec-label" style="margin-bottom:9px">Behavioral deviation signals</div>
+          ${behHtml}
+          ${d.smooth_talker_detected ? `<div style="margin-top:10px;padding:9px 11px;background:var(--ab);border:1px solid var(--abd);border-radius:8px;font-size:11px;color:#78350F"><strong>Smooth talker detected</strong> — ${(d.smooth_talker_signals||[]).slice(0,2).map(escH).join('; ')}</div>` : ''}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px;margin-bottom:14px">
+        <div class="sec-label" style="margin-bottom:10px">Question-by-question log</div>
+        <div class="tbl-wrap" style="margin:0">
+          <table>
+            <thead><tr><th>Q#</th><th>Topic</th><th>Difficulty</th><th>Score</th><th>Quadrant</th><th>Flags</th><th>AI Detect</th></tr></thead>
+            <tbody>${turnsHtml || '<tr><td colspan="7" class="empty-state">No technical questions yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="sec-label" style="margin-bottom:10px">Notable moments</div>
+        ${notable}
+      </div>
+    </div>
+
+    <!-- Tab: Observability -->
+    <div id="tab-obs" style="display:none">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div class="sec-label" style="margin-bottom:0">Session API observability</div>
         <a onclick="showSection('observability',document.getElementById('nav-observability'))" style="font-size:11px;color:var(--blue);cursor:pointer;text-decoration:underline">View full platform observability →</a>
@@ -2443,6 +2579,25 @@ function renderAcDetail(d) {
       ${obsHtml}
     </div>
   </div>`;
+}
+
+function adminDetailTab(btn, activeId) {
+  // Deactivate all tab buttons and panels
+  const panels = ['tab-report','tab-anticheat','tab-obs'];
+  const btns = ['tab-btn-report','tab-btn-anticheat','tab-btn-obs'];
+  panels.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  btns.forEach(id => {
+    const b = document.getElementById(id);
+    if (b) { b.style.background = 'transparent'; b.style.color = 'var(--t3)'; }
+  });
+  // Activate selected
+  const panel = document.getElementById(activeId);
+  if (panel) panel.style.display = 'block';
+  btn.style.background = '#fff';
+  btn.style.color = 'var(--t)';
 }
 
 // ════════════════════════════════════════════════════════
