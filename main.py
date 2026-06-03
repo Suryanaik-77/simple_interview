@@ -46,6 +46,8 @@ SMTP_USER = get_secret("SMTP_USER")
 SMTP_PASS = get_secret("SMTP_PASS")
 ADMIN_EMAIL = get_secret("ADMIN_EMAIL", "gsuryanaik7@gmail.com")
 SAPLING_API_KEY = get_secret("SAPLING_API_KEY")
+LMS_API_KEY = get_secret("LMS_API_KEY", "")            # shared secret for LMS → interview API
+LMS_REDIRECT_URL = get_secret("LMS_REDIRECT_URL", "")  # redirect when user hits /interview without token
 
 from openai import OpenAI
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
@@ -1496,10 +1498,12 @@ def evaluate_interview(session) -> dict:
     )
 
     model = RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+    transcript = _build_eval_transcript(session)
+    print(f"[Eval] {sid[:8]} — transcript length: {len(transcript)} chars, answered: {answered}, level: {level}, model: {model}")
     t0 = time.time()
     try:
         raw, usage = call_llm([{"role": "user", "content": prompt}],
-                              model_id=model, temperature=0.2, max_tokens=1800)
+                              model_id=model, temperature=0.2, max_tokens=2500)
     except Exception as e:
         print(f"[Eval] LLM call failed for {sid[:8]}: {e}")
         result = {"status": "error", "answered": answered, "error": str(e)}
@@ -1510,6 +1514,7 @@ def evaluate_interview(session) -> dict:
         return result
     eval_ms = round((time.time() - t0) * 1000)
 
+    print(f"[Eval] {sid[:8]} — raw response length: {len(raw)} chars, first 300: {raw[:300]}")
     parsed = safe_json(raw) or {}
     result = {
         "status": "done",
@@ -1524,6 +1529,7 @@ def evaluate_interview(session) -> dict:
     if not parsed:
         result["parse_error"] = True
         result["raw_response"] = raw[:2000]
+        print(f"[Eval] {sid[:8]} — PARSE FAILED! Raw response:\n{raw[:1000]}")
 
     session["evaluation"] = result
 
@@ -1539,6 +1545,11 @@ def evaluate_interview(session) -> dict:
 
     print(f"[Eval] {sid[:8]} ({level}): score={result.get('overall_score', '?')} "
           f"rec={result.get('recommendation', '?')} {eval_ms}ms ${usage['cost_usd']:.4f}")
+
+    # Send results to LMS if this was an LMS-launched session
+    if session.get("lms_callback_url"):
+        threading.Thread(target=_lms_callback, args=(session,), daemon=True).start()
+
     return result
 
 
@@ -1580,7 +1591,13 @@ async def index():
     return open("templates/index.html", encoding="utf-8").read()
 
 @app.get("/interview", response_class=HTMLResponse)
-async def interview_page():
+async def interview_page(request: Request):
+    # Block direct access if LMS mode is active — must have a session_id
+    if LMS_API_KEY and not request.query_params.get("session_id"):
+        if LMS_REDIRECT_URL:
+            from starlette.responses import RedirectResponse
+            return RedirectResponse(LMS_REDIRECT_URL)
+        raise HTTPException(403, "Access denied — interview must be launched from LMS")
     return open("templates/voice_agent_ui.html", encoding="utf-8").read()
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -1624,6 +1641,141 @@ async def auth_me(request: Request):
 @app.post("/api/login")
 async def login(data: dict, response: Response):
     return await auth_login(data, response)
+
+
+# ── LMS Integration ──────────────────────────────────────────────────────
+
+def _extract_resume_text(content: bytes, filename: str) -> str:
+    """Extract text from resume file (PDF/DOCX/TXT). Reuses parse-resume logic."""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "txt"
+    text = ""
+
+    if ext == "pdf":
+        if not content.startswith(b"%PDF-"):
+            raise HTTPException(400, "Not a valid PDF.")
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(content); tmp_path = tmp.name
+            try:
+                import pdfplumber
+                with pdfplumber.open(tmp_path) as pdf:
+                    for page in pdf.pages:
+                        text += (page.extract_text() or "") + "\n"
+            except Exception:
+                pass
+            if not text.strip():
+                try:
+                    import fitz
+                    textract_client = boto3.client("textract",
+                        region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+                    doc = fitz.open(tmp_path)
+                    for i in range(min(len(doc), 3)):
+                        single = fitz.open()
+                        single.insert_pdf(doc, from_page=i, to_page=i)
+                        resp = textract_client.analyze_document(
+                            Document={"Bytes": single.tobytes()}, FeatureTypes=["LAYOUT"])
+                        single.close()
+                        text += "\n".join(b["Text"] for b in resp.get("Blocks", []) if b["BlockType"] == "LINE") + "\n"
+                    doc.close()
+                except Exception:
+                    pass
+        finally:
+            if tmp_path:
+                try: os.unlink(tmp_path)
+                except: pass
+    elif ext in ("docx", "doc"):
+        import docx2txt
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+            tmp.write(content); tmp_path = tmp.name
+        text = docx2txt.process(tmp_path)
+        os.unlink(tmp_path)
+    else:
+        text = content.decode("utf-8", errors="ignore")
+
+    return text.strip()
+
+
+@app.post("/api/lms/launch")
+def lms_launch(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    domain: str = Form("physical_design"),
+    resume: UploadFile = File(...),
+    callback_url: str = Form(""),
+):
+    """LMS calls this to create a session and get a signed launch URL."""
+    api_key = request.headers.get("X-API-Key", "")
+    if not LMS_API_KEY or api_key != LMS_API_KEY:
+        raise HTTPException(401, "Invalid or missing API key")
+
+    content = resume.file.read()
+    if len(content) > 5_000_000:
+        raise HTTPException(413, "Resume too large. Max 5MB.")
+    text = _extract_resume_text(content, resume.filename or "resume.pdf")
+    if not text:
+        raise HTTPException(400, "Could not extract text from resume.")
+
+    parsed = parse_resume(text)
+    parsed["candidate_name"] = name
+    parsed["email"] = email
+    if not parsed.get("domain"):
+        parsed["domain"] = domain
+    parsed["resume_text"] = text[:3000]
+
+    sid = secrets.token_hex(8)
+    session = {
+        "id": sid, "mode": "mock", "resume": parsed, "phase": "greeting",
+        "turn": 0, "conversation": [], "started_at": time.time(),
+        "difficulty_level": 1, "lms_source": True,
+    }
+    if callback_url:
+        session["lms_callback_url"] = callback_url
+    sessions[sid] = session
+
+    token = jwt.encode({
+        "type": "lms_launch",
+        "sid": sid,
+        "email": email,
+        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=30),
+    }, JWT_SECRET, algorithm="HS256")
+
+    host = request.headers.get("host", request.base_url.hostname)
+    scheme = request.headers.get("x-forwarded-proto", "https")
+    launch_url = f"{scheme}://{host}/?lms=1&token={token}&session_id={sid}"
+
+    print(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain}")
+    return {"session_id": sid, "launch_url": launch_url, "resume": parsed}
+
+
+def _lms_callback(session):
+    """POST evaluation results back to LMS callback URL (fire-and-forget)."""
+    url = session.get("lms_callback_url")
+    if not url:
+        return
+    evaluation = session.get("evaluation", {})
+    resume = session.get("resume", {})
+    payload = {
+        "session_id": session.get("id"),
+        "email": resume.get("email", ""),
+        "name": resume.get("candidate_name", ""),
+        "status": evaluation.get("status", "error"),
+        "overall_score": evaluation.get("overall_score"),
+        "communication_score": evaluation.get("communication_score"),
+        "verdict": evaluation.get("verdict"),
+        "level_fit": evaluation.get("level_fit"),
+        "summary": evaluation.get("summary", ""),
+        "strengths": evaluation.get("strengths", []),
+        "weaknesses": evaluation.get("weaknesses", []),
+    }
+    try:
+        resp = http_requests.post(url, json=payload,
+                                  headers={"X-API-Key": LMS_API_KEY},
+                                  timeout=10)
+        print(f"[LMS] Callback to {url} — {resp.status_code}")
+    except Exception as e:
+        print(f"[LMS] Callback failed: {e}")
 
 
 # ── Resume Parsing ───────────────────────────────────────────────────────

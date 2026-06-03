@@ -657,6 +657,11 @@ async function startInterview() {
   document.getElementById('btn-text').textContent = 'Preparing...';
   document.getElementById('btn-arrow').style.display = 'none';
   try {
+    // LMS launch — session already exists, go directly
+    if (S.lmsSessionId) {
+      window.location.href = '/interview?session_id=' + S.lmsSessionId;
+      return;
+    }
     const r = await fetch('/api/create-session', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({resume_text: JSON.stringify(S.resumeParsed), mode: 'mock'})
@@ -906,6 +911,47 @@ function backToLobby() {
     return;
   }
   renderReport(report);
+})();
+
+// ── LMS AUTO-FILL ──
+(function lmsAutoFill() {
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('lms') !== '1') return;
+  const sessionId = qs.get('session_id');
+  if (!sessionId) return;
+
+  // Fetch session data to get the pre-parsed resume
+  fetch('/api/get-session?session_id=' + sessionId)
+    .then(r => r.json())
+    .then(data => {
+      const resume = data.resume || {};
+      S.resumeParsed = resume;
+      S.lmsSessionId = sessionId;
+
+      // Auto-fill resume UI — hide upload zone since LMS sent the resume
+      const dm = {analog_layout:'Analog Layout', physical_design:'Physical Design', design_verification:'Design Verification', analog_design:'Analog Design'};
+      const lm = {fresh_graduate:'Fresh Graduate', trained_fresher:'Trained Fresher', experienced_junior:'Exp. Junior', experienced_senior:'Exp. Senior'};
+
+      document.getElementById('upload-zone').style.display = 'none';
+      document.getElementById('resume-empty').classList.add('hidden');
+      document.getElementById('resume-loading').classList.add('hidden');
+      document.getElementById('p-filename').textContent = 'Resume (via LMS)';
+      document.getElementById('p-name').textContent = resume.candidate_name || 'Candidate';
+      document.getElementById('p-domain').textContent = dm[resume.domain] || resume.domain || '-';
+      document.getElementById('p-level').textContent = lm[resume.level] || resume.level || '-';
+      document.getElementById('p-skills').textContent = (resume.skills||[]).slice(0,5).join(', ') || 'N/A';
+      document.getElementById('p-tools').textContent = (resume.tools||[]).slice(0,4).join(', ') || 'N/A';
+      document.getElementById('resume-parsed').classList.remove('hidden');
+
+      const name = resume.candidate_name || 'Candidate';
+      document.getElementById('sb-name').textContent = name;
+      document.getElementById('sb-avatar').textContent = name.slice(0,2).toUpperCase();
+      document.getElementById('welcome-text').innerHTML = 'Welcome, ' + name.split(' ')[0] + '! <span class="inline-block">&#128075;</span>';
+
+      S.resumePassed = true;
+      updateChecks();
+    })
+    .catch(e => console.error('LMS auto-fill failed:', e));
 })();
 
 // ── ANTI-CHEAT (silent) ──
