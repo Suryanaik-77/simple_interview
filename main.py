@@ -1447,7 +1447,7 @@ def _answered_count(session) -> int:
                if (e.get("answer") or "").strip())
 
 
-def _build_eval_transcript(session, max_chars: int = 8000) -> str:
+def _build_eval_transcript(session, max_chars: int = 25000) -> str:
     """Render the conversation as numbered Q/A pairs so the evaluator can map a
     per-question score back to each question by its number."""
     lines = []
@@ -1503,7 +1503,7 @@ def evaluate_interview(session) -> dict:
     t0 = time.time()
     try:
         raw, usage = call_llm([{"role": "user", "content": prompt}],
-                              model_id=model, temperature=0.2, max_tokens=2500)
+                              model_id=model, temperature=0.2, max_tokens=4000)
     except Exception as e:
         print(f"[Eval] LLM call failed for {sid[:8]}: {e}")
         result = {"status": "error", "answered": answered, "error": str(e)}
@@ -1591,18 +1591,141 @@ async def index():
     return open("templates/index.html", encoding="utf-8").read()
 
 @app.get("/interview", response_class=HTMLResponse)
-async def interview_page(request: Request):
-    # Block direct access if LMS mode is active — must have a session_id
-    if LMS_API_KEY and not request.query_params.get("session_id"):
-        if LMS_REDIRECT_URL:
-            from starlette.responses import RedirectResponse
-            return RedirectResponse(LMS_REDIRECT_URL)
-        raise HTTPException(403, "Access denied — interview must be launched from LMS")
+async def interview_page():
     return open("templates/voice_agent_ui.html", encoding="utf-8").read()
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page():
     return open("templates/admin.html", encoding="utf-8").read()
+
+
+# ── Speaker Verification (Resemblyzer only) ─────────────────────────────
+_resemblyzer_encoder = None
+
+def _get_resemblyzer_encoder():
+    global _resemblyzer_encoder
+    if _resemblyzer_encoder is None:
+        from resemblyzer import VoiceEncoder
+        _resemblyzer_encoder = VoiceEncoder()
+        print("[Speaker] Resemblyzer encoder loaded")
+    return _resemblyzer_encoder
+
+def _to_wav16k(audio_bytes):
+    """Convert webm/any audio → 16kHz mono via ffmpeg. Returns (numpy_array, torch_tensor)."""
+    import torch, soundfile as sf, subprocess
+    in_path = tempfile.mktemp(suffix=".webm")
+    out_path = tempfile.mktemp(suffix=".wav")
+    try:
+        with open(in_path, "wb") as f:
+            f.write(audio_bytes)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", in_path, "-ar", "16000", "-ac", "1", "-f", "wav", out_path],
+            capture_output=True, timeout=10,
+        )
+        data, sr = sf.read(out_path, dtype="float32")
+        return data, torch.from_numpy(data).unsqueeze(0)
+    finally:
+        for p in (in_path, out_path):
+            try: os.remove(p)
+            except: pass
+
+# ── Background Speaker Verification (anti-cheat) ─────────────────────────
+
+import random as _random
+
+SPEAKER_VERIFY_THRESHOLD = 0.80  # Resemblyzer cosine similarity threshold
+
+def _compute_speaker_embedding(audio_bytes):
+    """Compute Resemblyzer 256-dim embedding from audio bytes. Returns numpy array or None."""
+    try:
+        from resemblyzer import preprocess_wav
+        np_audio, _ = _to_wav16k(audio_bytes)
+        encoder = _get_resemblyzer_encoder()
+        processed = preprocess_wav(np_audio)
+        embedding = encoder.embed_utterance(processed)
+        return embedding
+    except Exception as e:
+        print(f"[SpeakerVerify] Embedding error: {e}")
+        return None
+
+
+def _verify_speaker_background(audio_bytes, session, turn):
+    """Background speaker verification using Resemblyzer (256-dim).
+    - Turn 1: Store reference embedding (if not provided by LMS)
+    - Random turns: Compare and flag mismatch
+    """
+    import numpy as np
+    sid = session.get("id", "?")[:8]
+
+    try:
+        # If session already ended or flagged, skip
+        if session.get("phase") == "ended" or session.get("speaker_mismatch"):
+            return
+
+        # Compute embedding for current audio
+        current_emb = _compute_speaker_embedding(audio_bytes)
+        if current_emb is None:
+            return
+
+        # Turn 1: Store reference embedding
+        if "speaker_ref_embedding" not in session:
+            # Use LMS-provided voice if available
+            if session.get("user_voice_ref"):
+                ref_emb = _compute_speaker_embedding(session["user_voice_ref"])
+                if ref_emb is not None:
+                    session["speaker_ref_embedding"] = ref_emb
+                    print(f"[SpeakerVerify] {sid} — Reference from LMS voice (256-dim)")
+                    # Also verify first answer against LMS reference
+                    score = float(np.dot(ref_emb, current_emb) /
+                                  (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
+                    print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
+                    if score < SPEAKER_VERIFY_THRESHOLD:
+                        _flag_speaker_mismatch(session, turn, score)
+                    return
+            # No LMS voice — use first answer as reference
+            session["speaker_ref_embedding"] = current_emb
+            print(f"[SpeakerVerify] {sid} — Reference from turn 1 (256-dim)")
+            return
+
+        # Subsequent turns: compare against reference
+        ref_emb = session["speaker_ref_embedding"]
+        score = float(np.dot(ref_emb, current_emb) /
+                      (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
+        print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
+
+        if score < SPEAKER_VERIFY_THRESHOLD:
+            _flag_speaker_mismatch(session, turn, score)
+
+    except Exception as e:
+        print(f"[SpeakerVerify] {sid} — Error: {e}")
+
+
+def _flag_speaker_mismatch(session, turn, score):
+    """Flag session as speaker mismatch — ends interview."""
+    sid = session.get("id", "?")[:8]
+    session["speaker_mismatch"] = {
+        "detected_at_turn": turn,
+        "score": round(score, 4),
+        "threshold": SPEAKER_VERIFY_THRESHOLD,
+        "timestamp": time.time(),
+    }
+    session["phase"] = "ended"
+    session["end_reason"] = "speaker_mismatch"
+    sessions[session["id"]] = session
+    print(f"[SpeakerVerify] {sid} — MISMATCH at turn {turn} (score={score:.4f} < {SPEAKER_VERIFY_THRESHOLD}) — INTERVIEW ENDED")
+
+
+def _should_run_speaker_check(session, turn):
+    """Decide whether to run speaker verification on this turn.
+    - Always on turn 1 (to store/verify reference)
+    - Random ~40% chance on other turns (to avoid overhead every turn)
+    """
+    if turn <= 1:
+        return True
+    if session.get("phase") == "ended":
+        return False
+    return _random.random() < 0.4
+
 
 @app.get("/health")
 async def health():
@@ -1697,20 +1820,21 @@ def _extract_resume_text(content: bytes, filename: str) -> str:
 
 
 @app.post("/api/lms/launch")
-def lms_launch(
+async def lms_launch(
     request: Request,
     name: str = Form(...),
     email: str = Form(...),
     domain: str = Form("physical_design"),
     resume: UploadFile = File(...),
     callback_url: str = Form(""),
+    user_voice: UploadFile = File(None),
 ):
     """LMS calls this to create a session and get a signed launch URL."""
     api_key = request.headers.get("X-API-Key", "")
     if not LMS_API_KEY or api_key != LMS_API_KEY:
         raise HTTPException(401, "Invalid or missing API key")
 
-    content = resume.file.read()
+    content = await resume.read()
     if len(content) > 5_000_000:
         raise HTTPException(413, "Resume too large. Max 5MB.")
     text = _extract_resume_text(content, resume.filename or "resume.pdf")
@@ -1720,9 +1844,15 @@ def lms_launch(
     parsed = parse_resume(text)
     parsed["candidate_name"] = name
     parsed["email"] = email
-    if not parsed.get("domain"):
-        parsed["domain"] = domain
+    parsed["domain"] = domain
     parsed["resume_text"] = text[:3000]
+
+    # Process user voice reference (for speaker verification)
+    voice_bytes = None
+    if user_voice and user_voice.filename:
+        voice_bytes = await user_voice.read()
+        if len(voice_bytes) > 10_000_000:
+            raise HTTPException(413, "Voice file too large. Max 10MB.")
 
     sid = secrets.token_hex(8)
     session = {
@@ -1732,6 +1862,8 @@ def lms_launch(
     }
     if callback_url:
         session["lms_callback_url"] = callback_url
+    if voice_bytes:
+        session["user_voice_ref"] = voice_bytes
     sessions[sid] = session
 
     token = jwt.encode({
@@ -1746,7 +1878,14 @@ def lms_launch(
     launch_url = f"{scheme}://{host}/?lms=1&token={token}&session_id={sid}"
 
     print(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain}")
-    return {"session_id": sid, "launch_url": launch_url, "resume": parsed}
+
+    # If request wants JSON (API call), return JSON; otherwise redirect to lobby
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept:
+        return {"session_id": sid, "launch_url": launch_url, "resume": parsed}
+
+    from starlette.responses import RedirectResponse
+    return RedirectResponse(launch_url, status_code=303)
 
 
 def _lms_callback(session):
@@ -1931,7 +2070,19 @@ def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form(""
         session.setdefault("obs_log", []).append(
             _obs_entry("STT", stt_model, stt_ms, "success" if transcript else "failure",
                        chars=len(transcript), cost_usd=_calc_stt_cost(stt_model, stt_ms)))
+        # Background speaker verification
+        turn = session.get("turn", 0)
+        if _should_run_speaker_check(session, turn):
+            threading.Thread(
+                target=_verify_speaker_background,
+                args=(audio_bytes, session, turn),
+                daemon=True,
+            ).start()
         sessions[session_id] = session
+
+    # If speaker mismatch was flagged, inform frontend
+    if session and session.get("speaker_mismatch"):
+        return {"transcript": transcript, "stt_ms": stt_ms, "speaker_mismatch": True}
     return {"transcript": transcript, "stt_ms": stt_ms}
 
 
@@ -1942,6 +2093,15 @@ def submit_answer(data: dict):
     answer = data.get("answer", "")
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
+
+    # Check if speaker mismatch was detected in background
+    if session.get("speaker_mismatch"):
+        return {
+            "question": "This interview has been ended due to a speaker verification failure.",
+            "question_type": "end", "turn": session["turn"], "phase": "ended",
+            "audio": "", "difficulty": "basic", "should_end": True,
+            "speaker_mismatch": True,
+        }
 
     t0_total = time.time()
     result = generate_question(session, answer)
@@ -1985,6 +2145,15 @@ def stream_answer(data: dict):
     session = sessions.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
+
+    # Check if speaker mismatch was detected in background
+    if session.get("speaker_mismatch"):
+        def mismatch_stream():
+            msg = "This interview has been ended due to a speaker verification failure."
+            yield f"data: {json.dumps({'type': 'text', 'content': msg, 'done': True, 'should_end': True, 'speaker_mismatch': True})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended', 'speaker_mismatch': True})}\n\n"
+        from starlette.responses import StreamingResponse
+        return StreamingResponse(mismatch_stream(), media_type="text/event-stream")
 
     def event_stream():
         t0 = time.time()
