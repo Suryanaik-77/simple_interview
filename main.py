@@ -1399,7 +1399,8 @@ In addition to the overall assessment, do BOTH of these:
 - Score EVERY numbered question individually in "per_question", referencing its number. Judge each answer's technical merit at THIS candidate's level.
 - For each question in "per_question", populate:
   - "expected_points": A list of key technical concepts/keywords expected in a correct answer.
-  - "missing_points": The subset of expected concepts that the candidate omitted or explained incorrectly (use an empty list [] if they covered all expected points).
+  - "missing_points": ONLY the concepts the candidate did NOT cover or got wrong. If the candidate mentioned a concept correctly (even partially), do NOT include it in missing_points. Compare the answer carefully against each expected point — give credit for correct mentions. Use an empty list [] if they covered all expected points.
+CRITICAL: "missing_points" must be a STRICT SUBSET of "expected_points". Never copy expected_points into missing_points blindly. Read the candidate's answer word by word — if they mentioned a concept, remove it from missing.
 - Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
 
 Return ONLY valid JSON, no prose, no markdown fences:
