@@ -1053,13 +1053,19 @@
         releaseMic();
         if (vadWs) { try { vadWs.close(); } catch(e) {} vadWs = null; }
 
-        // Tell the server to end the session
+        // Tell the server to end the session (use sendBeacon so it survives page unload)
         if (sessionId) {
-            fetch('/api/end-session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session_id: sessionId })
-            }).catch(() => {});
+            const payload = JSON.stringify({ session_id: sessionId });
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/end-session', new Blob([payload], { type: 'application/json' }));
+            } else {
+                fetch('/api/end-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: payload,
+                    keepalive: true
+                }).catch(() => {});
+            }
         }
 
         // Stop timer
@@ -1120,6 +1126,22 @@
                 }
                 // done | skipped | error | not_ended — all terminal, render in index.
                 localStorage.setItem('interview_report', JSON.stringify(report));
+                // If launched from LMS, redirect back to LMS portal after 5 seconds
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('lms') === '1') {
+                    document.getElementById('question-text').textContent = 'Thank you! Your interview is complete. Redirecting to portal...';
+                    document.getElementById('sub-label').textContent = 'Redirecting in 5 seconds...';
+                    let countdown = 5;
+                    const timer = setInterval(() => {
+                        countdown--;
+                        document.getElementById('sub-label').textContent = 'Redirecting in ' + countdown + ' seconds...';
+                        if (countdown <= 0) {
+                            clearInterval(timer);
+                            window.location.href = '/';
+                        }
+                    }, 1000);
+                    return;
+                }
                 window.location.href = '/?show_report=1';
                 return;
             } catch (e) {
@@ -1608,13 +1630,19 @@
         if (ticker) { clearInterval(ticker); ticker = null; }
         forceStopAllAudio();
 
-        // Tell the server to end the session
+        // Tell the server to end the session (use sendBeacon so it survives page unload)
         if (sessionId) {
-            fetch('/api/end-session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session_id: sessionId })
-            }).catch(() => {});
+            const payload = JSON.stringify({ session_id: sessionId });
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/end-session', new Blob([payload], { type: 'application/json' }));
+            } else {
+                fetch('/api/end-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: payload,
+                    keepalive: true
+                }).catch(() => {});
+            }
         }
 
         setOrb('idle');
