@@ -246,7 +246,50 @@ body { font-family: 'Inter', sans-serif; }
       </div>
     </div>
 
-    <!-- ── Row 2: Resume Parsing (full width) ── -->
+    <!-- ── Row 2: Voice Verification ── -->
+    <div class="card mb-5" id="card-voice">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-accent-light flex items-center justify-center">
+            <span class="material-symbols-outlined text-brand text-lg">record_voice_over</span>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-text-primary">Voice Verification</h3>
+            <p class="text-xs text-text-secondary">Record a short sample to verify your identity during the interview</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-outline-dark" id="dot-voice"></span>
+          <span class="text-[10px] font-semibold text-text-tertiary" id="voice-chip">Pending</span>
+        </div>
+      </div>
+      <div class="bg-surface-dim rounded-xl p-4 mb-3">
+        <p class="text-xs text-text-secondary mb-3">Read the following sentence aloud:</p>
+        <p class="text-sm font-medium text-text-primary italic text-center py-2">"Hello, my name is <span id="voice-name-prompt">___</span> and I am here for my interview."</p>
+        <div class="flex items-center justify-center gap-3 mt-3">
+          <div id="voice-wave" class="flex items-center gap-[2px] h-8">
+            <div class="voice-bar w-1 bg-danger rounded-full" style="height:4px"></div>
+            <div class="voice-bar w-1 bg-danger rounded-full" style="height:4px"></div>
+            <div class="voice-bar w-1 bg-danger rounded-full" style="height:4px"></div>
+            <div class="voice-bar w-1 bg-danger rounded-full" style="height:4px"></div>
+            <div class="voice-bar w-1 bg-danger rounded-full" style="height:4px"></div>
+            <div class="voice-bar w-1 bg-danger rounded-full" style="height:4px"></div>
+            <div class="voice-bar w-1 bg-danger rounded-full" style="height:4px"></div>
+            <div class="voice-bar w-1 bg-danger rounded-full" style="height:4px"></div>
+          </div>
+          <span class="text-xs text-text-tertiary font-mono" id="voice-timer">0:00</span>
+        </div>
+      </div>
+      <div class="flex items-center justify-between">
+        <p class="text-xs text-text-tertiary" id="voice-label">Click "Record" to begin</p>
+        <div class="flex gap-2">
+          <button onclick="playVoiceSample()" id="voice-play-btn" class="hidden px-4 py-1.5 rounded-lg bg-surface-container border border-outline text-text-secondary text-xs font-semibold hover:bg-surface-dim transition-colors">Play</button>
+          <button onclick="recordVoice()" id="voice-btn" class="px-4 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors">Record</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Row 3: Resume Parsing (full width) ── -->
     <div class="card mb-5" id="card-resume">
       <div class="flex items-center gap-2.5 mb-4">
         <div class="w-9 h-9 rounded-xl bg-accent-light flex items-center justify-center">
@@ -353,6 +396,12 @@ body { font-family: 'Inter', sans-serif; }
             <span class="material-symbols-outlined text-brand text-base mb-1.5">psychology</span>
             <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">AI Detection</h4>
             <p class="text-[10px] text-text-tertiary leading-snug">Detects AI extensions and copilots</p>
+            <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
+          </div>
+          <div class="bg-surface-dim rounded-xl p-3 border border-outline">
+            <span class="material-symbols-outlined text-brand text-base mb-1.5">record_voice_over</span>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Voice Verification</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">Verifies same person is speaking throughout</p>
             <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
           </div>
         </div>
@@ -516,13 +565,13 @@ body { font-family: 'Inter', sans-serif; }
 </nav>
 
 <script>
-const S = { sessionId:null, resumeParsed:null, mediaStream:null, micPassed:false, camPassed:false, resumePassed:false };
+const S = { sessionId:null, resumeParsed:null, mediaStream:null, micPassed:false, camPassed:false, resumePassed:false, voicePassed:false, voiceBlob:null };
 
 function updateChecks() {
-  const count = [S.resumePassed, S.micPassed, S.camPassed].filter(Boolean).length;
+  const count = [S.resumePassed, S.micPassed, S.camPassed, S.voicePassed].filter(Boolean).length;
   const dot = document.getElementById('status-dot');
   const txt = document.getElementById('status-text');
-  if (count === 3) {
+  if (count === 4) {
     dot.className = 'w-2 h-2 rounded-full bg-success';
     txt.textContent = 'All systems go!';
     txt.className = 'text-success font-semibold text-xs';
@@ -531,7 +580,7 @@ function updateChecks() {
     document.getElementById('btn-arrow').style.display = '';
   } else {
     dot.className = 'w-2 h-2 rounded-full bg-warn';
-    txt.textContent = count + ' of 3 checks complete';
+    txt.textContent = count + ' of 4 checks complete';
     txt.className = 'text-text-secondary font-medium text-xs';
   }
 }
@@ -570,6 +619,7 @@ async function processResume(file) {
     document.getElementById('sb-name').textContent = name;
     document.getElementById('sb-avatar').textContent = name.slice(0,2).toUpperCase();
     document.getElementById('welcome-text').innerHTML = 'Welcome back, ' + name.split(' ')[0] + '! <span class="inline-block">&#128075;</span>';
+    document.getElementById('voice-name-prompt').textContent = name.split(' ')[0];
 
     S.resumePassed = true;
     updateChecks();
@@ -649,6 +699,89 @@ async function enableCamera() {
   }
 }
 
+// ── VOICE VERIFICATION ──
+let _voiceRecorder = null;
+let _voiceTimerIv = null;
+let _voiceStartTime = 0;
+
+async function recordVoice() {
+  const btn = document.getElementById('voice-btn');
+  const label = document.getElementById('voice-label');
+  const chip = document.getElementById('voice-chip');
+  const dot = document.getElementById('dot-voice');
+  const bars = document.querySelectorAll('.voice-bar');
+  const timerEl = document.getElementById('voice-timer');
+
+  // If already recording, stop
+  if (_voiceRecorder && _voiceRecorder.state === 'recording') {
+    _voiceRecorder.stop();
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _voiceRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+    const chunks = [];
+
+    _voiceRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+    _voiceRecorder.onstart = () => {
+      btn.textContent = 'Stop';
+      btn.className = 'px-4 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors';
+      label.textContent = 'Recording... Read the sentence above';
+      bars.forEach(b => { b.style.animation = 'wave 1.2s ease-in-out infinite'; b.style.animationDelay = (Math.random()*0.3)+'s'; });
+      _voiceStartTime = Date.now();
+      _voiceTimerIv = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - _voiceStartTime) / 1000);
+        timerEl.textContent = '0:' + String(elapsed).padStart(2, '0');
+      }, 200);
+    };
+
+    _voiceRecorder.onstop = () => {
+      clearInterval(_voiceTimerIv);
+      stream.getTracks().forEach(t => t.stop());
+      bars.forEach(b => { b.style.animation = 'none'; b.style.height = '4px'; });
+
+      const elapsed = (Date.now() - _voiceStartTime) / 1000;
+      if (elapsed < 2) {
+        label.textContent = 'Too short. Please record for at least 3 seconds.';
+        btn.textContent = 'Record Again';
+        btn.className = 'px-4 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors';
+        chip.textContent = 'Too Short'; chip.className = 'text-[10px] font-semibold text-danger';
+        dot.className = 'w-2 h-2 rounded-full bg-danger';
+        return;
+      }
+
+      S.voiceBlob = new Blob(chunks, { type: 'audio/webm' });
+      S.voicePassed = true;
+      btn.textContent = 'Re-record';
+      btn.className = 'px-4 py-1.5 rounded-lg bg-success text-white text-xs font-semibold';
+      label.textContent = 'Voice sample recorded (' + elapsed.toFixed(1) + 's)';
+      chip.textContent = 'Recorded'; chip.className = 'text-[10px] font-semibold text-success';
+      dot.className = 'w-2 h-2 rounded-full bg-success';
+      document.getElementById('voice-play-btn').classList.remove('hidden');
+      updateChecks();
+    };
+
+    _voiceRecorder.start();
+    // Auto-stop after 8 seconds
+    setTimeout(() => { if (_voiceRecorder && _voiceRecorder.state === 'recording') _voiceRecorder.stop(); }, 8000);
+
+  } catch(e) {
+    label.textContent = 'Microphone access denied';
+    chip.textContent = 'Denied'; chip.className = 'text-[10px] font-semibold text-danger';
+    dot.className = 'w-2 h-2 rounded-full bg-danger';
+  }
+}
+
+function playVoiceSample() {
+  if (!S.voiceBlob) return;
+  const url = URL.createObjectURL(S.voiceBlob);
+  const a = new Audio(url);
+  a.onended = () => URL.revokeObjectURL(url);
+  a.play();
+}
+
 // ── START INTERVIEW ──
 async function startInterview() {
   if (!S.resumeParsed) return;
@@ -662,10 +795,13 @@ async function startInterview() {
       window.location.href = '/interview?session_id=' + S.lmsSessionId;
       return;
     }
-    const r = await fetch('/api/create-session', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({resume_text: JSON.stringify(S.resumeParsed), mode: 'mock'})
-    });
+    const form = new FormData();
+    form.append('resume_text', JSON.stringify(S.resumeParsed));
+    form.append('mode', 'mock');
+    if (S.voiceBlob) {
+      form.append('user_voice', S.voiceBlob, 'voice_sample.webm');
+    }
+    const r = await fetch('/api/create-session', { method: 'POST', body: form });
     const d = await r.json();
     window.location.href = '/interview?session_id=' + d.session_id;
   } catch(e) {
@@ -947,8 +1083,20 @@ function backToLobby() {
       document.getElementById('sb-name').textContent = name;
       document.getElementById('sb-avatar').textContent = name.slice(0,2).toUpperCase();
       document.getElementById('welcome-text').innerHTML = 'Welcome, ' + name.split(' ')[0] + '! <span class="inline-block">&#128075;</span>';
+      document.getElementById('voice-name-prompt').textContent = name.split(' ')[0];
 
       S.resumePassed = true;
+      // LMS may have already sent voice via /api/lms/launch — check session
+      if (data.has_voice_ref) {
+        S.voicePassed = true;
+        document.getElementById('voice-chip').textContent = 'Via LMS';
+        document.getElementById('voice-chip').className = 'text-[10px] font-semibold text-success';
+        document.getElementById('dot-voice').className = 'w-2 h-2 rounded-full bg-success';
+        document.getElementById('voice-label').textContent = 'Voice reference provided by LMS';
+        document.getElementById('voice-btn').textContent = 'Provided';
+        document.getElementById('voice-btn').disabled = true;
+        document.getElementById('voice-btn').className = 'px-4 py-1.5 rounded-lg bg-success text-white text-xs font-semibold';
+      }
       updateChecks();
     })
     .catch(e => console.error('LMS auto-fill failed:', e));

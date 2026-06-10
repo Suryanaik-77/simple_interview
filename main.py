@@ -2003,11 +2003,12 @@ def parse_resume_endpoint(file: UploadFile = File(...)):
 # ── Session Management ───────────────────────────────────────────────────
 
 @app.post("/api/create-session")
-def create_session_endpoint(data: dict):
-    resume_text = data.get("resume_text", "")
-    mode = data.get("mode", "mock")
-    domain = data.get("domain", "physical_design")
-
+async def create_session_endpoint(
+    resume_text: str = Form(""),
+    mode: str = Form("mock"),
+    domain: str = Form("physical_design"),
+    user_voice: UploadFile = File(None),
+):
     resume = {}
     if resume_text:
         # Frontend sends JSON.stringify(parsedResume) — try to use it directly
@@ -2025,6 +2026,14 @@ def create_session_endpoint(data: dict):
         "turn": 0, "conversation": [], "started_at": time.time(),
         "difficulty_level": 1,
     }
+
+    # Store voice reference for speaker verification
+    if user_voice and user_voice.filename:
+        voice_bytes = await user_voice.read()
+        if len(voice_bytes) > 1000:
+            session["user_voice_ref"] = voice_bytes
+            print(f"[Voice] Stored reference voice for session {sid} ({len(voice_bytes)} bytes)")
+
     sessions[sid] = session
     return {"session_id": sid, "resume": resume}
 
@@ -2314,7 +2323,8 @@ def get_session_endpoint(session_id: str):
     session = sessions.get(session_id)
     if not session: raise HTTPException(404, "Session not found")
     return {"session_id": session_id, "phase": session["phase"], "turn": session["turn"],
-            "resume": session.get("resume", {}), "mode": session.get("mode", "mock")}
+            "resume": session.get("resume", {}), "mode": session.get("mode", "mock"),
+            "has_voice_ref": bool(session.get("user_voice_ref"))}
 
 
 @app.post("/api/generate-report")
