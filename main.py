@@ -1346,20 +1346,21 @@ def generate_greeting(session) -> str:
     if prev_greetings:
         no_repeat = "\n\nDo NOT repeat or rephrase these previous greetings:\n" + "\n".join(f'- "{g}"' for g in prev_greetings) + "\nSay something COMPLETELY different this time."
 
-    context = f"""Generate a natural, warm opening greeting for a technical interview.
+    context = f"""Generate a short opening greeting for a technical interview.
 
+Your name: Ranjitha
 Time: {time_of_day}
 Candidate name: {call_name}
-Domain: {resume.get('domain', 'VLSI').replace('_', ' ')}
-Level: {resume.get('level', 'fresher').replace('_', ' ')}
 Returning: {'yes, interviewed ' + str(len(prev_sessions)) + ' time(s) before' if prev_sessions else 'no, first time'}
 
 Rules:
-- 1-2 sentences only
-- Greet naturally, ask them to introduce themselves
+- Maximum 1 sentence, 8-20 words. Never more than 20 words.
+- Introduce yourself by name, greet them, ask them to introduce themselves
+- Example: "Good evening Veera, I'm Ranjitha. Tell me about yourself."
+- Plain spoken. No "thanks so much", "before we dive in", "why don't you" or scripted phrases.
 - Do NOT ask technical questions yet
-- Do NOT mention scoring or evaluation
-- If returning: acknowledge briefly, don't reveal previous scores
+- Do NOT mention domain, scoring, or evaluation
+- If returning: "Welcome back" is enough, don't reveal previous scores
 - Sound like a real person, not a script{no_repeat}"""
 
     try:
@@ -1373,7 +1374,7 @@ Rules:
                        cost_usd=greet_usage["cost_usd"]))
     except:
         name = (resume.get("candidate_name", "") or "").split()[0] if resume.get("candidate_name") else ""
-        greeting = f"Hi{' ' + name if name else ''}, thanks for joining. Tell me about yourself."
+        greeting = f"Good {time_of_day}{' ' + name if name else ''}, I'm Ranjitha. Tell me about yourself."
 
     if prev_sessions:
         session["is_returning"] = True
