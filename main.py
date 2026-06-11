@@ -1356,11 +1356,12 @@ Returning: {'yes, interviewed ' + str(len(prev_sessions)) + ' time(s) before' if
 Rules:
 - Maximum 1 sentence, 8-20 words. Never more than 20 words.
 - Introduce yourself by name, greet them, ask them to introduce themselves
-- Example: "Good evening Veera, I'm Ranjitha. Tell me about yourself."
+- First time: "Good evening Veera, I'm Ranjitha. Tell me about yourself."
+- Returning: "Good evening Veera, I'm Ranjitha. Thank you for joining again, tell me about yourself."
 - Plain spoken. No "thanks so much", "before we dive in", "why don't you" or scripted phrases.
 - Do NOT ask technical questions yet
 - Do NOT mention domain, scoring, or evaluation
-- If returning: "Welcome back" is enough, don't reveal previous scores
+- If returning: acknowledge they're back, don't reveal previous scores
 - Sound like a real person, not a script{no_repeat}"""
 
     try:
