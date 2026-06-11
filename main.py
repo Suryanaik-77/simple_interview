@@ -316,11 +316,13 @@ _LLM_PRICING = {
     "us.anthropic.claude-opus-4-5-20251101-v1:0": (15.00, 75.00),
     "us.deepseek.r1-v1:0":                     (1.35, 5.40),
     "grok-4-1-fast-reasoning":                  (0.20, 0.50),
+    "us.mistral.pixtral-large-2502-v1:0":       (2.00, 6.00),
+    "us.amazon.nova-premier-v1:0":              (2.50, 10.00),
 }
 
 # STT pricing per minute
 _STT_PRICING = {
-    "gpt-4o-mini-transcribe": 0.006,
+    "gpt-4o-mini-transcribe": 0.003,
     "whisper-1": 0.006,
     "nova-3": 0.0059,
     "nova-2": 0.0043,
@@ -360,11 +362,29 @@ def _calc_llm_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     return (input_tokens * pricing[0] + output_tokens * pricing[1]) / 1_000_000
 
 
+def _get_audio_duration_ms(audio_bytes: bytes, ext: str = "webm") -> int:
+    """Get audio duration in ms using ffprobe. Returns 0 if detection fails."""
+    import subprocess
+    tmp_path = tempfile.mktemp(suffix=f".{ext}")
+    try:
+        with open(tmp_path, "wb") as f:
+            f.write(audio_bytes)
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", tmp_path],
+            capture_output=True, text=True, timeout=5,
+        )
+        return int(float(result.stdout.strip()) * 1000) if result.stdout.strip() else 0
+    except Exception:
+        return 0
+    finally:
+        try: os.remove(tmp_path)
+        except: pass
+
+
 def _calc_stt_cost(model: str, duration_ms: int) -> float:
-    """Calculate STT cost in USD. duration_ms is audio length, not latency."""
+    """Calculate STT cost in USD. duration_ms is actual audio length."""
     rate = _STT_PRICING.get(model, 0.006)
-    # We don't know exact audio duration, estimate from latency (rough: latency ≈ 0.5-1x audio length)
-    # Better: use actual audio duration if available
     minutes = duration_ms / 60000
     return minutes * rate
 
@@ -2073,13 +2093,15 @@ def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form(""
     # Pick the STT prompt by the candidate's domain (from resume).
     session = sessions.get(session_id)
     domain = (session.get("resume", {}).get("domain", "") if session else "") or ""
+    audio_duration_ms = _get_audio_duration_ms(audio_bytes, ext)
     transcript, stt_ms = transcribe_audio(audio_bytes, ext, domain=domain)
-    # Store STT timing + cost in session
+    # Store STT timing + cost in session (use actual audio duration for cost)
     stt_model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
+    cost_duration = audio_duration_ms if audio_duration_ms > 0 else stt_ms  # fallback to latency
     if session:
         session.setdefault("obs_log", []).append(
             _obs_entry("STT", stt_model, stt_ms, "success" if transcript else "failure",
-                       chars=len(transcript), cost_usd=_calc_stt_cost(stt_model, stt_ms)))
+                       chars=len(transcript), cost_usd=_calc_stt_cost(stt_model, cost_duration)))
         # Background speaker verification
         turn = session.get("turn", 0)
         if _should_run_speaker_check(session, turn):
