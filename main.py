@@ -1486,94 +1486,106 @@ def _build_eval_transcript(session, max_chars: int = 25000) -> str:
     return "\n".join(lines)[:max_chars]
 
 
+_eval_locks = {}  # per-session locks to prevent duplicate evaluation
+
 def evaluate_interview(session) -> dict:
     """Score the full interview once it ends. Gated on MIN_ANSWERS_FOR_EVAL.
     Idempotent (skips if already evaluated) and safe to run in a background
     thread — it persists via targeted jsonb_set, never a full session writeback."""
     sid = session.get("id", "")
 
-    # Don't evaluate twice (e.g. should_end fires, then the client calls /end-session).
-    existing = session.get("evaluation")
-    if existing and existing.get("status") in ("done", "skipped"):
-        return existing
+    # Per-session lock to prevent race between async eval and sweeper
+    if sid not in _eval_locks:
+        _eval_locks[sid] = threading.Lock()
+    if not _eval_locks[sid].acquire(blocking=False):
+        existing = session.get("evaluation")
+        return existing or {"status": "skipped", "reason": "evaluation already in progress"}
 
-    answered = _answered_count(session)
-    if answered < MIN_ANSWERS_FOR_EVAL:
-        result = {"status": "skipped", "answered": answered,
-                  "reason": f"only {answered} answered (need {MIN_ANSWERS_FOR_EVAL})"}
-        session["evaluation"] = result
-        if database.is_available():
-            database.save_session_evaluation(sid, result)
-            redis_cache.delete_session(sid)
-        print(f"[Eval] Skipped {sid[:8]} — {answered}/{MIN_ANSWERS_FOR_EVAL} answered")
-        return result
-
-    resume = session.get("resume", {})
-    level = resume.get("level", "trained_fresher")
-    prompt = _fill_eval_prompt(
-        get_eval_prompt(level),
-        name=resume.get("candidate_name", "Candidate"),
-        domain=str(resume.get("domain", "VLSI")).replace("_", " "),
-        level=level.replace("_", " "),
-        years=resume.get("years_experience", 0),
-        num_answers=answered,
-        transcript=_build_eval_transcript(session),
-    )
-
-    model = RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
-    transcript = _build_eval_transcript(session)
-    print(f"[Eval] {sid[:8]} — transcript length: {len(transcript)} chars, answered: {answered}, level: {level}, model: {model}")
-    t0 = time.time()
     try:
-        raw, usage = call_llm([{"role": "user", "content": prompt}],
-                              model_id=model, temperature=0.2, max_tokens=4000)
-    except Exception as e:
-        print(f"[Eval] LLM call failed for {sid[:8]}: {e}")
-        result = {"status": "error", "answered": answered, "error": str(e)}
+        # Don't evaluate twice (e.g. should_end fires, then the client calls /end-session).
+        existing = session.get("evaluation")
+        if existing and existing.get("status") in ("done", "skipped"):
+            return existing
+
+        answered = _answered_count(session)
+        if answered < MIN_ANSWERS_FOR_EVAL:
+            result = {"status": "skipped", "answered": answered,
+                      "reason": f"only {answered} answered (need {MIN_ANSWERS_FOR_EVAL})"}
+            session["evaluation"] = result
+            if database.is_available():
+                database.save_session_evaluation(sid, result)
+                redis_cache.delete_session(sid)
+            print(f"[Eval] Skipped {sid[:8]} — {answered}/{MIN_ANSWERS_FOR_EVAL} answered")
+            return result
+
+        resume = session.get("resume", {})
+        level = resume.get("level", "trained_fresher")
+        prompt = _fill_eval_prompt(
+            get_eval_prompt(level),
+            name=resume.get("candidate_name", "Candidate"),
+            domain=str(resume.get("domain", "VLSI")).replace("_", " "),
+            level=level.replace("_", " "),
+            years=resume.get("years_experience", 0),
+            num_answers=answered,
+            transcript=_build_eval_transcript(session),
+        )
+
+        model = RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+        transcript = _build_eval_transcript(session)
+        print(f"[Eval] {sid[:8]} — transcript length: {len(transcript)} chars, answered: {answered}, level: {level}, model: {model}")
+        t0 = time.time()
+        try:
+            raw, usage = call_llm([{"role": "user", "content": prompt}],
+                                  model_id=model, temperature=0.2, max_tokens=4000)
+        except Exception as e:
+            print(f"[Eval] LLM call failed for {sid[:8]}: {e}")
+            result = {"status": "error", "answered": answered, "error": str(e)}
+            session["evaluation"] = result
+            if database.is_available():
+                database.save_session_evaluation(sid, result)
+                redis_cache.delete_session(sid)
+            return result
+        eval_ms = round((time.time() - t0) * 1000)
+
+        print(f"[Eval] {sid[:8]} — raw response length: {len(raw)} chars, first 300: {raw[:300]}")
+        parsed = safe_json(raw) or {}
+        result = {
+            "status": "done",
+            "answered": answered,
+            "level": level,
+            "model": model,
+            "latency_ms": eval_ms,
+            "cost_usd": round(usage["cost_usd"], 6),
+            "ts": time.time(),
+            **parsed,
+        }
+        if not parsed:
+            result["parse_error"] = True
+            result["raw_response"] = raw[:2000]
+            print(f"[Eval] {sid[:8]} — PARSE FAILED! Raw response:\n{raw[:1000]}")
+
         session["evaluation"] = result
+
+        obs = _obs_entry("LLM_evaluation", model, eval_ms, "success" if parsed else "failure",
+                         input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
+                         cost_usd=usage["cost_usd"])
+        session.setdefault("obs_log", []).append(obs)
+
         if database.is_available():
             database.save_session_evaluation(sid, result)
-            redis_cache.delete_session(sid)
+            database.append_session_obs(sid, obs)
+            redis_cache.delete_session(sid)  # these jsonb_set writes bypassed the cache
+
+        print(f"[Eval] {sid[:8]} ({level}): score={result.get('overall_score', '?')} "
+              f"rec={result.get('recommendation', '?')} {eval_ms}ms ${usage['cost_usd']:.4f}")
+
+        # Send results to LMS if this was an LMS-launched session
+        if session.get("lms_callback_url"):
+            threading.Thread(target=_lms_callback, args=(session,), daemon=True).start()
+
         return result
-    eval_ms = round((time.time() - t0) * 1000)
-
-    print(f"[Eval] {sid[:8]} — raw response length: {len(raw)} chars, first 300: {raw[:300]}")
-    parsed = safe_json(raw) or {}
-    result = {
-        "status": "done",
-        "answered": answered,
-        "level": level,
-        "model": model,
-        "latency_ms": eval_ms,
-        "cost_usd": round(usage["cost_usd"], 6),
-        "ts": time.time(),
-        **parsed,
-    }
-    if not parsed:
-        result["parse_error"] = True
-        result["raw_response"] = raw[:2000]
-        print(f"[Eval] {sid[:8]} — PARSE FAILED! Raw response:\n{raw[:1000]}")
-
-    session["evaluation"] = result
-
-    obs = _obs_entry("LLM_evaluation", model, eval_ms, "success" if parsed else "failure",
-                     input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
-                     cost_usd=usage["cost_usd"])
-    session.setdefault("obs_log", []).append(obs)
-
-    if database.is_available():
-        database.save_session_evaluation(sid, result)
-        database.append_session_obs(sid, obs)
-        redis_cache.delete_session(sid)  # these jsonb_set writes bypassed the cache
-
-    print(f"[Eval] {sid[:8]} ({level}): score={result.get('overall_score', '?')} "
-          f"rec={result.get('recommendation', '?')} {eval_ms}ms ${usage['cost_usd']:.4f}")
-
-    # Send results to LMS if this was an LMS-launched session
-    if session.get("lms_callback_url"):
-        threading.Thread(target=_lms_callback, args=(session,), daemon=True).start()
-
-    return result
+    finally:
+        _eval_locks.pop(sid, None)
 
 
 def _evaluate_async(session):
