@@ -584,16 +584,41 @@ def _call_bedrock(messages, model_id, temperature, max_tokens):
         elif msg["role"] == "assistant": pass
 
     if is_claude:
-        filtered = [m for m in messages if m["role"] != "system"]
+        # Separate the top-level system prompt (first system message) from inline
+        # system messages (e.g. EXPECTED POINTS injected mid-conversation).
+        # Top-level system goes into body["system"] with cache_control.
+        # Inline system messages become user messages to keep their position.
+        top_system = ""
+        filtered = []
+        for msg in messages:
+            if msg["role"] == "system":
+                if not top_system and not filtered:
+                    # First system message before any user/assistant = top-level system
+                    top_system += msg["content"] + "\n"
+                else:
+                    # Mid-conversation system message → convert to user message
+                    filtered.append({"role": "user", "content": msg["content"]})
+            else:
+                filtered.append(msg)
         if not filtered:
-            filtered = [{"role": "user", "content": system_text.strip()}]
-            system_text = ""
-        for i, m in enumerate(filtered):
+            filtered = [{"role": "user", "content": top_system.strip()}]
+            top_system = ""
+        # Merge consecutive same-role messages (Claude requires alternating roles)
+        merged = []
+        for m in filtered:
+            if merged and merged[-1]["role"] == m["role"]:
+                # Append content to previous message of same role
+                prev_content = merged[-1]["content"] if isinstance(merged[-1]["content"], str) else merged[-1]["content"]
+                new_content = m["content"] if isinstance(m["content"], str) else m["content"]
+                merged[-1] = {"role": m["role"], "content": (prev_content if isinstance(prev_content, str) else prev_content) + "\n" + (new_content if isinstance(new_content, str) else new_content)}
+            else:
+                merged.append(m)
+        for i, m in enumerate(merged):
             if isinstance(m.get("content"), str):
-                filtered[i] = {"role": m["role"], "content": [{"type": "text", "text": m["content"]}]}
-        body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": max_tokens, "temperature": temperature, "messages": filtered}
-        if system_text.strip():
-            body["system"] = [{"type": "text", "text": system_text.strip(), "cache_control": {"type": "ephemeral"}}]
+                merged[i] = {"role": m["role"], "content": [{"type": "text", "text": m["content"]}]}
+        body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": max_tokens, "temperature": temperature, "messages": merged}
+        if top_system.strip():
+            body["system"] = [{"type": "text", "text": top_system.strip(), "cache_control": {"type": "ephemeral"}}]
     else:
         is_llama = "meta" in model_id.lower() or "llama" in model_id.lower()
         is_nova = "amazon" in model_id.lower() or "nova" in model_id.lower()
@@ -993,6 +1018,51 @@ def get_interview_prompt(level: str, domain: str) -> str:
 _BASE = _load_prompt("experienced_junior", "physical_design")
 
 
+def generate_expected_points(question: str, domain: str, level: str, session: dict):
+    """Background LLM call to generate expected key points for a question.
+    Stores result in the conversation entry so the next turn's prompt can
+    inject them, giving the interviewer concrete points to probe."""
+    if not question or _is_pause_prompt(question):
+        return
+    # Skip greetings / non-technical questions
+    q_lower = question.lower()
+    if any(phrase in q_lower for phrase in ["tell me about yourself", "introduce yourself",
+                                            "thank you", "welcome", "good morning",
+                                            "good afternoon", "good evening"]):
+        return
+
+    # System message is static per domain+level — gets cached by Bedrock/Claude
+    system_msg = (f"You are a VLSI {domain.replace('_', ' ')} expert evaluator. "
+                  f"For each interview question, list 3-5 KEY POINTS expected in a good answer "
+                  f"from a {level.replace('_', ' ')} candidate. Be specific and technical. "
+                  f"Return ONLY a JSON array of short strings. Example: [\"point 1\", \"point 2\"]")
+    user_msg = f'Question: "{question}"'
+
+    try:
+        t0 = time.time()
+        raw, usage = call_llm([{"role": "system", "content": system_msg},
+                               {"role": "user", "content": user_msg}],
+                              temperature=0.0, max_tokens=150)
+        ms = round((time.time() - t0) * 1000)
+        points = safe_json(raw)
+        if isinstance(points, list) and points:
+            # Store in the matching conversation entry
+            for entry in reversed(session.get("conversation", [])):
+                if entry.get("question") == question:
+                    entry["expected_points"] = points
+                    break
+            # Persist to DB so the points survive between requests
+            if database.is_available():
+                database.save_active_session(session["id"], session)
+            print(f"[ExpectedPts] {ms}ms | {len(points)} points | ${usage['cost_usd']:.4f}")
+        session.setdefault("obs_log", []).append(
+            _obs_entry("LLM_expected_points", RUNTIME_CONFIG["qgen_model"], ms, "success",
+                       input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
+                       cost_usd=usage["cost_usd"]))
+    except Exception as e:
+        print(f"[ExpectedPts] Failed: {e}")
+
+
 def build_interview_prompt(session):
     """Build prompt by loading the right file for level + domain, then appending candidate info."""
     resume = session.get("resume", {})
@@ -1040,10 +1110,17 @@ Silently test if they actually improved or just memorized."""
 
     messages = [{"role": "system", "content": system}]
 
-    # Add conversation history
+    # Add conversation history — inject expected points when available
     for entry in history[-10:]:
         if entry.get("question"):
             messages.append({"role": "assistant", "content": entry["question"]})
+        # Inject expected points BEFORE the candidate's answer so the interviewer
+        # knows what to look for when reading the answer
+        if entry.get("expected_points") and entry.get("answer"):
+            pts = ", ".join(entry["expected_points"])
+            messages.append({"role": "system", "content":
+                f"EXPECTED POINTS for your last question: {pts}\n"
+                "Check which points the candidate covers below. Probe MISSING points before moving on."})
         if entry.get("answer"):
             messages.append({"role": "user", "content": entry["answer"]})
 
@@ -1309,6 +1386,14 @@ def generate_question(session, candidate_answer: str) -> dict:
 
     # Store LLM timing + cost
     session.setdefault("obs_log", []).append(obs)
+
+    # Fire background expected-points generation for the new question
+    if not llm_end and not is_pause_prompt:
+        resume = session.get("resume", {})
+        domain = resume.get("domain", "physical_design")
+        level = resume.get("level", "trained_fresher")
+        threading.Thread(target=generate_expected_points,
+                         args=(question, domain, level, session), daemon=True).start()
 
     return {"question": question, "should_end": llm_end, "pause_prompt": is_pause_prompt, "llm_ms": llm_ms}
 
