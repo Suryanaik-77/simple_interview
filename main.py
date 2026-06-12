@@ -1034,17 +1034,28 @@ def generate_expected_points(question: str, domain: str, level: str, session: di
     # System message is static per domain+level — gets cached by Bedrock/Claude
     system_msg = (f"You are a VLSI {domain.replace('_', ' ')} expert evaluator. "
                   f"For each interview question, list 3-5 KEY POINTS expected in a good answer "
-                  f"from a {level.replace('_', ' ')} candidate. Be specific and technical. "
-                  f"Return ONLY a JSON array of short strings. Example: [\"point 1\", \"point 2\"]")
+                  f"from a {level.replace('_', ' ')} candidate. "
+                  f"Each point must be 1 short sentence (under 15 words). "
+                  f"Return ONLY a valid JSON array, no markdown. Example: [\"point 1\", \"point 2\"]")
     user_msg = f'Question: "{question}"'
 
     try:
         t0 = time.time()
         raw, usage = call_llm([{"role": "system", "content": system_msg},
                                {"role": "user", "content": user_msg}],
-                              temperature=0.0, max_tokens=150)
+                              temperature=0.0, max_tokens=300)
         ms = round((time.time() - t0) * 1000)
         points = safe_json(raw)
+        # Fallback: if truncated JSON array, try to salvage complete entries
+        if points is None and "[" in raw:
+            truncated = re.sub(r'```json|```', '', raw).strip()
+            # Find last complete string entry before truncation
+            last_quote = truncated.rfind('"')
+            if last_quote > 0:
+                candidate = truncated[:last_quote + 1].rstrip().rstrip(',') + "]"
+                if not candidate.startswith("["):
+                    candidate = "[" + candidate.split("[", 1)[-1]
+                points = safe_json(candidate)
         if isinstance(points, list) and points:
             # Store in the matching conversation entry
             for entry in reversed(session.get("conversation", [])):
