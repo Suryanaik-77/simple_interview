@@ -1074,44 +1074,6 @@ def generate_expected_points(question: str, domain: str, level: str, session: di
         print(f"[ExpectedPts] Failed: {e}")
 
 
-def _count_consecutive_unanswered(conversation):
-    """Count how many consecutive questions at the end the candidate failed to answer.
-    A question is 'unanswered' if the candidate's answer doesn't contain ANY keyword
-    from the expected points — meaning they dodged or gave an off-topic response."""
-    stop = {"the", "a", "an", "and", "or", "is", "was", "are", "were", "be", "to", "of",
-            "in", "for", "on", "with", "at", "by", "from", "that", "this", "it", "its",
-            "their", "they", "should", "must", "can", "will", "how", "what", "which",
-            "not", "no", "if", "but", "as", "has", "had", "have", "been", "being",
-            "used", "did", "does", "using", "use", "my", "our", "we", "project"}
-    count = 0
-    for entry in reversed(conversation):
-        pts = entry.get("expected_points")
-        answer = entry.get("answer", "")
-        if not answer:
-            continue  # skip the current unanswered question
-        if not pts:
-            break  # no expected points = greeting or early turn, stop counting
-        # Extract keywords from expected points
-        pt_keywords = set()
-        for pt in pts:
-            for w in pt.lower().split():
-                w = w.strip(".,;:!?\"'()-")
-                if len(w) > 3 and w not in stop:
-                    pt_keywords.add(w)
-        # Extract keywords from answer
-        answer_words = set()
-        for w in answer.lower().split():
-            w = w.strip(".,;:!?\"'()-")
-            if len(w) > 3 and w not in stop:
-                answer_words.add(w)
-        # If answer has less than 15% overlap with expected keywords, it's unanswered
-        overlap = len(pt_keywords & answer_words) / max(len(pt_keywords), 1)
-        if overlap < 0.15:
-            count += 1
-        else:
-            break
-    return count
-
 
 def build_interview_prompt(session):
     """Build prompt by loading the right file for level + domain, then appending candidate info."""
@@ -1159,31 +1121,17 @@ Silently test if they actually improved or just memorized."""
     system = base_prompt + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
-
-    # Count consecutive unanswered questions — candidate dodged or gave off-topic answers
-    followup_depth = _count_consecutive_unanswered(history)
-
     # Add conversation history — inject expected points when available
-    history_slice = history[-10:]
-    for idx, entry in enumerate(history_slice):
+    for entry in history[-10:]:
         if entry.get("question"):
             messages.append({"role": "assistant", "content": entry["question"]})
         # Inject expected points BEFORE the candidate's answer so the interviewer
         # knows what to look for when reading the answer
         if entry.get("expected_points") and entry.get("answer"):
             pts = ", ".join(entry["expected_points"])
-            # For the LAST entry: if we've been following up too long, force move-on
-            is_last = (idx == len(history_slice) - 1)
-            if is_last and followup_depth >= 2:
-                messages.append({"role": "system", "content":
-                    f"EXPECTED POINTS for your last question: {pts}\n"
-                    f"WARNING: You have already asked {followup_depth} follow-ups on this same topic. "
-                    "The candidate cannot answer it. You MUST move to a COMPLETELY DIFFERENT topic now. "
-                    "Do NOT ask about this topic again."})
-            else:
-                messages.append({"role": "system", "content":
-                    f"EXPECTED POINTS for your last question: {pts}\n"
-                    "Check which points the candidate covers below. Probe MISSING points before moving on."})
+            messages.append({"role": "system", "content":
+                f"EXPECTED POINTS for your last question: {pts}\n"
+                "Check which points the candidate covers below. Probe MISSING points before moving on."})
         if entry.get("answer"):
             messages.append({"role": "user", "content": entry["answer"]})
 
