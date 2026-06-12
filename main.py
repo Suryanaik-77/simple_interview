@@ -1173,10 +1173,16 @@ def _get_topics_covered(session) -> list[str]:
     return topics
 
 
+SESSION_MAX_DURATION_SEC = int(os.getenv("SESSION_MAX_DURATION_SEC", "3600"))  # 1 hour
+
 def _should_end_interview(session) -> tuple[bool, str]:
-    """Hard limit only. Early end decided by LLM via system prompt."""
+    """Hard limit: turn count and session duration. Early end decided by LLM via system prompt."""
     if session.get("turn", 0) >= 25:
         return True, "That's all from my side. Thank you for your time."
+    # Auto-end after 1 hour
+    started = session.get("started_at", 0)
+    if started and (time.time() - started) > SESSION_MAX_DURATION_SEC:
+        return True, "We've run out of time. Thank you for your time."
     return False, ""
 
 
@@ -1726,6 +1732,53 @@ def _eval_sweeper_loop():
 
 
 threading.Thread(target=_eval_sweeper_loop, daemon=True, name="eval-sweeper").start()
+
+
+STALE_SESSION_SEC = int(os.getenv("STALE_SESSION_SEC", "3600"))  # 1 hour
+
+def _stale_session_sweeper():
+    """End sessions that have been inactive for over 1 hour.
+    Catches candidates who disconnected mid-interview, browser closed, etc.
+    Runs every 5 minutes alongside the eval sweeper."""
+    while True:
+        try:
+            time.sleep(300)  # check every 5 minutes
+            if not database.is_available():
+                continue
+            import json as _json
+            with database.get_conn() as conn:
+                with conn.cursor() as cur:
+                    # Find active/interview/greeting sessions older than STALE_SESSION_SEC
+                    cur.execute("""
+                        SELECT session_id, session_data FROM active_sessions
+                        WHERE session_data->>'phase' NOT IN ('ended')
+                          AND updated_at < NOW() - (%s || ' seconds')::interval
+                        LIMIT 20
+                    """, (str(STALE_SESSION_SEC),))
+                    stale = cur.fetchall()
+            if not stale:
+                continue
+            print(f"[StaleSweep] Found {len(stale)} stale session(s) to end")
+            for sid, data in stale:
+                try:
+                    if isinstance(data, str):
+                        data = _json.loads(data)
+                    turns = data.get("turn", 0)
+                    name = data.get("resume", {}).get("candidate_name", "?")
+                    data["phase"] = "ended"
+                    data["end_reason"] = "stale_timeout"
+                    database.save_active_session(sid, data)
+                    print(f"[StaleSweep] Ended {sid[:8]} ({name}, turn {turns}) — inactive > {STALE_SESSION_SEC}s")
+                    # Trigger evaluation if enough turns
+                    if turns >= MIN_ANSWERS_FOR_EVAL:
+                        threading.Thread(target=evaluate_interview, args=(data,), daemon=True).start()
+                except Exception as e:
+                    print(f"[StaleSweep] Failed to end {sid[:8]}: {e}")
+        except Exception as e:
+            print(f"[StaleSweep] loop error: {e}")
+
+
+threading.Thread(target=_stale_session_sweeper, daemon=True, name="stale-sweeper").start()
 
 
 # ── API Endpoints ────────────────────────────────────────────────────────
