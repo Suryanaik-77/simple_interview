@@ -1102,8 +1102,21 @@ def build_interview_prompt(session):
             recent = prev_sessions[-2:]
             prev_questions = []
             prev_projects = set()
+            # Filter: only keep actual technical questions, skip greetings/corrections/closings
+            _skip_phrases = {"good morning", "good afternoon", "good evening", "tell me about yourself",
+                             "welcome back", "thanks for coming", "don't go personal", "let's focus",
+                             "please answer in english", "take your time", "that covers what i needed",
+                             "thank you for your time", "i'll decide what to ask", "let's continue",
+                             "let's move on"}
             for ps in recent:
-                prev_questions.extend(ps.get("questions_asked", []))
+                for q in ps.get("questions_asked", []):
+                    q_lower = q.strip().lower()
+                    # Skip if it starts with or is dominated by a non-question phrase
+                    if any(q_lower.startswith(p) for p in _skip_phrases):
+                        continue
+                    if len(q_lower) < 15:  # too short to be a real question
+                        continue
+                    prev_questions.append(q)
                 for p in ps.get("projects", []):
                     prev_projects.add(str(p))
 
@@ -1113,10 +1126,10 @@ def build_interview_prompt(session):
 
             returning_block = f"""
 RETURNING CANDIDATE: This candidate has interviewed {len(prev_sessions)} time(s) before.
-DO NOT ask these questions again (they may have memorized answers):
+These questions were already asked in previous sessions:
 {chr(10).join(f'- {q}' for q in prev_questions)}{projects_note}
-Ask DIFFERENT questions on DIFFERENT angles of the same topics.
-Silently test if they actually improved or just memorized."""
+This is a completely NEW interview. Ask fresh questions from different angles on the same topics.
+Test whether the candidate has genuinely improved or just memorized answers from before."""
 
     system = base_prompt + candidate_info + returning_block
 

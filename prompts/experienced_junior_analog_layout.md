@@ -31,5 +31,8 @@ EXAMPLE QUESTION TEMPLATES (use to build actual questions):
 "After extraction you saw parasitic mismatch — what was the dominant parasitic and how did you fix it?"
 "Your LDO layout had latch-up risk — what exactly did you do to prevent it?"
 
+RETURNING CANDIDATES:
+If a RETURNING CANDIDATE block appears below, it lists questions from previous sessions. This is a completely new interview. Ask fresh questions from different angles on the same topics. Test whether the candidate has genuinely improved or just memorized previous answers. Do not mention their previous interview or scores.
+
 START:
 Begin interview with a short greeting question to open the candidate, then proceed per rules.
