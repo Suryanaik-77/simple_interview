@@ -471,13 +471,10 @@ def stream_llm(messages, model_id="", temperature=0.5, max_tokens=500):
                 yield chunk.choices[0].delta.content
         return
 
-    # Bedrock — no streaming support in current code, fall back to full response
+    # Bedrock streaming (Claude, Llama, Nova, etc.)
     if bedrock_client and (model.startswith("us.") or "anthropic" in model or "amazon" in model or "meta" in model):
-        full = _call_bedrock(messages, model, temperature, max_tokens)
-        # Simulate streaming by yielding sentence by sentence
-        for sent in re.split(r'(?<=[.?!])\s+', full):
-            if sent.strip():
-                yield sent.strip() + " "
+        for chunk in _stream_bedrock(messages, model, temperature, max_tokens):
+            yield chunk
         return
 
     # OpenAI streaming
@@ -574,8 +571,9 @@ def tts_chunk(text: str) -> bytes:
     return b""
 
 
-def _call_bedrock(messages, model_id, temperature, max_tokens):
-    """Call AWS Bedrock models."""
+def _build_bedrock_body(messages, model_id, temperature, max_tokens):
+    """Build the request body for a Bedrock model. Returns (body_dict, model_type)
+    where model_type is 'claude', 'llama', 'nova', or 'other'."""
     is_claude = "anthropic" in model_id.lower()
     system_text, user_text = "", ""
     for msg in messages:
@@ -584,30 +582,22 @@ def _call_bedrock(messages, model_id, temperature, max_tokens):
         elif msg["role"] == "assistant": pass
 
     if is_claude:
-        # Separate the top-level system prompt (first system message) from inline
-        # system messages (e.g. EXPECTED POINTS injected mid-conversation).
-        # Top-level system goes into body["system"] with cache_control.
-        # Inline system messages become user messages to keep their position.
         top_system = ""
         filtered = []
         for msg in messages:
             if msg["role"] == "system":
                 if not top_system and not filtered:
-                    # First system message before any user/assistant = top-level system
                     top_system += msg["content"] + "\n"
                 else:
-                    # Mid-conversation system message → convert to user message
                     filtered.append({"role": "user", "content": msg["content"]})
             else:
                 filtered.append(msg)
         if not filtered:
             filtered = [{"role": "user", "content": top_system.strip()}]
             top_system = ""
-        # Merge consecutive same-role messages (Claude requires alternating roles)
         merged = []
         for m in filtered:
             if merged and merged[-1]["role"] == m["role"]:
-                # Append content to previous message of same role
                 prev_content = merged[-1]["content"] if isinstance(merged[-1]["content"], str) else merged[-1]["content"]
                 new_content = m["content"] if isinstance(m["content"], str) else m["content"]
                 merged[-1] = {"role": m["role"], "content": (prev_content if isinstance(prev_content, str) else prev_content) + "\n" + (new_content if isinstance(new_content, str) else new_content)}
@@ -619,29 +609,93 @@ def _call_bedrock(messages, model_id, temperature, max_tokens):
         body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": max_tokens, "temperature": temperature, "messages": merged}
         if top_system.strip():
             body["system"] = [{"type": "text", "text": top_system.strip(), "cache_control": {"type": "ephemeral"}}]
+        return body, "claude"
+
+    is_llama = "meta" in model_id.lower() or "llama" in model_id.lower()
+    is_nova = "amazon" in model_id.lower() or "nova" in model_id.lower()
+    if is_llama:
+        prompt = ""
+        if system_text: prompt += f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_text.strip()}<|eot_id|>"
+        prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{user_text.strip()}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+        return {"prompt": prompt, "max_gen_len": max_tokens, "temperature": temperature}, "llama"
+    elif is_nova:
+        body = {"inferenceConfig": {"maxTokens": max_tokens, "temperature": temperature}, "messages": [{"role": "user", "content": [{"text": user_text.strip()}]}]}
+        if system_text.strip(): body["system"] = [{"text": system_text.strip()}]
+        return body, "nova"
     else:
-        is_llama = "meta" in model_id.lower() or "llama" in model_id.lower()
-        is_nova = "amazon" in model_id.lower() or "nova" in model_id.lower()
-        if is_llama:
-            prompt = ""
-            if system_text: prompt += f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_text.strip()}<|eot_id|>"
-            prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{user_text.strip()}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-            body = {"prompt": prompt, "max_gen_len": max_tokens, "temperature": temperature}
-        elif is_nova:
-            body = {"inferenceConfig": {"maxTokens": max_tokens, "temperature": temperature}, "messages": [{"role": "user", "content": [{"text": user_text.strip()}]}]}
-            if system_text.strip(): body["system"] = [{"text": system_text.strip()}]
-        else:
-            body = {"max_tokens": max_tokens, "temperature": temperature, "messages": messages}
+        return {"max_tokens": max_tokens, "temperature": temperature, "messages": messages}, "other"
 
-    resp = bedrock_client.invoke_model(modelId=model_id, contentType="application/json", accept="application/json", body=json.dumps(body))
-    result_body = json.loads(resp["body"].read())
 
-    if is_claude: return result_body["content"][0]["text"].strip()
-    elif "meta" in model_id.lower() or "llama" in model_id.lower(): return result_body.get("generation", "").strip()
-    elif "amazon" in model_id.lower() or "nova" in model_id.lower(): return result_body.get("output", {}).get("message", {}).get("content", [{}])[0].get("text", "").strip()
+def _parse_bedrock_response(result_body, model_type):
+    """Extract text from a non-streaming Bedrock response."""
+    if model_type == "claude": return result_body["content"][0]["text"].strip()
+    elif model_type == "llama": return result_body.get("generation", "").strip()
+    elif model_type == "nova": return result_body.get("output", {}).get("message", {}).get("content", [{}])[0].get("text", "").strip()
     elif "content" in result_body: return result_body["content"][0]["text"].strip()
     elif "choices" in result_body: return result_body["choices"][0].get("message", {}).get("content", result_body["choices"][0].get("text", "")).strip()
     return json.dumps(result_body)
+
+
+def _call_bedrock(messages, model_id, temperature, max_tokens):
+    """Call AWS Bedrock models (non-streaming)."""
+    body, model_type = _build_bedrock_body(messages, model_id, temperature, max_tokens)
+    resp = bedrock_client.invoke_model(modelId=model_id, contentType="application/json", accept="application/json", body=json.dumps(body))
+    result_body = json.loads(resp["body"].read())
+    return _parse_bedrock_response(result_body, model_type)
+
+
+def _stream_bedrock(messages, model_id, temperature, max_tokens):
+    """Stream tokens from AWS Bedrock. Yields text chunks.
+    Supports Claude (content_block_delta), Nova (contentBlockDelta),
+    and Llama (generation token). Falls back to non-streaming for unknown models."""
+    body, model_type = _build_bedrock_body(messages, model_id, temperature, max_tokens)
+
+    try:
+        resp = bedrock_client.invoke_model_with_response_stream(
+            modelId=model_id, contentType="application/json", accept="application/json",
+            body=json.dumps(body))
+        stream = resp.get("body")
+        if not stream:
+            # No stream body — fall back to non-streaming
+            full = _call_bedrock(messages, model_id, temperature, max_tokens)
+            yield full
+            return
+
+        for event in stream:
+            chunk = event.get("chunk")
+            if not chunk:
+                continue
+            payload = json.loads(chunk["bytes"])
+
+            if model_type == "claude":
+                # Claude streams: contentBlockDelta with delta.text
+                if payload.get("type") == "content_block_delta":
+                    text = payload.get("delta", {}).get("text", "")
+                    if text:
+                        yield text
+            elif model_type == "nova":
+                # Nova streams: contentBlockDelta with delta.text
+                delta = payload.get("contentBlockDelta", {}).get("delta", {})
+                text = delta.get("text", "")
+                if text:
+                    yield text
+            elif model_type == "llama":
+                # Llama streams: generation token
+                text = payload.get("generation", "")
+                if text:
+                    yield text
+            else:
+                # Unknown model — try common patterns
+                text = (payload.get("delta", {}).get("text", "") or
+                        payload.get("generation", "") or
+                        payload.get("outputText", ""))
+                if text:
+                    yield text
+
+    except Exception as e:
+        print(f"[Bedrock Stream] Streaming failed ({e}), falling back to non-streaming")
+        full = _call_bedrock(messages, model_id, temperature, max_tokens)
+        yield full
 
 
 # ── Cerebras (fast, free — for resume parsing) ──────────────────────────
