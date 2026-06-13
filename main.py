@@ -1584,12 +1584,14 @@ _EVAL_JSON_SCHEMA = """{
 # Appended to every level rubric: the numbered transcript, the per-question and
 # communication scoring instructions, and the JSON contract.
 _EVAL_TASK = """FULL TRANSCRIPT (each question is numbered [Q1], [Q2], ...; [A1] is the answer to [Q1]):
+The transcript includes [EXPECTED_POINTS Qn] lines — these are the key points already identified during the interview. Use them directly as the "expected_points" for that question. Do NOT regenerate expected points from scratch.
+
 {transcript}
 
 In addition to the overall assessment, do BOTH of these:
 - Score EVERY numbered question individually in "per_question", referencing its number. Judge each answer's technical merit at THIS candidate's level.
 - For each question in "per_question", populate:
-  - "expected_points": A list of key technical concepts/keywords expected in a correct answer.
+  - "expected_points": Use the [EXPECTED_POINTS Qn] from the transcript. If no expected points were provided for a question, generate 3-5 key points yourself.
   - "missing_points": ONLY the concepts the candidate did NOT cover or got wrong. If the candidate mentioned a concept correctly (even partially), do NOT include it in missing_points. Compare the answer carefully against each expected point — give credit for correct mentions. Use an empty list [] if they covered all expected points.
 CRITICAL: "missing_points" must be a STRICT SUBSET of "expected_points". Never copy expected_points into missing_points blindly. Read the candidate's answer word by word — if they mentioned a concept, remove it from missing.
 - Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
@@ -1641,7 +1643,8 @@ def _answered_count(session) -> int:
 
 def _build_eval_transcript(session, max_chars: int = 25000) -> str:
     """Render the conversation as numbered Q/A pairs so the evaluator can map a
-    per-question score back to each question by its number."""
+    per-question score back to each question by its number.
+    Includes pre-generated expected points so the evaluator doesn't regenerate them."""
     lines = []
     n = 0
     for e in session.get("conversation", []):
@@ -1651,6 +1654,10 @@ def _build_eval_transcript(session, max_chars: int = 25000) -> str:
         n += 1
         a = (e.get("answer") or "").strip()
         lines.append(f"[Q{n}] {q}")
+        # Include expected points generated during interview
+        pts = e.get("expected_points")
+        if pts and isinstance(pts, list):
+            lines.append(f"[EXPECTED_POINTS Q{n}] {'; '.join(pts)}")
         lines.append(f"[A{n}] {a if a else '(no answer)'}")
     return "\n".join(lines)[:max_chars]
 
@@ -1910,7 +1917,7 @@ def _verify_speaker_background(audio_bytes, session, turn):
     sid = session.get("id", "?")[:8]
 
     try:
-        # If session already ended or flagged, skip
+        # If session already ended or already flagged as mismatch, skip
         if session.get("phase") == "ended" or session.get("speaker_mismatch"):
             return
 
@@ -1930,6 +1937,9 @@ def _verify_speaker_background(audio_bytes, session, turn):
                 ref_emb = _compute_speaker_embedding(voice_ref)
                 if ref_emb is not None:
                     session["speaker_ref_embedding"] = ref_emb.tolist()  # list for JSON
+                    # Remove raw voice bytes to save DB space (we have the embedding now)
+                    session.pop("user_voice_ref", None)
+                    sessions[session["id"]] = session  # persist embedding to DB
                     print(f"[SpeakerVerify] {sid} — Reference from LMS voice (256-dim)")
                     # Also verify first answer against LMS reference
                     score = float(np.dot(ref_emb, current_emb) /
@@ -1940,6 +1950,7 @@ def _verify_speaker_background(audio_bytes, session, turn):
                     return
             # No LMS voice — use first answer as reference
             session["speaker_ref_embedding"] = current_emb.tolist()  # list for JSON
+            sessions[session["id"]] = session  # persist embedding to DB
             print(f"[SpeakerVerify] {sid} — Reference from turn 1 (256-dim)")
             return
 
@@ -1950,7 +1961,23 @@ def _verify_speaker_background(audio_bytes, session, turn):
         print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
 
         if score < SPEAKER_VERIFY_THRESHOLD:
-            _flag_speaker_mismatch(session, turn, score)
+            # Two-strike system: first mismatch → silent flag + force recheck next turn
+            # Second consecutive mismatch → end interview
+            prev_strike = session.get("speaker_strike")
+            if prev_strike:
+                # Second strike — end interview
+                _flag_speaker_mismatch(session, turn, score)
+            else:
+                # First strike — silently note, force recheck next turn
+                session["speaker_strike"] = {"turn": turn, "score": round(score, 4)}
+                sessions[session["id"]] = session
+                print(f"[SpeakerVerify] {sid} — STRIKE 1 at turn {turn} (score={score:.4f}) — will recheck next turn")
+        else:
+            # Voice matched — clear any previous strike
+            if session.get("speaker_strike"):
+                print(f"[SpeakerVerify] {sid} — Strike cleared at turn {turn} (score={score:.4f})")
+                session.pop("speaker_strike", None)
+                sessions[session["id"]] = session
 
     except Exception as e:
         print(f"[SpeakerVerify] {sid} — Error: {e}")
@@ -1974,12 +2001,16 @@ def _flag_speaker_mismatch(session, turn, score):
 def _should_run_speaker_check(session, turn):
     """Decide whether to run speaker verification on this turn.
     - Always on turn 1 (to store/verify reference)
+    - Always after a strike (forced recheck)
     - Random ~40% chance on other turns (to avoid overhead every turn)
     """
     if turn <= 1:
         return True
     if session.get("phase") == "ended":
         return False
+    # Always recheck after a strike
+    if session.get("speaker_strike"):
+        return True
     return _random.random() < 0.4
 
 
