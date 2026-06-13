@@ -3044,6 +3044,7 @@ def admin_sessions(_=Depends(require_admin)):
             "smooth_talker": s.get("smooth_talker", False),
             "anticheat_count": len(anticheat_log),
         })
+    session_list.sort(key=lambda s: s.get("started_at", 0), reverse=True)
     return session_list
 
 

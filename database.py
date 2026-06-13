@@ -186,7 +186,7 @@ def list_active_sessions():
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT session_data FROM active_sessions")
+                cur.execute("SELECT session_data FROM active_sessions ORDER BY updated_at DESC")
                 rows = cur.fetchall()
                 sessions_list = []
                 for row in rows:
