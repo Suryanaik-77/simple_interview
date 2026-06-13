@@ -1904,8 +1904,9 @@ def _verify_speaker_background(audio_bytes, session, turn):
     """Background speaker verification using Resemblyzer (256-dim).
     - Turn 1: Store reference embedding (if not provided by LMS)
     - Random turns: Compare and flag mismatch
+    NOTE: voice bytes are base64-encoded, embeddings stored as lists for JSON/DB safety.
     """
-    import numpy as np
+    import numpy as np, base64
     sid = session.get("id", "?")[:8]
 
     try:
@@ -1920,11 +1921,15 @@ def _verify_speaker_background(audio_bytes, session, turn):
 
         # Turn 1: Store reference embedding
         if "speaker_ref_embedding" not in session:
-            # Use LMS-provided voice if available
-            if session.get("user_voice_ref"):
-                ref_emb = _compute_speaker_embedding(session["user_voice_ref"])
+            # Use LMS-provided voice if available (stored as base64 string)
+            voice_ref = session.get("user_voice_ref")
+            if voice_ref:
+                # Decode base64 → bytes for embedding computation
+                if isinstance(voice_ref, str):
+                    voice_ref = base64.b64decode(voice_ref)
+                ref_emb = _compute_speaker_embedding(voice_ref)
                 if ref_emb is not None:
-                    session["speaker_ref_embedding"] = ref_emb
+                    session["speaker_ref_embedding"] = ref_emb.tolist()  # list for JSON
                     print(f"[SpeakerVerify] {sid} — Reference from LMS voice (256-dim)")
                     # Also verify first answer against LMS reference
                     score = float(np.dot(ref_emb, current_emb) /
@@ -1934,12 +1939,12 @@ def _verify_speaker_background(audio_bytes, session, turn):
                         _flag_speaker_mismatch(session, turn, score)
                     return
             # No LMS voice — use first answer as reference
-            session["speaker_ref_embedding"] = current_emb
+            session["speaker_ref_embedding"] = current_emb.tolist()  # list for JSON
             print(f"[SpeakerVerify] {sid} — Reference from turn 1 (256-dim)")
             return
 
-        # Subsequent turns: compare against reference
-        ref_emb = session["speaker_ref_embedding"]
+        # Subsequent turns: compare against reference (stored as list)
+        ref_emb = np.array(session["speaker_ref_embedding"])
         score = float(np.dot(ref_emb, current_emb) /
                       (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
         print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
@@ -2114,7 +2119,8 @@ async def lms_launch(
     if callback_url:
         session["lms_callback_url"] = callback_url
     if voice_bytes:
-        session["user_voice_ref"] = voice_bytes
+        import base64
+        session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
     sessions[sid] = session
 
     token = jwt.encode({
@@ -2277,11 +2283,12 @@ async def create_session_endpoint(
         "difficulty_level": 1,
     }
 
-    # Store voice reference for speaker verification
+    # Store voice reference for speaker verification (base64 for JSON/DB safety)
     if user_voice and user_voice.filename:
         voice_bytes = await user_voice.read()
         if len(voice_bytes) > 1000:
-            session["user_voice_ref"] = voice_bytes
+            import base64
+            session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
             print(f"[Voice] Stored reference voice for session {sid} ({len(voice_bytes)} bytes)")
 
     sessions[sid] = session
