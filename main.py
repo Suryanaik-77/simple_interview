@@ -1941,12 +1941,15 @@ def _verify_speaker_background(audio_bytes, session, turn):
                     session.pop("user_voice_ref", None)
                     sessions[session["id"]] = session  # persist embedding to DB
                     print(f"[SpeakerVerify] {sid} — Reference from LMS voice (256-dim)")
-                    # Also verify first answer against LMS reference
+                    # Verify first answer against lobby voice — use two-strike system
                     score = float(np.dot(ref_emb, current_emb) /
                                   (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
                     print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
                     if score < SPEAKER_VERIFY_THRESHOLD:
-                        _flag_speaker_mismatch(session, turn, score)
+                        # First strike only — don't end on turn 1
+                        session["speaker_strike"] = {"turn": turn, "score": round(score, 4)}
+                        sessions[session["id"]] = session
+                        print(f"[SpeakerVerify] {sid} — STRIKE 1 at turn {turn} (score={score:.4f}) — will recheck next turn")
                     return
             # No LMS voice — use first answer as reference
             session["speaker_ref_embedding"] = current_emb.tolist()  # list for JSON
