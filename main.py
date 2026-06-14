@@ -1891,13 +1891,20 @@ def _to_wav16k(audio_bytes):
 
 import random as _random
 
-SPEAKER_VERIFY_THRESHOLD = 0.80  # Resemblyzer cosine similarity threshold
+SPEAKER_VERIFY_THRESHOLD = 0.75  # Resemblyzer cosine similarity threshold
+SPEAKER_MIN_AUDIO_SEC = 3.0     # Minimum audio length for reliable embedding
 
 def _compute_speaker_embedding(audio_bytes):
-    """Compute Resemblyzer 256-dim embedding from audio bytes. Returns numpy array or None."""
+    """Compute Resemblyzer 256-dim embedding from audio bytes. Returns numpy array or None.
+    Skips audio shorter than SPEAKER_MIN_AUDIO_SEC for reliability."""
     try:
         from resemblyzer import preprocess_wav
         np_audio, _ = _to_wav16k(audio_bytes)
+        # Skip short audio — Resemblyzer needs 3+ seconds for reliable embeddings
+        duration_sec = len(np_audio) / 16000
+        if duration_sec < SPEAKER_MIN_AUDIO_SEC:
+            print(f"[SpeakerVerify] Skipping short audio ({duration_sec:.1f}s < {SPEAKER_MIN_AUDIO_SEC}s)")
+            return None
         encoder = _get_resemblyzer_encoder()
         processed = preprocess_wav(np_audio)
         embedding = encoder.embed_utterance(processed)
@@ -1965,16 +1972,17 @@ def _verify_speaker_background(audio_bytes, session, turn):
 
         if score < SPEAKER_VERIFY_THRESHOLD:
             # Two-strike system: first mismatch → silent flag + force recheck next turn
-            # Second consecutive mismatch → end interview
+            # Second consecutive mismatch on a DIFFERENT turn → end interview
             prev_strike = session.get("speaker_strike")
-            if prev_strike:
-                # Second strike — end interview
+            if prev_strike and prev_strike["turn"] != turn:
+                # Second strike on a different turn — end interview
                 _flag_speaker_mismatch(session, turn, score)
-            else:
+            elif not prev_strike:
                 # First strike — silently note, force recheck next turn
                 session["speaker_strike"] = {"turn": turn, "score": round(score, 4)}
                 sessions[session["id"]] = session
                 print(f"[SpeakerVerify] {sid} — STRIKE 1 at turn {turn} (score={score:.4f}) — will recheck next turn")
+            # else: same turn as strike 1, ignore (multiple chunks on same turn)
         else:
             # Voice matched — clear any previous strike
             if session.get("speaker_strike"):
