@@ -2462,12 +2462,12 @@ def stream_answer(data: dict):
         raise HTTPException(404, "Session not found")
 
     # Check if speaker mismatch was detected in background
+    from starlette.responses import StreamingResponse
     if session.get("speaker_mismatch"):
         def mismatch_stream():
             msg = "This interview has been ended due to a speaker verification failure."
             yield f"data: {json.dumps({'type': 'text', 'content': msg, 'done': True, 'should_end': True, 'speaker_mismatch': True})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended', 'speaker_mismatch': True})}\n\n"
-        from starlette.responses import StreamingResponse
         return StreamingResponse(mismatch_stream(), media_type="text/event-stream")
 
     def event_stream():
