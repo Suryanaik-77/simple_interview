@@ -565,13 +565,16 @@ body { font-family: 'Inter', sans-serif; }
 </nav>
 
 <script>
-const S = { sessionId:null, resumeParsed:null, mediaStream:null, micPassed:false, camPassed:false, resumePassed:false, voicePassed:false, voiceBlob:null };
+const S = { sessionId:null, resumeParsed:null, mediaStream:null, micPassed:false, camPassed:false, resumePassed:false, voicePassed:false, voiceBlob:null, voiceVerificationEnabled:true };
 
 function updateChecks() {
-  const count = [S.resumePassed, S.micPassed, S.camPassed, S.voicePassed].filter(Boolean).length;
+  const requiredChecks = [S.resumePassed, S.micPassed, S.camPassed];
+  if (S.voiceVerificationEnabled) requiredChecks.push(S.voicePassed);
+  const count = requiredChecks.filter(Boolean).length;
+  const total = requiredChecks.length;
   const dot = document.getElementById('status-dot');
   const txt = document.getElementById('status-text');
-  if (count === 4) {
+  if (count === total) {
     dot.className = 'w-2 h-2 rounded-full bg-success';
     txt.textContent = 'All systems go!';
     txt.className = 'text-success font-semibold text-xs';
@@ -580,10 +583,21 @@ function updateChecks() {
     document.getElementById('btn-arrow').style.display = '';
   } else {
     dot.className = 'w-2 h-2 rounded-full bg-warn';
-    txt.textContent = count + ' of 4 checks complete';
+    txt.textContent = count + ' of ' + total + ' checks complete';
     txt.className = 'text-text-secondary font-medium text-xs';
   }
 }
+
+// Fetch lobby config (voice verification toggle)
+fetch('/api/lobby-config').then(r => r.json()).then(cfg => {
+  S.voiceVerificationEnabled = cfg.voice_verification_enabled;
+  if (!S.voiceVerificationEnabled) {
+    // Hide voice card and mark as not required
+    const voiceCard = document.getElementById('card-voice');
+    if (voiceCard) voiceCard.style.display = 'none';
+  }
+  updateChecks();
+}).catch(() => {});
 
 // ── RESUME ──
 async function processResume(file) {

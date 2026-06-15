@@ -76,6 +76,7 @@ RUNTIME_CONFIG = {
     "stt_model": "gpt-4o-mini-transcribe",
     "qgen_model": "gpt-4o-mini",
     "eval_model": "gpt-4o-mini",
+    "voice_verification_enabled": True,
 }
 import database
 database.init_db()
@@ -1712,7 +1713,7 @@ def evaluate_interview(session) -> dict:
         t0 = time.time()
         try:
             raw, usage = call_llm([{"role": "user", "content": prompt}],
-                                  model_id=model, temperature=0.2, max_tokens=4000)
+                                  model_id=model, temperature=0.2, max_tokens=20000)
         except Exception as e:
             print(f"[Eval] LLM call failed for {sid[:8]}: {e}")
             result = {"status": "error", "answered": answered, "error": str(e)}
@@ -1971,24 +1972,16 @@ def _verify_speaker_background(audio_bytes, session, turn):
         print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
 
         if score < SPEAKER_VERIFY_THRESHOLD:
-            # Two-strike system: first mismatch → silent flag + force recheck next turn
-            # Second consecutive mismatch on a DIFFERENT turn → end interview
+            # Two-strike system: first mismatch → silent flag; any subsequent mismatch → end interview
             prev_strike = session.get("speaker_strike")
-            if prev_strike and prev_strike["turn"] != turn:
-                # Second strike on a different turn — end interview
+            if prev_strike:
+                # Second strike — end interview (strike is never cleared)
                 _flag_speaker_mismatch(session, turn, score)
-            elif not prev_strike:
+            else:
                 # First strike — silently note, force recheck next turn
                 session["speaker_strike"] = {"turn": turn, "score": round(score, 4)}
                 sessions[session["id"]] = session
-                print(f"[SpeakerVerify] {sid} — STRIKE 1 at turn {turn} (score={score:.4f}) — will recheck next turn")
-            # else: same turn as strike 1, ignore (multiple chunks on same turn)
-        else:
-            # Voice matched — clear any previous strike
-            if session.get("speaker_strike"):
-                print(f"[SpeakerVerify] {sid} — Strike cleared at turn {turn} (score={score:.4f})")
-                session.pop("speaker_strike", None)
-                sessions[session["id"]] = session
+                print(f"[SpeakerVerify] {sid} — STRIKE 1 at turn {turn} (score={score:.4f}) — next mismatch ends interview")
 
     except Exception as e:
         print(f"[SpeakerVerify] {sid} — Error: {e}")
@@ -2007,14 +2000,19 @@ def _flag_speaker_mismatch(session, turn, score):
     session["end_reason"] = "speaker_mismatch"
     sessions[session["id"]] = session
     print(f"[SpeakerVerify] {sid} — MISMATCH at turn {turn} (score={score:.4f} < {SPEAKER_VERIFY_THRESHOLD}) — INTERVIEW ENDED")
+    # Run evaluation on whatever answers were collected
+    _evaluate_async(session)
 
 
 def _should_run_speaker_check(session, turn):
     """Decide whether to run speaker verification on this turn.
+    - Skipped entirely if voice_verification_enabled is False
     - Always on turn 1 (to store/verify reference)
     - Always after a strike (forced recheck)
     - Random ~40% chance on other turns (to avoid overhead every turn)
     """
+    if not RUNTIME_CONFIG.get("voice_verification_enabled", True):
+        return False
     if turn <= 1:
         return True
     if session.get("phase") == "ended":
@@ -2028,6 +2026,12 @@ def _should_run_speaker_check(session, turn):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+@app.get("/api/lobby-config")
+async def lobby_config():
+    """Public endpoint for lobby to check feature toggles."""
+    _sync_runtime_config()
+    return {"voice_verification_enabled": RUNTIME_CONFIG.get("voice_verification_enabled", True)}
 
 
 # ── Auth endpoints (matching monolith admin.html) ────────────────────────
@@ -3003,6 +3007,18 @@ async def set_stt_config(data: dict, _=Depends(require_admin)):
     print(f"[STT Config] Changed to {RUNTIME_CONFIG['stt_provider']}/{RUNTIME_CONFIG['stt_model']}")
     return {"status": "success", "provider": RUNTIME_CONFIG["stt_provider"], "model": RUNTIME_CONFIG["stt_model"]}
 
+@app.get("/api/admin/voice-verification")
+async def get_voice_verification_config(_=Depends(require_admin)):
+    _sync_runtime_config()
+    return {"enabled": RUNTIME_CONFIG.get("voice_verification_enabled", True)}
+
+@app.post("/api/admin/voice-verification")
+async def set_voice_verification_config(data: dict, _=Depends(require_admin)):
+    RUNTIME_CONFIG["voice_verification_enabled"] = bool(data.get("enabled", True))
+    _persist_runtime_config()
+    print(f"[VoiceVerify] {'Enabled' if RUNTIME_CONFIG['voice_verification_enabled'] else 'Disabled'}")
+    return {"status": "success", "enabled": RUNTIME_CONFIG["voice_verification_enabled"]}
+
 @app.post("/api/admin/set-interview-voice")
 async def set_interview_voice(data: dict, _=Depends(require_admin)):
     RUNTIME_CONFIG["tts_provider"] = data.get("provider", "deepgram")
@@ -3184,6 +3200,23 @@ def _build_session_obs(sid, session):
         "total_input_tokens": total_input_tokens, "total_output_tokens": total_output_tokens,
         "avg_latency_ms": avg_lat, "step_breakdown": by_step,
     }
+
+@app.post("/api/admin/rerun-eval/{sid}")
+def admin_rerun_eval(sid: str, _=Depends(require_admin)):
+    """Re-run evaluation for a session, clearing any previous result."""
+    session = sessions.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    # Clear previous evaluation so it re-runs
+    session.pop("evaluation", None)
+    if sid in _eval_locks:
+        del _eval_locks[sid]
+    sessions[sid] = session
+    # Run evaluation
+    result = evaluate_interview(session)
+    return {"status": result.get("status"), "score": result.get("overall_score"),
+            "recommendation": result.get("recommendation")}
+
 
 @app.get("/api/admin/session/{sid}")
 def admin_session_detail(sid: str, _=Depends(require_admin)):
