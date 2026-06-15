@@ -1857,6 +1857,17 @@ async def interview_page():
 async def admin_page():
     return open("templates/admin.html", encoding="utf-8").read()
 
+@app.get("/review/{token}", response_class=HTMLResponse)
+async def shared_review_page(token: str):
+    """Serve read-only review page for a shared session link."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        if payload.get("type") != "share":
+            raise HTTPException(403, "Invalid share link")
+    except JWTError:
+        raise HTTPException(403, "Share link expired or invalid")
+    return open("templates/shared_review.html", encoding="utf-8").read()
+
 
 # ── Speaker Verification (Resemblyzer only) ─────────────────────────────
 _resemblyzer_encoder = None
@@ -3351,6 +3362,100 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
         "qgen_model": RUNTIME_CONFIG.get("qgen_model", "gpt-4o-mini"),
         "evaluation": session.get("evaluation", {}),
         "observability": _build_session_obs(sid, session),
+    }
+
+
+# ── Share Links (read-only review access) ────────────────────────────────
+
+@app.post("/api/admin/share-link")
+async def create_share_link(data: dict, request: Request, _=Depends(require_admin)):
+    """Generate a read-only share link for a session's expert review."""
+    sid = data.get("session_id")
+    if not sid:
+        raise HTTPException(400, "session_id required")
+    session = sessions.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    expiry_hours = data.get("expiry_hours", 72)  # default 3 days
+    token = jwt.encode({
+        "type": "share",
+        "sid": sid,
+        "exp": datetime.now(tz=timezone.utc) + timedelta(hours=expiry_hours),
+    }, JWT_SECRET, algorithm="HS256")
+    host = request.headers.get("host", request.base_url.hostname)
+    scheme = request.headers.get("x-forwarded-proto", "https")
+    url = f"{scheme}://{host}/review/{token}"
+    print(f"[Share] Created share link for session {sid[:8]} (expires in {expiry_hours}h)")
+    return {"url": url, "token": token, "expires_hours": expiry_hours}
+
+
+@app.get("/api/shared/session/{token}")
+async def get_shared_session(token: str):
+    """Public endpoint: return session detail for a valid share token (read-only)."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        if payload.get("type") != "share":
+            raise HTTPException(403, "Invalid share token")
+    except JWTError:
+        raise HTTPException(403, "Share link expired or invalid")
+
+    sid = payload["sid"]
+    session = sessions.get(sid)
+    if not session and database.is_available():
+        session = database.get_active_session(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Reuse admin session detail logic but strip sensitive fields
+    evaluation = session.get("evaluation", {}) or {}
+    pq_by_num = {}
+    for item in evaluation.get("per_question", []) or []:
+        try:
+            pq_by_num[int(item.get("q"))] = item
+        except (TypeError, ValueError):
+            continue
+
+    turn_log = []
+    qnum = 0
+    for entry in session.get("conversation", []):
+        has_q = bool((entry.get("question") or "").strip())
+        if has_q:
+            qnum += 1
+        pq = pq_by_num.get(qnum) if has_q else None
+
+        turn_log.append({
+            "turn": entry.get("turn", 0),
+            "question": entry.get("question", ""),
+            "answer": entry.get("answer", ""),
+            "topic": entry.get("topic", ""),
+            "score": (pq or {}).get("score", ""),
+            "notes": (pq or {}).get("comment", ""),
+            "expected_points": (pq or {}).get("expected_points", []),
+            "missing_points": (pq or {}).get("missing_points", []),
+        })
+
+    resume = session.get("resume", {}) or {}
+    return {
+        "session_id": sid,
+        "candidate_name": resume.get("candidate_name", "Candidate"),
+        "domain": resume.get("domain", ""),
+        "level": resume.get("level", ""),
+        "turn": session.get("turn", 0),
+        "phase": session.get("phase", ""),
+        "turn_log": turn_log,
+        "evaluation": {
+            "overall_score": evaluation.get("overall_score"),
+            "recommendation": evaluation.get("recommendation"),
+            "level_fit": evaluation.get("level_fit"),
+            "verdict": evaluation.get("verdict"),
+            "communication_score": evaluation.get("communication_score"),
+            "communication": evaluation.get("communication"),
+            "strengths": evaluation.get("strengths", []),
+            "weaknesses": evaluation.get("weaknesses", []),
+            "topic_breakdown": evaluation.get("topic_breakdown", []),
+            "summary": evaluation.get("summary", ""),
+            "per_question": evaluation.get("per_question", []),
+        },
     }
 
 

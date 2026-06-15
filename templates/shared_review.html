@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interview Review</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: #1a1a1a; line-height: 1.5; }
+        .container { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+        .header { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; border: 1px solid #e5e7eb; }
+        .header h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+        .header .meta { font-size: 13px; color: #6b7280; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .badge-green { background: #dcfce7; color: #166534; }
+        .badge-red { background: #fee2e2; color: #991b1b; }
+        .badge-amber { background: #fef3c7; color: #92400e; }
+        .badge-blue { background: #dbeafe; color: #1e40af; }
+        .summary-card { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #e5e7eb; }
+        .summary-card h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #374151; }
+        .score-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+        .score-box { text-align: center; padding: 12px 18px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; min-width: 90px; }
+        .score-box .val { font-size: 28px; font-weight: 600; font-family: 'SF Mono', Monaco, monospace; }
+        .score-box .lbl { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+        .verdict { font-style: italic; color: #4b5563; font-size: 13px; margin-bottom: 12px; padding: 10px; background: #f9fafb; border-radius: 8px; border-left: 3px solid #6366f1; }
+        .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .chip { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: #f3f4f6; border: 1px solid #e5e7eb; }
+        .section-title { font-size: 13px; font-weight: 600; color: #6b7280; margin: 12px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .list { margin: 0; padding-left: 18px; font-size: 13px; color: #374151; }
+        .list li { margin-bottom: 4px; }
+        .list-green li::marker { color: #16a34a; }
+        .list-red li::marker { color: #dc2626; }
+
+        .question-card { background: #fff; border-radius: 12px; padding: 18px; margin-bottom: 12px; border: 1px solid #e5e7eb; transition: box-shadow 0.15s; }
+        .question-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+        .q-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .q-num { font-family: 'SF Mono', Monaco, monospace; font-size: 11px; font-weight: 600; color: #6366f1; background: #eef2ff; padding: 2px 8px; border-radius: 6px; }
+        .q-score { font-family: 'SF Mono', Monaco, monospace; font-size: 13px; font-weight: 700; }
+        .q-topic { font-size: 11px; color: #6b7280; }
+        .q-text { font-size: 13px; font-weight: 500; color: #111827; margin-bottom: 8px; padding: 10px; background: #f9fafb; border-radius: 8px; }
+        .a-text { font-size: 13px; color: #374151; margin-bottom: 10px; padding: 10px; background: #fffbeb; border-radius: 8px; border-left: 3px solid #f59e0b; }
+        .a-label { font-size: 10px; font-weight: 600; color: #92400e; text-transform: uppercase; margin-bottom: 4px; }
+        .q-label { font-size: 10px; font-weight: 600; color: #4338ca; text-transform: uppercase; margin-bottom: 4px; }
+        .points { margin-top: 8px; }
+        .points-label { font-size: 11px; font-weight: 600; color: #374151; margin-bottom: 4px; }
+        .point-item { font-size: 12px; color: #4b5563; padding: 2px 0; display: flex; align-items: baseline; gap: 6px; }
+        .point-item::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+        .point-expected::before { background: #16a34a; }
+        .point-missing::before { background: #dc2626; }
+        .notes { font-size: 12px; color: #6b7280; font-style: italic; margin-top: 8px; padding: 8px; background: #f3f4f6; border-radius: 6px; }
+
+        .sc-high { color: #16a34a; }
+        .sc-mid { color: #d97706; }
+        .sc-low { color: #dc2626; }
+
+        .readonly-banner { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; padding: 10px 16px; margin-bottom: 20px; font-size: 12px; color: #4338ca; display: flex; align-items: center; gap: 8px; }
+
+        .loading { text-align: center; padding: 60px; color: #6b7280; }
+        .error { text-align: center; padding: 60px; color: #dc2626; }
+
+        @media (max-width: 640px) {
+            .container { padding: 12px 8px; }
+            .score-row { gap: 8px; }
+            .score-box { min-width: 70px; padding: 10px 12px; }
+            .score-box .val { font-size: 22px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container" id="app">
+    <div class="loading" id="loading">Loading interview review...</div>
+</div>
+
+<script>
+const TOKEN = window.location.pathname.split('/review/')[1];
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function scoreColor(s) { return s >= 7 ? 'sc-high' : s >= 4 ? 'sc-mid' : 'sc-low'; }
+function recBadge(rec) {
+    const cls = (rec === 'strong_yes' || rec === 'yes') ? 'badge-green' : (rec === 'maybe') ? 'badge-amber' : 'badge-red';
+    return `<span class="badge ${cls}">${esc((rec || '').replace(/_/g, ' '))}</span>`;
+}
+
+async function load() {
+    try {
+        const r = await fetch(`/api/shared/session/${TOKEN}`);
+        if (!r.ok) {
+            document.getElementById('app').innerHTML = `<div class="error">This share link is expired or invalid.</div>`;
+            return;
+        }
+        const data = await r.json();
+        render(data);
+    } catch (e) {
+        document.getElementById('app').innerHTML = `<div class="error">Failed to load review data.</div>`;
+    }
+}
+
+function render(data) {
+    const ev = data.evaluation || {};
+    const turns = (data.turn_log || []).filter(t => t.question && t.answer);
+
+    let html = `
+    <div class="readonly-banner">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Read-only review link — no edits allowed
+    </div>
+
+    <div class="header">
+        <h1>${esc(data.candidate_name)}</h1>
+        <div class="meta">
+            <span class="badge badge-blue">${esc((data.domain || '').replace(/_/g, ' '))}</span>
+            Level: ${esc((data.level || '').replace(/_/g, ' '))} &middot;
+            ${data.turn} questions &middot;
+            ${recBadge(ev.recommendation)}
+        </div>
+    </div>
+
+    <div class="summary-card">
+        <h2>Evaluation Summary</h2>
+        <div class="score-row">
+            <div class="score-box"><div class="val ${scoreColor(ev.overall_score)}">${ev.overall_score ?? '—'}</div><div class="lbl">Overall /10</div></div>
+            <div class="score-box"><div class="val ${scoreColor(ev.communication_score)}">${ev.communication_score ?? '—'}</div><div class="lbl">Communication /10</div></div>
+            <div class="score-box"><div class="val" style="font-size:16px;color:#4b5563">${esc((ev.level_fit || '').replace(/_/g, ' '))}</div><div class="lbl">Level Fit</div></div>
+        </div>
+        ${ev.verdict ? `<div class="verdict">"${esc(ev.verdict)}"</div>` : ''}
+        ${ev.summary ? `<p style="font-size:13px;color:#374151;margin-bottom:12px">${esc(ev.summary)}</p>` : ''}
+
+        ${(ev.topic_breakdown || []).length ? `
+            <div class="section-title">Topic Scores</div>
+            <div class="chips">${ev.topic_breakdown.map(t => `<span class="chip"><strong>${esc(t.topic)}</strong>: ${t.score}/10</span>`).join('')}</div>
+        ` : ''}
+
+        ${(ev.strengths || []).length ? `
+            <div class="section-title">Strengths</div>
+            <ul class="list list-green">${ev.strengths.map(s => `<li>${esc(s)}</li>`).join('')}</ul>
+        ` : ''}
+
+        ${(ev.weaknesses || []).length ? `
+            <div class="section-title">Weaknesses</div>
+            <ul class="list list-red">${ev.weaknesses.map(s => `<li>${esc(s)}</li>`).join('')}</ul>
+        ` : ''}
+    </div>
+
+    <h2 style="font-size:16px;font-weight:600;margin-bottom:12px">Per-Question Breakdown</h2>
+    `;
+
+    turns.forEach((t, i) => {
+        const score = parseFloat(t.score);
+        const hasScore = !isNaN(score);
+        html += `
+        <div class="question-card">
+            <div class="q-header">
+                <span class="q-num">Q${i + 1}</span>
+                ${hasScore ? `<span class="q-score ${scoreColor(score)}">${score}/10</span>` : ''}
+                ${t.topic ? `<span class="q-topic">${esc(t.topic)}</span>` : ''}
+            </div>
+            <div class="q-text"><div class="q-label">Question</div>${esc(t.question)}</div>
+            <div class="a-text"><div class="a-label">Candidate Answer</div>${esc(t.answer)}</div>
+            ${(t.expected_points || []).length ? `
+                <div class="points">
+                    <div class="points-label">Expected Points</div>
+                    ${t.expected_points.map(p => `<div class="point-item point-expected">${esc(p)}</div>`).join('')}
+                </div>
+            ` : ''}
+            ${(t.missing_points || []).length ? `
+                <div class="points" style="margin-top:6px">
+                    <div class="points-label" style="color:#dc2626">Missing Points</div>
+                    ${t.missing_points.map(p => `<div class="point-item point-missing">${esc(p)}</div>`).join('')}
+                </div>
+            ` : ''}
+            ${t.notes ? `<div class="notes">${esc(t.notes)}</div>` : ''}
+        </div>`;
+    });
+
+    document.getElementById('app').innerHTML = html;
+}
+
+load();
+</script>
+</body>
+</html>
