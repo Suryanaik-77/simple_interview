@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LMS Integration Test</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>body { font-family: 'Inter', sans-serif; }</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<div class="max-w-2xl mx-auto py-10 px-4">
+  <!-- Header -->
+  <div class="text-center mb-8">
+    <h1 class="text-2xl font-bold text-gray-900">LMS Integration Test</h1>
+    <p class="text-sm text-gray-500 mt-1">Simulates what the LMS PHP backend does</p>
+  </div>
+
+  <!-- Form -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <form id="lms-form" class="space-y-5">
+
+      <!-- API Key -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">API Key</label>
+        <input type="text" id="api-key" value="ViJBMt_DSUgb6bmzoCuxNera9goFtwFVXrq4k1guKh4"
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+      </div>
+
+      <!-- Name -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Student Name</label>
+        <input type="text" id="name" value="Ravi Kumar" placeholder="Full name"
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+      </div>
+
+      <!-- Email -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Student Email</label>
+        <input type="email" id="email" value="ravi.kumar@example.com" placeholder="email@example.com"
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+      </div>
+
+      <!-- Domain -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Domain</label>
+        <select id="domain" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+          <option value="">Loading domains...</option>
+        </select>
+      </div>
+
+      <!-- Resume -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Resume File</label>
+        <input type="file" id="resume" accept=".pdf,.docx,.doc,.txt"
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-600 hover:file:bg-orange-100">
+      </div>
+
+      <!-- User Voice -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">User Voice <span class="text-gray-400 font-normal">(optional — for speaker verification)</span></label>
+        <input type="file" id="user-voice" accept=".webm,.wav,.mp3,.ogg,.m4a"
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-600 hover:file:bg-blue-100">
+        <p class="text-xs text-gray-400 mt-1">Reference voice sample for anti-cheat speaker verification</p>
+      </div>
+
+      <!-- Callback URL -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Callback URL <span class="text-gray-400 font-normal">(optional)</span></label>
+        <input type="text" id="callback-url" placeholder="https://your-lms.com/api/interview-result"
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+      </div>
+
+      <!-- Submit -->
+      <button type="submit" id="btn-launch"
+              class="w-full py-2.5 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700 transition-colors text-sm">
+        Launch Interview
+      </button>
+    </form>
+  </div>
+
+  <!-- Response -->
+  <div id="response-section" class="hidden mt-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-sm font-bold text-gray-700 mb-3">API Response</h2>
+
+      <!-- Status -->
+      <div id="resp-status" class="mb-4 px-3 py-2 rounded-lg text-sm font-semibold"></div>
+
+      <!-- Response JSON -->
+      <pre id="resp-json" class="bg-gray-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto max-h-80 mb-4"></pre>
+
+      <!-- Launch Button -->
+      <a id="launch-link" href="#" target="_blank"
+         class="hidden w-full block text-center py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors text-sm">
+        Open Interview Lobby
+      </a>
+
+      <!-- Redirect Button (simulates what LMS frontend does) -->
+      <button id="btn-redirect" onclick="window.location.href=document.getElementById('launch-link').href"
+              class="hidden w-full mt-2 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-sm">
+        Redirect (simulates LMS redirect)
+      </button>
+    </div>
+  </div>
+
+  <!-- Error Tests -->
+  <div class="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <h2 class="text-sm font-bold text-gray-700 mb-3">Quick Tests</h2>
+    <div class="flex flex-wrap gap-2">
+      <button onclick="testNoKey()" class="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-100">
+        Test: No API Key
+      </button>
+      <button onclick="testWrongKey()" class="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-100">
+        Test: Wrong API Key
+      </button>
+      <button onclick="testDirectAccess()" class="px-3 py-1.5 bg-yellow-50 text-yellow-700 rounded-lg text-xs font-semibold hover:bg-yellow-100">
+        Test: Direct /interview Access
+      </button>
+    </div>
+    <pre id="test-result" class="mt-3 bg-gray-900 text-yellow-400 p-3 rounded-lg text-xs overflow-x-auto hidden"></pre>
+  </div>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+
+// Load supported domains from API
+fetch(API_BASE + '/api/domains').then(r => r.json()).then(data => {
+  const sel = document.getElementById('domain');
+  sel.innerHTML = '';
+  data.domains.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.key;
+    opt.textContent = d.label;
+    sel.appendChild(opt);
+  });
+}).catch(() => {
+  const sel = document.getElementById('domain');
+  sel.innerHTML = '<option value="physical_design">Physical Design</option><option value="analog_layout">Analog Layout</option><option value="design_verification">Design Verification</option>';
+});
+
+document.getElementById('lms-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btn-launch');
+  btn.disabled = true;
+  btn.textContent = 'Launching...';
+
+  const formData = new FormData();
+  formData.append('name', document.getElementById('name').value);
+  formData.append('email', document.getElementById('email').value);
+  formData.append('domain', document.getElementById('domain').value);
+  formData.append('callback_url', document.getElementById('callback-url').value);
+
+  const resumeFile = document.getElementById('resume').files[0];
+  if (!resumeFile) {
+    showResponse(false, { error: 'Please select a resume file' });
+    btn.disabled = false;
+    btn.textContent = 'Launch Interview';
+    return;
+  }
+  formData.append('resume', resumeFile);
+
+  const voiceFile = document.getElementById('user-voice').files[0];
+  if (voiceFile) {
+    formData.append('user_voice', voiceFile);
+  }
+
+  try {
+    const resp = await fetch(API_BASE + '/api/lms/launch', {
+      method: 'POST',
+      headers: {
+        'X-API-Key': document.getElementById('api-key').value,
+        'Accept': 'application/json',
+      },
+      body: formData,
+    });
+    const data = await resp.json();
+    if (resp.ok && data.launch_url) {
+      // Redirect directly to interview lobby (like LMS would)
+      window.location.href = data.launch_url;
+      return;
+    }
+    showResponse(false, data, resp.status);
+  } catch (err) {
+    showResponse(false, { error: err.message });
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Launch Interview';
+});
+
+function showResponse(ok, data, status) {
+  const section = document.getElementById('response-section');
+  const statusEl = document.getElementById('resp-status');
+  const jsonEl = document.getElementById('resp-json');
+  const linkEl = document.getElementById('launch-link');
+  const redirectEl = document.getElementById('btn-redirect');
+
+  section.classList.remove('hidden');
+
+  if (ok) {
+    statusEl.textContent = `${status} OK — Session created`;
+    statusEl.className = 'mb-4 px-3 py-2 rounded-lg text-sm font-semibold bg-green-50 text-green-700';
+    linkEl.href = data.launch_url;
+    linkEl.classList.remove('hidden');
+    redirectEl.classList.remove('hidden');
+  } else {
+    statusEl.textContent = `${status || 'Error'} — ${data.detail || data.error || 'Request failed'}`;
+    statusEl.className = 'mb-4 px-3 py-2 rounded-lg text-sm font-semibold bg-red-50 text-red-700';
+    linkEl.classList.add('hidden');
+    redirectEl.classList.add('hidden');
+  }
+
+  jsonEl.textContent = JSON.stringify(data, null, 2);
+}
+
+async function testNoKey() {
+  const el = document.getElementById('test-result');
+  el.classList.remove('hidden');
+  el.textContent = 'Testing: No API key...';
+  try {
+    const r = await fetch(API_BASE + '/api/lms/launch', { method: 'POST' });
+    const d = await r.json();
+    el.textContent = `Status: ${r.status}\n${JSON.stringify(d, null, 2)}`;
+  } catch (e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function testWrongKey() {
+  const el = document.getElementById('test-result');
+  el.classList.remove('hidden');
+  el.textContent = 'Testing: Wrong API key...';
+  try {
+    const r = await fetch(API_BASE + '/api/lms/launch', {
+      method: 'POST',
+      headers: { 'X-API-Key': 'wrong_key_12345' },
+    });
+    const d = await r.json();
+    el.textContent = `Status: ${r.status}\n${JSON.stringify(d, null, 2)}`;
+  } catch (e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function testDirectAccess() {
+  const el = document.getElementById('test-result');
+  el.classList.remove('hidden');
+  el.textContent = 'Testing: Direct /interview access (should redirect to LMS)...';
+  try {
+    const r = await fetch(API_BASE + '/interview', { redirect: 'manual' });
+    if (r.type === 'opaqueredirect' || r.status === 307 || r.status === 302) {
+      el.textContent = `Status: ${r.status || 'redirect'} — Redirected to LMS (correct!)`;
+    } else {
+      el.textContent = `Status: ${r.status} — ${r.ok ? 'Page served (no LMS blocking)' : 'Error'}`;
+    }
+  } catch (e) { el.textContent = 'Redirect detected (correct!) — browser blocked cross-origin redirect read'; }
+}
+</script>
+
+</body>
+</html>

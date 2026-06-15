@@ -49,6 +49,16 @@ SAPLING_API_KEY = get_secret("SAPLING_API_KEY")
 LMS_API_KEY = get_secret("LMS_API_KEY", "")            # shared secret for LMS → interview API
 LMS_REDIRECT_URL = get_secret("LMS_REDIRECT_URL", "")  # redirect when user hits /interview without token
 
+SUPPORTED_DOMAINS = {
+    "physical_design": "Physical Design",
+    "analog_layout": "Analog Layout",
+    "design_verification": "Design Verification",
+}
+# LMS sends these aliases — map them to supported domains
+DOMAIN_ALIASES = {
+    "analog_design": "analog_layout",
+}
+
 from openai import OpenAI
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -2045,6 +2055,12 @@ async def lobby_config():
     return {"voice_verification_enabled": RUNTIME_CONFIG.get("voice_verification_enabled", True)}
 
 
+@app.get("/api/domains")
+async def get_supported_domains():
+    """Public endpoint — returns supported interview domains. LMS can call this to validate before launch."""
+    return {"domains": [{"key": k, "label": v} for k, v in SUPPORTED_DOMAINS.items()]}
+
+
 # ── Auth endpoints (matching monolith admin.html) ────────────────────────
 
 @app.post("/api/auth/login")
@@ -2146,6 +2162,10 @@ async def lms_launch(
     api_key = request.headers.get("X-API-Key", "")
     if not LMS_API_KEY or api_key != LMS_API_KEY:
         raise HTTPException(401, "Invalid or missing API key")
+
+    domain = DOMAIN_ALIASES.get(domain, domain)
+    if domain not in SUPPORTED_DOMAINS:
+        raise HTTPException(400, f"Unsupported domain: '{domain}'. Supported domains: {list(SUPPORTED_DOMAINS.keys())}")
 
     content = await resume.read()
     if len(content) > 5_000_000:
@@ -2332,6 +2352,9 @@ async def create_session_endpoint(
             resume = parse_resume(resume_text)
     if not resume.get("domain"):
         resume["domain"] = domain
+    resume["domain"] = DOMAIN_ALIASES.get(resume["domain"], resume["domain"])
+    if resume["domain"] not in SUPPORTED_DOMAINS:
+        resume["domain"] = "physical_design"  # fallback for direct sessions
 
     sid = secrets.token_hex(8)
     session = {
@@ -2970,10 +2993,9 @@ async def get_qgen_prompt(domain: str = "physical_design", level: str = "experie
 async def get_interview_prompt_admin(domain: str = "physical_design", level: str = "experienced_junior", _=Depends(require_admin)):
     """Return the raw interviewer prompt file for the given domain + level.
     Used by the LLM Config viewer in the admin UI."""
-    valid_domains = {"physical_design", "analog_layout", "design_verification"}
     valid_levels = {"trained_fresher", "experienced_junior", "experienced_senior", "fresh_graduate"}
-    if domain not in valid_domains or level not in valid_levels:
-        raise HTTPException(400, f"Invalid domain or level. Allowed domains: {valid_domains}, levels: {valid_levels}")
+    if domain not in SUPPORTED_DOMAINS or level not in valid_levels:
+        raise HTTPException(400, f"Invalid domain or level. Allowed domains: {list(SUPPORTED_DOMAINS.keys())}, levels: {valid_levels}")
     # fresh_graduate and trained_fresher both route to experienced_junior prompts now.
     effective_level = "experienced_junior" if level in ("fresh_graduate", "trained_fresher") else level
     filename = f"{effective_level}_{domain}.md"
