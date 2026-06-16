@@ -518,6 +518,68 @@
         console.log(`[Settings] eye_away=${eyeAwayEnabled} face_detect=${faceDetectEnabled} phone_detect=${phoneDetectEnabled}`);
     }).catch(() => {});
     let interviewEnded = false;  // Flag to completely stop interview
+    let interviewPaused = false; // Pause state — UI frozen, background monitoring active
+    let pauseReason = '';        // Which violation caused the pause
+    let pauseStartTime = 0;     // Track how long paused
+
+    // ── Pause overlay (non-dismissible — auto-resumes when violation clears) ──
+    const pauseOverlay = document.createElement('div');
+    pauseOverlay.id = 'pause-overlay';
+    pauseOverlay.style.cssText = 'position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(0,0,0,0.95) 0%,rgba(20,5,5,0.97) 100%);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);';
+    pauseOverlay.innerHTML = `
+        <div style="background:#fff;border-radius:20px;padding:40px 44px;max-width:460px;width:90%;text-align:center;
+                    box-shadow:0 24px 80px rgba(0,0,0,0.5);animation:warnSlideUp 0.35s ease;">
+            <div id="pause-icon" style="width:72px;height:72px;border-radius:50%;background:#dc2626;
+                        display:flex;align-items:center;justify-content:center;
+                        margin:0 auto 18px;font-size:32px;
+                        box-shadow:0 6px 24px rgba(220,38,38,0.35);">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+            </div>
+            <div style="font-family:'DM Sans',sans-serif;font-size:22px;font-weight:700;color:#111;
+                        margin-bottom:4px;letter-spacing:-0.3px;">Interview Paused</div>
+            <div id="pause-reason" style="font-family:'DM Sans',sans-serif;font-size:14px;color:#666;line-height:1.7;
+                        margin-bottom:16px;max-width:360px;margin-left:auto;margin-right:auto;"></div>
+            <div style="font-family:'DM Sans',sans-serif;font-size:13px;color:#999;margin-bottom:8px;">
+                <span id="pause-timer" style="font-weight:600;color:#dc2626;">0:00</span> paused
+            </div>
+            <div id="pause-warning-count" style="font-family:'DM Sans',sans-serif;font-size:12px;color:#b91c1c;font-weight:600;margin-bottom:10px;"></div>
+            <div style="font-family:'DM Sans',sans-serif;font-size:12px;color:#aaa;">
+                Interview will resume automatically when the issue is resolved.<br>Camera and monitoring remain active.
+            </div>
+        </div>`;
+
+    function pauseInterview(reason, message, warningText) {
+        if (interviewEnded || interviewPaused) return;
+        interviewPaused = true;
+        pauseReason = reason;
+        pauseStartTime = Date.now();
+        document.getElementById('pause-reason').innerHTML = message;
+        document.getElementById('pause-warning-count').textContent = warningText || '';
+        pauseOverlay.style.display = 'flex';
+        sendAntiCheat('interview_paused', `reason:${reason}`);
+        console.log(`[Pause] Interview paused — ${reason}`);
+    }
+
+    function resumeInterview() {
+        if (!interviewPaused) return;
+        const pausedMs = Date.now() - pauseStartTime;
+        sendAntiCheat('interview_resumed', `reason:${pauseReason},paused_ms:${pausedMs}`);
+        console.log(`[Pause] Interview resumed after ${(pausedMs/1000).toFixed(1)}s — ${pauseReason} cleared`);
+        interviewPaused = false;
+        pauseReason = '';
+        pauseOverlay.style.display = 'none';
+    }
+
+    // Update pause timer every second
+    setInterval(() => {
+        if (interviewPaused && pauseStartTime) {
+            const elapsed = Math.floor((Date.now() - pauseStartTime) / 1000);
+            const m = Math.floor(elapsed / 60);
+            const s = elapsed % 60;
+            document.getElementById('pause-timer').textContent = `${m}:${String(s).padStart(2,'0')}`;
+        }
+    }, 1000);
+    document.addEventListener('DOMContentLoaded', () => document.body.appendChild(pauseOverlay));
 
     function setOrb(s) { orbState = s; document.getElementById('orb').className = 'orb ' + s; }
     function fmt(s) { return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; }
@@ -646,42 +708,7 @@
             document.head.appendChild(styleEl);
         }
 
-        // Face not detected warning
-        const camWarningOverlay = document.createElement('div');
-        camWarningOverlay.id = 'cam-warning-overlay';
-        camWarningOverlay.style.cssText = warnStyle;
-        camWarningOverlay.innerHTML = warnCard(
-            '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/><line x1="2" y1="2" x2="22" y2="22"/></svg>',
-            '#ef4444',
-            'Face Not Detected',
-            'We can\'t see your face on camera.<br>Please make sure you\'re visible and well-lit.<br><span style="color:#ef4444;font-weight:600;">Continued absence will end the interview.</span>',
-            'cam-warning-btn',
-            'I\'m Here — Continue'
-        );
-        document.body.appendChild(camWarningOverlay);
-        document.getElementById('cam-warning-btn').addEventListener('click', () => {
-            camWarningOverlay.style.display = 'none';
-            noFaceCount = 0;
-        });
-
-        // Head turn warning
-        // Eyes off screen warning
-        const eyeReadOverlay = document.createElement('div');
-        eyeReadOverlay.id = 'eye-read-overlay';
-        eyeReadOverlay.style.cssText = warnStyle;
-        eyeReadOverlay.innerHTML = warnCard(
-            '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
-            '#8b5cf6',
-            'Eyes Off Screen',
-            'Your eyes appear to be looking away from the interview.<br>Please focus on the camera while answering.<br><strong id="eye-read-warn-text" style="color:#8b5cf6;">Warning <span id="eye-read-warn-num">1</span> of 2</strong>',
-            'eye-read-btn',
-            'I Understand — Continue'
-        );
-        document.body.appendChild(eyeReadOverlay);
-        document.getElementById('eye-read-btn').addEventListener('click', () => {
-            eyeReadOverlay.style.display = 'none';
-            eyeReadCount = 0;
-        });
+        // Face + eye warnings now use the global pause overlay (non-dismissible, auto-resume)
 
         // ── Load MediaPipe Face Mesh ──
         async function loadModel() {
@@ -864,6 +891,10 @@
             if (!faceDetectEnabled) { noFaceCount = 0; }
             else if (present) {
                 noFaceCount = 0;
+                // Auto-resume if paused for face
+                if (interviewPaused && pauseReason === 'face_not_detected') {
+                    resumeInterview();
+                }
             } else {
                 noFaceCount++;
                 console.log(`[FaceDetection] No face (${noFaceCount}/${NO_FACE_LIMIT})`);
@@ -872,11 +903,16 @@
                     cameraWarnings++;
                     sendAntiCheat('face_not_detected', `warnings:${cameraWarnings}`);
 
-                    if (cameraWarnings === 1) {
-                        camWarningOverlay.style.display = 'flex';
-                    } else if (cameraWarnings >= 2) {
-                        camWarningOverlay.style.display = 'none';
+                    if (cameraWarnings < 3) {
+                        const warnText = cameraWarnings >= 2
+                            ? 'Warning ' + cameraWarnings + ' of 2 — next time the interview will end.'
+                            : 'Warning ' + cameraWarnings + ' of 2';
+                        pauseInterview('face_not_detected',
+                            'We can\'t see your face on camera.<br>Please make sure you\'re visible and well-lit.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your face is detected.</span>',
+                            warnText);
+                    } else {
                         sendAntiCheat('face_absence_termination', `no_face_${cameraWarnings}_times`);
+                        if (interviewPaused) resumeInterview();
                         endSessionWithMessage('Interview ended — candidate not detected on camera.');
                     }
                     noFaceCount = 0;
@@ -892,18 +928,16 @@
                     eyeReadWarnings++;
                     sendAntiCheat('eye_away', `warnings:${eyeReadWarnings},direction:${eyeDirection}`);
 
-                    if (eyeReadWarnings <= 2) {
-                        document.getElementById('eye-read-warn-num').textContent = eyeReadWarnings;
-                        if (eyeReadWarnings === 2) {
-                            document.getElementById('eye-read-warn-text').innerHTML =
-                                '<span style="color:#c44;font-weight:700;">Final warning — reading off-screen again will end the interview.</span>';
-                        }
-                        eyeReadOverlay.style.display = 'flex';
-                    }
-
-                    if (eyeReadWarnings >= 3) {
-                        eyeReadOverlay.style.display = 'none';
+                    if (eyeReadWarnings < 3) {
+                        const warnText = eyeReadWarnings >= 2
+                            ? 'Warning ' + eyeReadWarnings + ' of 2 — next time the interview will end.'
+                            : 'Warning ' + eyeReadWarnings + ' of 2';
+                        pauseInterview('eye_away',
+                            'Your eyes appear to be looking away from the interview.<br>Please focus on the camera while answering.<br><span style="color:#8b5cf6;font-weight:600;">Interview will resume when you look back at the screen.</span>',
+                            warnText);
+                    } else {
                         sendAntiCheat('eye_away_termination', `reading_${eyeReadWarnings}_times`);
+                        if (interviewPaused) resumeInterview();
                         endSessionWithMessage('Interview ended — repeated off-screen reading detected.');
                     }
 
@@ -911,6 +945,10 @@
                 }
             } else if (present && !eyeReading) {
                 eyeReadCount = 0;
+                // Auto-resume if paused for eyes
+                if (interviewPaused && pauseReason === 'eye_away') {
+                    resumeInterview();
+                }
             }
 
             detecting = false;
@@ -1661,7 +1699,7 @@
     }
 
     async function startRecording() {
-        if (isRecording || interviewEnded) return;
+        if (isRecording || interviewEnded || interviewPaused) return;
 
         // Ensure mic is ready (first call initializes, subsequent calls are instant)
         if (!micReady || !mediaStream || !mediaStream.active) {
@@ -2161,44 +2199,7 @@
     let tabLeaveWarnings = 0;
     let screenShareStream = null;
 
-    // Tab switch warning overlay
-    const warningOverlay = document.createElement('div');
-    warningOverlay.id = 'tab-warning-overlay';
-    warningOverlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(0,0,0,0.92) 0%,rgba(30,10,10,0.95) 100%);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:warnFadeIn 0.3s ease;';
-    warningOverlay.innerHTML = `
-        <div style="background:#fff;border-radius:20px;padding:36px 40px;max-width:440px;width:90%;text-align:center;
-                    box-shadow:0 20px 60px rgba(0,0,0,0.4),0 0 0 1px rgba(255,255,255,0.05);
-                    animation:warnSlideUp 0.35s ease;">
-            <div style="width:64px;height:64px;border-radius:50%;background:#dc2626;
-                        display:flex;align-items:center;justify-content:center;
-                        margin:0 auto 16px;
-                        box-shadow:0 4px 16px rgba(220,38,38,0.3);">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                </svg>
-            </div>
-            <div style="font-family:'DM Sans',sans-serif;font-size:20px;font-weight:700;color:#111;
-                        margin-bottom:6px;letter-spacing:-0.3px;">Do Not Leave the Interview</div>
-            <div style="font-family:'DM Sans',sans-serif;font-size:14px;color:#666;line-height:1.7;
-                        margin-bottom:24px;max-width:340px;margin-left:auto;margin-right:auto;">
-                You switched away from the interview tab.<br>
-                This has been recorded.<br>
-                <span style="color:#dc2626;font-weight:600;">If you leave again, the interview will end automatically.</span>
-            </div>
-            <button id="tab-warning-btn" style="padding:12px 32px;background:linear-gradient(135deg,#111 0%,#333 100%);
-                    color:#fff;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;
-                    font-size:14px;font-weight:600;cursor:pointer;
-                    box-shadow:0 4px 12px rgba(0,0,0,0.2);transition:all 0.15s ease;"
-                onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 6px 16px rgba(0,0,0,0.3)'"
-                onmouseout="this.style.transform='none';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)'">
-                I Understand — Continue Interview
-            </button>
-        </div>`;
-    document.body.appendChild(warningOverlay);
-    document.getElementById('tab-warning-btn').addEventListener('click', () => {
-        warningOverlay.style.display = 'none';
-    });
+    // Tab switch now uses the global pause overlay (no separate dismissible overlay)
 
     // 1. Tab switch / visibility change detection
     let visChangeDebounce = 0;
@@ -2211,16 +2212,24 @@
             tabLeaveWarnings++;
             sendAntiCheat('tab_switch', `count:${tabSwitchCount},warning:${tabLeaveWarnings}`);
             console.log(`[Anti-cheat] Tab switch detected (${tabSwitchCount}, warnings: ${tabLeaveWarnings})`);
+            // Pause immediately when leaving
+            if (tabLeaveWarnings < 2) {
+                pauseInterview('tab_switch',
+                    'You switched away from the interview tab.<br>This has been recorded.<br><span style="color:#dc2626;font-weight:600;">If you leave again, the interview will end automatically.</span>',
+                    'Warning ' + tabLeaveWarnings + ' of 1');
+            }
         }
-        // Show warning or end when user comes BACK
+        // Auto-resume or terminate when user comes BACK
         if (!document.hidden && sessionOn && !interviewEnded && tabLeaveWarnings > 0) {
             if (tabLeaveWarnings === 1) {
-                // First time — show warning popup
-                warningOverlay.style.display = 'flex';
+                // First time — auto-resume on return
+                if (interviewPaused && pauseReason === 'tab_switch') {
+                    resumeInterview();
+                }
             } else if (tabLeaveWarnings >= 2) {
                 // Second time — end interview
                 sendAntiCheat('tab_switch_termination', `left_${tabLeaveWarnings}_times`);
-                warningOverlay.style.display = 'none';
+                if (interviewPaused) resumeInterview();
                 endSessionWithMessage('Interview ended — you left the interview tab multiple times.');
             }
         }
@@ -2243,17 +2252,24 @@
             tabLeaveWarnings++;
             sendAntiCheat('window_blur', `count:${tabSwitchCount},warning:${tabLeaveWarnings}`);
             console.log(`[Anti-cheat] Window blur detected — desktop app switch (${tabSwitchCount}, warnings: ${tabLeaveWarnings})`);
+            // Pause immediately when leaving
+            if (tabLeaveWarnings < 2) {
+                pauseInterview('tab_switch',
+                    'You switched away from the interview window.<br>This has been recorded.<br><span style="color:#dc2626;font-weight:600;">If you leave again, the interview will end automatically.</span>',
+                    'Warning ' + tabLeaveWarnings + ' of 1');
+            }
         }
     });
     window.addEventListener('focus', () => {
         if (!sessionOn || interviewEnded) return;
-        // Show warning/termination when user comes BACK from desktop app
+        // Auto-resume or terminate when user comes BACK from desktop app
         if (tabLeaveWarnings > 0 && !document.hidden) {
             if (tabLeaveWarnings === 1) {
-                warningOverlay.style.display = 'flex';
+                if (interviewPaused && pauseReason === 'tab_switch') {
+                    resumeInterview();
+                }
             } else if (tabLeaveWarnings >= 2) {
                 sendAntiCheat('tab_switch_termination', `blur_left_${tabLeaveWarnings}_times`);
-                warningOverlay.style.display = 'none';
                 endSessionWithMessage('Interview ended — you left the interview tab multiple times.');
             }
         }
@@ -2661,6 +2677,8 @@
             }
         }
 
+        let phoneCleanScans = 0; // consecutive scans with no phone (for auto-resume)
+
         async function scanForPhone() {
             if (!phoneDetectEnabled || !phoneModel || !sessionOn || interviewEnded) return;
             const video = document.getElementById('cam-video');
@@ -2675,11 +2693,14 @@
                 if (relevant.length > 0) {
                     console.log('[Phone Scan]', relevant.map(p => `${p.class}:${(p.score*100).toFixed(0)}%`).join(', '));
                 }
+                let phoneFound = false;
                 for (const pred of predictions) {
                     const isPhone = (pred.class === 'cell phone' && pred.score > 0.25)
                                  || (pred.class === 'remote' && pred.score > 0.3)
                                  || (pred.class === 'book' && pred.score > 0.5 && pred.bbox[2] < 200 && pred.bbox[3] < 350);
                     if (isPhone) {
+                        phoneFound = true;
+                        phoneCleanScans = 0;
                         const now = Date.now();
                         if (now - lastPhoneAlert < 10000) return; // debounce 10s
                         lastPhoneAlert = now;
@@ -2689,43 +2710,28 @@
                             `confidence:${(pred.score*100).toFixed(0)}%,warnings:${phoneWarnings},bbox:${pred.bbox.map(Math.round).join(',')}`);
                         console.log(`[Anti-cheat] Mobile phone detected in camera (${(pred.score*100).toFixed(0)}% confidence, warning #${phoneWarnings})`);
 
-                        if (phoneWarnings === 1) {
-                            // First warning — show alert
-                            const overlay = document.createElement('div');
-                            overlay.id = 'phone-warning-overlay';
-                            overlay.innerHTML = `
-                            <div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;
-                                        display:flex;align-items:center;justify-content:center;
-                                        animation:fadeIn 0.3s ease;">
-                                <div style="background:#fff;border-radius:16px;padding:32px;max-width:420px;
-                                            text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
-                                    <div style="width:56px;height:56px;border-radius:14px;
-                                                background:linear-gradient(135deg,#FEF3C7,#FDE68A);
-                                                display:flex;align-items:center;justify-content:center;
-                                                margin:0 auto 16px;font-size:24px;">📱</div>
-                                    <h3 style="font-family:'DM Sans',sans-serif;font-size:18px;font-weight:600;
-                                               color:#111;margin-bottom:8px;">Phone Detected</h3>
-                                    <p style="font-family:'DM Sans',sans-serif;font-size:14px;color:#666;
-                                              line-height:1.7;margin-bottom:20px;">
-                                        A mobile phone was detected in your camera.<br>
-                                        Please put it away to continue the interview.<br>
-                                        <span style="color:#dc2626;font-weight:600;">This has been recorded.</span>
-                                    </p>
-                                    <button onclick="this.closest('[id=phone-warning-overlay]').remove()"
-                                        style="padding:12px 32px;background:linear-gradient(135deg,#111,#333);
-                                               color:#fff;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;
-                                               font-size:14px;font-weight:600;cursor:pointer;">
-                                        I Understand — Continue
-                                    </button>
-                                </div>
-                            </div>`;
-                            document.body.appendChild(overlay);
-                        } else if (phoneWarnings >= 3) {
-                            // Third time — end interview
+                        if (phoneWarnings < 3) {
+                            const warnText = phoneWarnings >= 2
+                                ? 'Warning ' + phoneWarnings + ' of 2 — next time the interview will end.'
+                                : 'Warning ' + phoneWarnings + ' of 2';
+                            pauseInterview('phone_detected',
+                                'A mobile phone was detected in your camera.<br>Please put it away to continue the interview.<br><span style="color:#f59e0b;font-weight:600;">Interview will resume when the phone is removed.</span>',
+                                warnText);
+                        } else {
                             sendAntiCheat('phone_termination', `warnings:${phoneWarnings}`);
+                            if (interviewPaused) resumeInterview();
                             endSessionWithMessage('Interview ended — mobile phone detected multiple times. Using external devices is not allowed.');
                             return;
                         }
+                        break;
+                    }
+                }
+                // Auto-resume after 2 clean scans (~3s) with no phone
+                if (!phoneFound && interviewPaused && pauseReason === 'phone_detected') {
+                    phoneCleanScans++;
+                    if (phoneCleanScans >= 2) {
+                        phoneCleanScans = 0;
+                        resumeInterview();
                     }
                 }
             } catch(e) {}
