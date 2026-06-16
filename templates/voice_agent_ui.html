@@ -509,13 +509,15 @@
     let eyeAwayEnabled = true;
     let faceDetectEnabled = true;
     let phoneDetectEnabled = true;
+    let multiPersonEnabled = true;
 
     // Load settings from server
     fetch('/api/anticheat-settings').then(r => r.json()).then(data => {
         eyeAwayEnabled = data.eye_away !== false;
         faceDetectEnabled = data.face_detect !== false;
         phoneDetectEnabled = data.phone_detect !== false;
-        console.log(`[Settings] eye_away=${eyeAwayEnabled} face_detect=${faceDetectEnabled} phone_detect=${phoneDetectEnabled}`);
+        multiPersonEnabled = data.multiple_persons !== false;
+        console.log(`[Settings] eye_away=${eyeAwayEnabled} face_detect=${faceDetectEnabled} phone_detect=${phoneDetectEnabled} multi_person=${multiPersonEnabled}`);
     }).catch(() => {});
     let interviewEnded = false;  // Flag to completely stop interview
     let interviewPaused = false; // Pause state — UI frozen, background monitoring active
@@ -2679,6 +2681,12 @@
 
         let phoneCleanScans = 0; // consecutive scans with no phone (for auto-resume)
 
+        // ── Background person detection ──
+        const MULTI_PERSON_CONSEC = 3;    // 3 consecutive scans (~4.5s) to confirm
+        let multiPersonCount = 0;         // consecutive scans with >1 person
+        let multiPersonWarnings = 0;
+        let lastMultiPersonAlert = 0;
+
         async function scanForPhone() {
             if (!phoneDetectEnabled || !phoneModel || !sessionOn || interviewEnded) return;
             const video = document.getElementById('cam-video');
@@ -2693,6 +2701,8 @@
                 if (relevant.length > 0) {
                     console.log('[Phone Scan]', relevant.map(p => `${p.class}:${(p.score*100).toFixed(0)}%`).join(', '));
                 }
+
+                // ── Phone detection ──
                 let phoneFound = false;
                 for (const pred of predictions) {
                     const isPhone = (pred.class === 'cell phone' && pred.score > 0.25)
@@ -2731,6 +2741,47 @@
                     phoneCleanScans++;
                     if (phoneCleanScans >= 2) {
                         phoneCleanScans = 0;
+                        resumeInterview();
+                    }
+                }
+
+                // ── Background person detection ──
+                // Count persons detected by COCO-SSD (person class, >40% confidence)
+                if (!multiPersonEnabled) { multiPersonCount = 0; }
+                const persons = multiPersonEnabled ? predictions.filter(p => p.class === 'person' && p.score > 0.4) : [];
+                if (persons.length > 1) {
+                    multiPersonCount++;
+                    console.log(`[Anti-cheat] Multiple persons detected: ${persons.length} (${multiPersonCount}/${MULTI_PERSON_CONSEC})`);
+
+                    if (multiPersonCount >= MULTI_PERSON_CONSEC) {
+                        const now = Date.now();
+                        if (now - lastMultiPersonAlert < 15000) return; // debounce 15s
+                        lastMultiPersonAlert = now;
+                        multiPersonWarnings++;
+                        multiPersonCount = 0;
+
+                        sendAntiCheat('multiple_persons',
+                            `count:${persons.length},warnings:${multiPersonWarnings},scores:${persons.map(p => (p.score*100).toFixed(0)+'%').join('+')}`);
+                        console.log(`[Anti-cheat] Background person confirmed (warning #${multiPersonWarnings})`);
+
+                        if (multiPersonWarnings < 3) {
+                            const warnText = multiPersonWarnings >= 2
+                                ? 'Warning ' + multiPersonWarnings + ' of 2 — next time the interview will end.'
+                                : 'Warning ' + multiPersonWarnings + ' of 2';
+                            pauseInterview('multiple_persons',
+                                'Another person was detected in your camera.<br>Only the candidate should be visible during the interview.<br><span style="color:#dc2626;font-weight:600;">Please ensure you are alone. Interview will resume when only you are visible.</span>',
+                                warnText);
+                        } else {
+                            sendAntiCheat('multiple_persons_termination', `warnings:${multiPersonWarnings}`);
+                            if (interviewPaused) resumeInterview();
+                            endSessionWithMessage('Interview ended — another person was repeatedly detected in the camera.');
+                            return;
+                        }
+                    }
+                } else {
+                    multiPersonCount = 0;
+                    // Auto-resume if paused for multiple persons and now only 1
+                    if (interviewPaused && pauseReason === 'multiple_persons') {
                         resumeInterview();
                     }
                 }

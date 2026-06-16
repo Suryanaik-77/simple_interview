@@ -2811,6 +2811,12 @@ ANTICHEAT_FEATURES = {
         "category": "camera",
         "enabled": True,
     },
+    "multiple_persons": {
+        "label": "Background Person Detection",
+        "description": "Detects if another person is visible in the camera using COCO-SSD body detection",
+        "category": "camera",
+        "enabled": True,
+    },
 }
 
 
