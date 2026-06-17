@@ -1021,57 +1021,30 @@ async function loadLivenessComponent() {
   const loading = document.getElementById('liveness-loading');
   const root = document.getElementById('liveness-root');
   try {
-    // Load everything as fully self-contained bundles (no bare specifiers)
-    console.log('[Face] Step 1: Loading FaceLivenessDetector bundle (this may take a moment)...');
+    // Use ?deps= to share a single React instance across all packages
+    const REACT_V = 'react@18.3.1,react-dom@18.3.1';
+
+    console.log('[Face] Step 1: Loading React...');
+    const reactModule = await import('https://esm.sh/react@18.3.1');
+    const reactDomClient = await import('https://esm.sh/react-dom@18.3.1/client');
+    console.log('[Face] Step 2: React v' + reactModule.version);
+
+    console.log('[Face] Step 3: Loading FaceLivenessDetector...');
     const livenessModule = await import(
-      'https://esm.sh/@aws-amplify/ui-react-liveness@3.6.7?bundle'
+      'https://esm.sh/@aws-amplify/ui-react-liveness@3.6.7?deps=' + REACT_V
     );
-    console.log('[Face] Step 2: Liveness loaded, exports:', Object.keys(livenessModule).join(', '));
+    console.log('[Face] Step 4: Liveness loaded, exports:', Object.keys(livenessModule).join(', '));
 
     const FaceLivenessDetector = livenessModule.FaceLivenessDetector || livenessModule.default?.FaceLivenessDetector;
     if (!FaceLivenessDetector) {
       throw new Error('FaceLivenessDetector not found. Exports: ' + Object.keys(livenessModule).join(', '));
     }
 
-    console.log('[Face] Step 3: Loading aws-amplify...');
-    const amplifyModule = await import(
-      'https://esm.sh/aws-amplify@6.15.9?bundle'
-    );
-    const Amplify = amplifyModule.Amplify || amplifyModule.default?.Amplify;
-    if (!Amplify) {
-      throw new Error('Amplify not found. Exports: ' + Object.keys(amplifyModule).join(', '));
-    }
-    console.log('[Face] Step 4: Amplify loaded, configuring credentials...');
-
-    // Also grab React from the liveness bundle (it includes its own copy)
-    const reactModule = await import('https://esm.sh/react@18.3.1?bundle');
-    const reactDomModule = await import('https://esm.sh/react-dom@18.3.1?bundle');
-    const h = reactModule.createElement;
-    const reactRoot = reactDomModule.createRoot(root);
-    console.log('[Face] Step 5: React v' + reactModule.version);
-
-    // Configure Amplify with custom credential provider
-    Amplify.configure({
-      Auth: { Cognito: { identityPoolId: 'us-east-1:00000000-0000-0000-0000-000000000000' } }
-    }, {
-      Auth: {
-        credentialsProvider: {
-          getCredentialsAndIdentityId: async () => ({
-            credentials: {
-              accessKeyId: _livenessCredentials.accessKeyId,
-              secretAccessKey: _livenessCredentials.secretAccessKey,
-              sessionToken: _livenessCredentials.sessionToken,
-            },
-            identityId: 'custom-face-liveness'
-          }),
-          clearCredentialsAndIdentityId: async () => {}
-        }
-      }
-    });
-    console.log('[Face] Step 6: Amplify configured, rendering component...');
-
+    // No Amplify.configure() needed — pass credentials directly via component config prop
+    console.log('[Face] Step 5: Rendering component (no Amplify.configure needed)...');
     loading.style.display = 'none';
 
+    const h = reactModule.createElement;
     const App = () => h(FaceLivenessDetector, {
       sessionId: _livenessSessionId,
       region: _livenessRegion,
@@ -1079,11 +1052,19 @@ async function loadLivenessComponent() {
       onError: (err) => {
         console.error('[Face] FaceLivenessDetector onError:', err);
         onLivenessError(err);
+      },
+      config: {
+        credentialProvider: async () => ({
+          accessKeyId: _livenessCredentials.accessKeyId,
+          secretAccessKey: _livenessCredentials.secretAccessKey,
+          sessionToken: _livenessCredentials.sessionToken,
+        })
       }
     });
 
+    const reactRoot = reactDomClient.createRoot(root);
     reactRoot.render(h(App));
-    console.log('[Face] Step 7: Component rendered');
+    console.log('[Face] Step 6: Component rendered');
   } catch(e) {
     console.error('[Face] Load failed:', e);
     loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Error: ' + (e.message || e) + '<br>Check browser console (F12) for details.</p>';
