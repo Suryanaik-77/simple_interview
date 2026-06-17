@@ -2101,7 +2101,6 @@ async def lobby_config():
     _sync_runtime_config()
     return {
         "voice_verification_enabled": RUNTIME_CONFIG.get("voice_verification_enabled", True),
-        "face_liveness_enabled": ANTICHEAT_FEATURES.get("face_liveness", {}).get("enabled", True),
     }
 
 
@@ -2904,12 +2903,6 @@ ANTICHEAT_FEATURES = {
         "category": "camera",
         "enabled": True,
     },
-    "face_liveness": {
-        "label": "Face Liveness (AWS)",
-        "description": "Verifies the candidate is a real person (not a photo/video) using AWS Rekognition challenge-response",
-        "category": "camera",
-        "enabled": True,
-    },
     "face_comparison": {
         "label": "Face ID Verification (AWS)",
         "description": "Periodically compares candidate face against registered reference using AWS Rekognition CompareFaces every 60 seconds",
@@ -3022,58 +3015,8 @@ async def sim_ai_done(data: dict):
     return {"ok": True}
 
 
-# ── Face Liveness & Comparison (AWS Rekognition) ─────────────────────────
+# ── Face Comparison (AWS Rekognition) ─────────────────────────────────────
 FACE_COMPARE_THRESHOLD = 90.0   # minimum similarity % for CompareFaces
-FACE_LIVENESS_THRESHOLD = 85.0  # minimum confidence % for liveness
-
-@app.post("/api/face/liveness/start")
-def face_liveness_start():
-    """Create an AWS Rekognition Face Liveness session and return session_id + temp credentials."""
-    if not ANTICHEAT_FEATURES.get("face_liveness", {}).get("enabled", True):
-        return {"ok": True, "ignored": True, "reason": "feature_disabled"}
-    if not rekognition_client:
-        raise HTTPException(503, "AWS Rekognition not configured")
-    try:
-        resp = rekognition_client.create_face_liveness_session(
-            Settings={"AuditImagesLimit": 4}
-        )
-        session_id = resp["SessionId"]
-        region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-
-        # Generate temporary credentials for the frontend Amplify component.
-        # get_session_token works for long-lived IAM user keys;
-        # it fails when the server already uses temporary credentials (IAM role).
-        # In that case, read the current session creds from the boto3 session.
-        creds = None
-        try:
-            sts = boto3.client("sts", region_name=region)
-            temp = sts.get_session_token(DurationSeconds=900)["Credentials"]
-            creds = {
-                "accessKeyId": temp["AccessKeyId"],
-                "secretAccessKey": temp["SecretAccessKey"],
-                "sessionToken": temp["SessionToken"],
-            }
-        except Exception as sts_err:
-            print(f"[FaceLiveness] STS get_session_token failed ({sts_err}), falling back to session credentials")
-            # Fallback: use the current boto3 session credentials directly
-            boto_session = boto3.Session()
-            frozen = boto_session.get_credentials().get_frozen_credentials()
-            creds = {
-                "accessKeyId": frozen.access_key,
-                "secretAccessKey": frozen.secret_key,
-                "sessionToken": frozen.token or "",
-            }
-
-        return {
-            "ok": True,
-            "liveness_session_id": session_id,
-            "region": region,
-            "credentials": creds,
-        }
-    except Exception as e:
-        print(f"[FaceLiveness] Failed to create session: {e}")
-        raise HTTPException(500, f"Liveness session creation failed: {e}")
-
 
 @app.get("/api/face/check")
 def face_check(email: str = ""):
@@ -3084,85 +3027,17 @@ def face_check(email: str = ""):
     return {
         "ok": True,
         "has_reference": face_bytes is not None,
-        "liveness_confidence": round(confidence, 2) if face_bytes else 0,
     }
-
-
-@app.post("/api/face/liveness/result")
-def face_liveness_result(data: dict):
-    """Get liveness session results. Store reference image in DB (by email) and in session."""
-    liveness_sid = data.get("liveness_session_id", "")
-    interview_sid = data.get("session_id", "")
-    email = data.get("email", "")
-    if not liveness_sid:
-        raise HTTPException(400, "Missing liveness_session_id")
-    if not rekognition_client:
-        raise HTTPException(503, "AWS Rekognition not configured")
-    try:
-        resp = rekognition_client.get_face_liveness_session_results(SessionId=liveness_sid)
-        confidence = resp.get("Confidence", 0)
-        status = resp.get("Status", "")
-        is_live = status == "SUCCEEDED" and confidence >= FACE_LIVENESS_THRESHOLD
-
-        result = {
-            "ok": True,
-            "is_live": is_live,
-            "confidence": round(confidence, 2),
-            "status": status,
-            "threshold": FACE_LIVENESS_THRESHOLD,
-        }
-
-        # Store reference image
-        if is_live:
-            ref_image = resp.get("ReferenceImage", {})
-            face_bytes = ref_image.get("Bytes")
-            if face_bytes:
-                face_b64 = base64.b64encode(face_bytes).decode("ascii")
-
-                # Persist in DB by email (reusable across sessions)
-                if email:
-                    database.save_face_reference(email, face_bytes, confidence)
-                    result["persisted"] = True
-
-                # Also load into current interview session if provided
-                if interview_sid:
-                    session = sessions.get(interview_sid)
-                    if session:
-                        session["face_ref_image"] = face_b64
-                        session["face_liveness_confidence"] = confidence
-                        sessions[interview_sid] = session
-                        result["face_registered"] = True
-                        print(f"[FaceLiveness] Session {interview_sid}: liveness={confidence:.1f}%, ref image stored ({len(face_bytes)} bytes)")
-
-        # Log anticheat event
-        if interview_sid:
-            session = sessions.get(interview_sid)
-            if session:
-                session.setdefault("anticheat_log", []).append({
-                    "event_type": "face_liveness",
-                    "turn": 0,
-                    "timestamp": time.time(),
-                    "metadata": f"confidence={confidence:.1f}%, is_live={is_live}",
-                })
-                sessions[interview_sid] = session
-
-        return result
-    except Exception as e:
-        print(f"[FaceLiveness] Failed to get results: {e}")
-        raise HTTPException(500, f"Liveness result fetch failed: {e}")
 
 
 @app.post("/api/face/register")
 def face_register(data: dict):
-    """Manually register a reference face image (base64 JPEG) for a session.
-    Used as fallback if liveness reference image is not available."""
-    sid = data.get("session_id", "")
+    """Register a reference face image (base64 JPEG) from webcam capture.
+    Validates with DetectFaces, persists in DB by email for reuse across sessions."""
     image_b64 = data.get("image", "")
-    if not sid or not image_b64:
-        raise HTTPException(400, "Missing session_id or image")
-    session = sessions.get(sid)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    email = data.get("email", "")
+    if not image_b64:
+        raise HTTPException(400, "Missing image")
     # Validate face is detectable
     if rekognition_client:
         try:
@@ -3179,9 +3054,11 @@ def face_register(data: dict):
         except Exception as e:
             print(f"[FaceRegister] DetectFaces failed: {e}")
             raise HTTPException(500, f"Face detection failed: {e}")
-    session["face_ref_image"] = image_b64
-    sessions[sid] = session
-    print(f"[FaceRegister] Reference face stored for session {sid}")
+    # Persist in DB by email (reusable across sessions)
+    if email:
+        img_bytes = base64.b64decode(image_b64)
+        database.save_face_reference(email, img_bytes, 0)
+        print(f"[FaceRegister] Reference face persisted for {email} ({len(img_bytes)} bytes)")
     return {"ok": True, "face_registered": True}
 
 
