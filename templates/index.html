@@ -964,7 +964,8 @@ async function startFaceLiveness() {
   } catch(e) {
     console.error('[Face] liveness start failed:', e);
     btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined text-sm align-middle mr-1">verified_user</span>Retry Verification';
-    alert('Face verification failed to start: ' + e.message);
+    const detail = e.message || (typeof e === 'string' ? e : JSON.stringify(e));
+    alert('Face verification failed to start: ' + detail);
   }
 }
 
@@ -1011,8 +1012,9 @@ async function onLivenessComplete() {
 
 function onLivenessError(err) {
   console.error('[Face] Liveness error:', err);
+  const msg = err?.error?.message || err?.message || (typeof err === 'string' ? err : JSON.stringify(err));
   closeFaceLivenessModal();
-  alert('Face verification encountered an error. Please try again.');
+  alert('Face verification error: ' + msg + '\nPlease try again.');
 }
 
 async function loadLivenessComponent() {
@@ -1020,25 +1022,38 @@ async function loadLivenessComponent() {
   const root = document.getElementById('liveness-root');
   try {
     // Dynamically import React + Amplify from CDN
+    console.log('[Face] Loading React + Amplify Liveness from CDN...');
     const [React, ReactDOMClient, AmplifyAuth, AmplifyLiveness] = await Promise.all([
       import('https://esm.sh/react@18.3.1'),
       import('https://esm.sh/react-dom@18.3.1/client'),
       import('https://esm.sh/aws-amplify@6.15.9?deps=react@18.3.1,react-dom@18.3.1'),
       import('https://esm.sh/@aws-amplify/ui-react-liveness@3.6.7?deps=react@18.3.1,react-dom@18.3.1')
     ]);
+    console.log('[Face] CDN modules loaded successfully');
 
     const { Amplify } = AmplifyAuth;
     const { FaceLivenessDetector } = AmplifyLiveness;
-    const { createElement, useState, useEffect } = React;
+    const { createElement } = React;
 
-    // Configure Amplify with temp credentials
+    // Configure Amplify v6 with custom credential provider (no Cognito needed)
     Amplify.configure({
+      Auth: { Cognito: { identityPoolId: 'us-east-1:00000000-0000-0000-0000-000000000000' } }
+    }, {
       Auth: {
-        Cognito: {
-          identityPoolId: 'dummy', // not used — we override credentialProvider
+        credentialsProvider: {
+          getCredentialsAndIdentityId: async () => ({
+            credentials: {
+              accessKeyId: _livenessCredentials.accessKeyId,
+              secretAccessKey: _livenessCredentials.secretAccessKey,
+              sessionToken: _livenessCredentials.sessionToken,
+            },
+            identityId: 'custom'
+          }),
+          clearCredentialsAndIdentityId: () => {}
         }
       }
     });
+    console.log('[Face] Amplify configured with temp credentials');
 
     loading.style.display = 'none';
 
@@ -1047,13 +1062,9 @@ async function loadLivenessComponent() {
         sessionId: _livenessSessionId,
         region: _livenessRegion,
         onAnalysisComplete: onLivenessComplete,
-        onError: onLivenessError,
-        config: {
-          credentialProvider: async () => ({
-            accessKeyId: _livenessCredentials.accessKeyId,
-            secretAccessKey: _livenessCredentials.secretAccessKey,
-            sessionToken: _livenessCredentials.sessionToken,
-          })
+        onError: (err) => {
+          console.error('[Face] FaceLivenessDetector error:', err);
+          onLivenessError(err);
         }
       });
     };
@@ -1062,7 +1073,7 @@ async function loadLivenessComponent() {
     reactRoot.render(createElement(App));
   } catch(e) {
     console.error('[Face] Failed to load liveness component:', e);
-    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Please check your connection and try again.</p>';
+    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Error: ' + (e.message || e) + '<br>Please check your connection and try again.</p>';
   }
 }
 

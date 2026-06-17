@@ -3033,18 +3033,37 @@ def face_liveness_start():
             Settings={"AuditImagesLimit": 4}
         )
         session_id = resp["SessionId"]
-        # Generate temporary credentials for the frontend Amplify component
-        sts = boto3.client("sts", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-        temp = sts.get_session_token(DurationSeconds=900)["Credentials"]
-        return {
-            "ok": True,
-            "liveness_session_id": session_id,
-            "region": os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
-            "credentials": {
+        region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+
+        # Generate temporary credentials for the frontend Amplify component.
+        # get_session_token works for long-lived IAM user keys;
+        # it fails when the server already uses temporary credentials (IAM role).
+        # In that case, read the current session creds from the boto3 session.
+        creds = None
+        try:
+            sts = boto3.client("sts", region_name=region)
+            temp = sts.get_session_token(DurationSeconds=900)["Credentials"]
+            creds = {
                 "accessKeyId": temp["AccessKeyId"],
                 "secretAccessKey": temp["SecretAccessKey"],
                 "sessionToken": temp["SessionToken"],
-            },
+            }
+        except Exception as sts_err:
+            print(f"[FaceLiveness] STS get_session_token failed ({sts_err}), falling back to session credentials")
+            # Fallback: use the current boto3 session credentials directly
+            boto_session = boto3.Session()
+            frozen = boto_session.get_credentials().get_frozen_credentials()
+            creds = {
+                "accessKeyId": frozen.access_key,
+                "secretAccessKey": frozen.secret_key,
+                "sessionToken": frozen.token or "",
+            }
+
+        return {
+            "ok": True,
+            "liveness_session_id": session_id,
+            "region": region,
+            "credentials": creds,
         }
     except Exception as e:
         print(f"[FaceLiveness] Failed to create session: {e}")
