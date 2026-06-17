@@ -1024,9 +1024,14 @@ async function loadLivenessComponent() {
     // Use ?deps= to share a single React instance across all packages
     const REACT_V = 'react@18.3.1,react-dom@18.3.1';
 
-    console.log('[Face] Step 1: Loading React (dev mode for error details)...');
-    const reactModule = await import('https://esm.sh/react@18.3.1?dev');
-    const reactDomClient = await import('https://esm.sh/react-dom@18.3.1/client?dev');
+    // IMPORTANT: React URL must match exactly what ?deps= resolves to inside the
+    // liveness package, otherwise two React instances are created and hooks break.
+    const REACT_URL = 'https://esm.sh/react@18.3.1';
+    const REACT_DOM_URL = 'https://esm.sh/react-dom@18.3.1';
+
+    console.log('[Face] Step 1: Loading React...');
+    const reactModule = await import(REACT_URL);
+    const reactDomClient = await import(REACT_DOM_URL + '/client');
     console.log('[Face] Step 2: React v' + reactModule.version);
 
     console.log('[Face] Step 3: Loading FaceLivenessDetector...');
