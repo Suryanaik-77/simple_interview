@@ -636,9 +636,56 @@ textarea::placeholder{color:var(--t4)}
         </div>
 
         <!-- Voice Library -->
-        <div style="padding:14px;background:var(--w);border:1px solid var(--b);border-radius:8px">
+        <div style="padding:14px;background:var(--w);border:1px solid var(--b);border-radius:8px;margin-bottom:12px">
           <div style="font-size:12px;font-weight:600;margin-bottom:8px">Voice Library</div>
           <div id="vc-library" style="font-size:11px;color:var(--t3)">Loading...</div>
+        </div>
+
+        <!-- STT Playground -->
+        <div style="padding:14px;background:var(--w);border:1px solid var(--b);border-radius:8px">
+          <div style="font-size:15px;font-weight:600;color:var(--t);margin-bottom:4px">STT Playground</div>
+          <div style="font-size:10px;color:var(--t3);margin-bottom:12px">Record audio and test transcription across all STT providers</div>
+
+          <!-- Provider select -->
+          <div style="font-size:11px;font-weight:500;color:var(--t3);margin-bottom:4px">Provider</div>
+          <select id="stt-play-provider" style="width:100%;padding:8px;border:1px solid var(--b);border-radius:6px;font-size:12px;font-family:inherit;background:var(--off);margin-bottom:10px">
+            <option value="openai|gpt-4o-mini-transcribe">OpenAI — gpt-4o-mini-transcribe ($0.003/min)</option>
+            <option value="openai|whisper-1">OpenAI — Whisper-1 ($0.006/min)</option>
+            <option value="deepgram|nova-3">Deepgram — Nova-3 ($0.0059/min)</option>
+            <option value="deepgram|nova-2">Deepgram — Nova-2 ($0.0043/min)</option>
+            <option value="inworld|inworld/inworld-stt-1">Inworld — STT-1 ($0.0025/min)</option>
+          </select>
+
+          <!-- Record button + timer -->
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+            <button onclick="sttPlayToggleRecord()" id="stt-play-rec-btn" style="flex:1;padding:9px;background:#dc2626;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit">
+              ● Record
+            </button>
+            <span id="stt-play-timer" style="font-size:13px;font-family:var(--mono);color:var(--t3);min-width:40px">0:00</span>
+          </div>
+
+          <!-- Audio playback -->
+          <audio id="stt-play-audio" controls style="width:100%;height:32px;margin-bottom:10px;display:none"></audio>
+
+          <!-- Transcribe button -->
+          <button onclick="sttPlayTranscribe()" id="stt-play-send-btn" disabled style="width:100%;padding:9px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;margin-bottom:10px;opacity:0.4">
+            Transcribe
+          </button>
+
+          <!-- Results -->
+          <div id="stt-play-result" style="display:none;padding:12px;background:var(--off);border:1px solid var(--b);border-radius:6px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:600;color:var(--t3)">TRANSCRIPT</span>
+              <span id="stt-play-meta" style="font-size:10px;color:var(--t4);font-family:var(--mono)"></span>
+            </div>
+            <div id="stt-play-text" style="font-size:13px;color:var(--t);line-height:1.6;white-space:pre-wrap"></div>
+          </div>
+
+          <!-- Compare all -->
+          <button onclick="sttPlayCompareAll()" id="stt-play-compare-btn" disabled style="width:100%;padding:9px;background:#111;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;margin-top:10px;opacity:0.4">
+            Compare All Providers
+          </button>
+          <div id="stt-play-compare-results" style="margin-top:10px"></div>
         </div>
       </div>
     </div>
@@ -1543,6 +1590,120 @@ async function loadVoiceLibrary() {
   } catch(e) {
     document.getElementById('vc-library').textContent = 'Failed to load';
   }
+}
+
+// ── STT Playground ──────────────────────────────────────────────────
+let _sttRecorder = null;
+let _sttBlob = null;
+let _sttTimerIv = null;
+let _sttStartTime = 0;
+
+function sttPlayToggleRecord() {
+  if (_sttRecorder && _sttRecorder.state === 'recording') {
+    _sttRecorder.stop();
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    _sttRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+    const chunks = [];
+    _sttRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+    _sttRecorder.onstart = () => {
+      _sttBlob = null;
+      _sttStartTime = Date.now();
+      document.getElementById('stt-play-rec-btn').textContent = '■ Stop Recording';
+      document.getElementById('stt-play-rec-btn').style.background = '#111';
+      document.getElementById('stt-play-send-btn').disabled = true;
+      document.getElementById('stt-play-send-btn').style.opacity = '0.4';
+      document.getElementById('stt-play-compare-btn').disabled = true;
+      document.getElementById('stt-play-compare-btn').style.opacity = '0.4';
+      document.getElementById('stt-play-result').style.display = 'none';
+      document.getElementById('stt-play-compare-results').innerHTML = '';
+      document.getElementById('stt-play-audio').style.display = 'none';
+      _sttTimerIv = setInterval(() => {
+        const s = Math.floor((Date.now() - _sttStartTime) / 1000);
+        document.getElementById('stt-play-timer').textContent = Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+      }, 200);
+    };
+    _sttRecorder.onstop = () => {
+      clearInterval(_sttTimerIv);
+      stream.getTracks().forEach(t => t.stop());
+      _sttBlob = new Blob(chunks, { type: 'audio/webm' });
+      document.getElementById('stt-play-rec-btn').textContent = '● Record';
+      document.getElementById('stt-play-rec-btn').style.background = '#dc2626';
+      document.getElementById('stt-play-send-btn').disabled = false;
+      document.getElementById('stt-play-send-btn').style.opacity = '1';
+      document.getElementById('stt-play-compare-btn').disabled = false;
+      document.getElementById('stt-play-compare-btn').style.opacity = '1';
+      const audio = document.getElementById('stt-play-audio');
+      audio.src = URL.createObjectURL(_sttBlob);
+      audio.style.display = 'block';
+    };
+    _sttRecorder.start();
+  }).catch(e => { alert('Microphone access denied: ' + e.message); });
+}
+
+async function sttPlayTranscribe() {
+  if (!_sttBlob) return;
+  const sel = document.getElementById('stt-play-provider').value.split('|');
+  const provider = sel[0], model = sel[1];
+  const btn = document.getElementById('stt-play-send-btn');
+  btn.disabled = true; btn.textContent = 'Transcribing...';
+
+  const form = new FormData();
+  form.append('audio', _sttBlob, 'test.webm');
+  form.append('provider', provider);
+  form.append('model', model);
+
+  try {
+    const r = await fetch('/api/admin/stt-test', { method: 'POST', credentials: 'include', body: form });
+    const d = await r.json();
+    document.getElementById('stt-play-result').style.display = 'block';
+    document.getElementById('stt-play-text').textContent = d.transcript || '(empty)';
+    document.getElementById('stt-play-meta').textContent = d.provider + '/' + d.model + ' · ' + d.latency_ms + 'ms · $' + d.cost_usd.toFixed(5) + ' · ' + d.chars + ' chars';
+  } catch(e) {
+    alert('STT test failed: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = 'Transcribe';
+}
+
+async function sttPlayCompareAll() {
+  if (!_sttBlob) return;
+  const btn = document.getElementById('stt-play-compare-btn');
+  btn.disabled = true; btn.textContent = 'Comparing all providers...';
+  const container = document.getElementById('stt-play-compare-results');
+  container.innerHTML = '<div style="font-size:11px;color:var(--t3)">Running all providers...</div>';
+
+  const providers = [
+    { provider: 'openai', model: 'gpt-4o-mini-transcribe', label: 'OpenAI gpt-4o-mini' },
+    { provider: 'deepgram', model: 'nova-3', label: 'Deepgram Nova-3' },
+    { provider: 'inworld', model: 'inworld/inworld-stt-1', label: 'Inworld STT-1' },
+  ];
+
+  let html = '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+  html += '<thead><tr style="border-bottom:2px solid var(--b);text-align:left"><th style="padding:6px 4px">Provider</th><th style="padding:6px 4px">Latency</th><th style="padding:6px 4px">Cost</th><th style="padding:6px 4px">Transcript</th></tr></thead><tbody>';
+
+  for (const p of providers) {
+    const form = new FormData();
+    form.append('audio', _sttBlob, 'test.webm');
+    form.append('provider', p.provider);
+    form.append('model', p.model);
+    try {
+      const r = await fetch('/api/admin/stt-test', { method: 'POST', credentials: 'include', body: form });
+      const d = await r.json();
+      const txt = (d.transcript || '(empty)').substring(0, 120);
+      html += '<tr style="border-bottom:1px solid var(--b)">';
+      html += '<td style="padding:6px 4px;font-weight:500">' + p.label + '</td>';
+      html += '<td style="padding:6px 4px;font-family:var(--mono)">' + d.latency_ms + 'ms</td>';
+      html += '<td style="padding:6px 4px;font-family:var(--mono)">$' + d.cost_usd.toFixed(5) + '</td>';
+      html += '<td style="padding:6px 4px;color:var(--t2)">' + txt + '</td>';
+      html += '</tr>';
+    } catch(e) {
+      html += '<tr style="border-bottom:1px solid var(--b)"><td style="padding:6px 4px;font-weight:500">' + p.label + '</td><td colspan="3" style="padding:6px 4px;color:#dc2626">Error: ' + e.message + '</td></tr>';
+    }
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+  btn.disabled = false; btn.textContent = 'Compare All Providers';
 }
 
 function endPgInterview() {

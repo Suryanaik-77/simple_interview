@@ -3276,6 +3276,36 @@ async def set_stt_config(data: dict, _=Depends(require_admin)):
     print(f"[STT Config] Changed to {RUNTIME_CONFIG['stt_provider']}/{RUNTIME_CONFIG['stt_model']}")
     return {"status": "success", "provider": RUNTIME_CONFIG["stt_provider"], "model": RUNTIME_CONFIG["stt_model"]}
 
+@app.post("/api/admin/stt-test")
+async def stt_test(audio: UploadFile = File(...), provider: str = Form("openai"), model: str = Form("gpt-4o-mini-transcribe"), _=Depends(require_admin)):
+    """STT Playground — transcribe audio with a specific provider/model for testing."""
+    audio_bytes = await audio.read()
+    ext = audio.filename.rsplit(".", 1)[-1] if audio.filename else "webm"
+    audio_duration_ms = _get_audio_duration_ms(audio_bytes, ext)
+
+    # Temporarily override the provider/model
+    orig_provider = RUNTIME_CONFIG.get("stt_provider")
+    orig_model = RUNTIME_CONFIG.get("stt_model")
+    RUNTIME_CONFIG["stt_provider"] = provider
+    RUNTIME_CONFIG["stt_model"] = model
+    try:
+        transcript, latency_ms = transcribe_audio(audio_bytes, ext)
+    finally:
+        RUNTIME_CONFIG["stt_provider"] = orig_provider
+        RUNTIME_CONFIG["stt_model"] = orig_model
+
+    cost = _calc_stt_cost(model, audio_duration_ms if audio_duration_ms > 0 else latency_ms)
+    return {
+        "transcript": transcript,
+        "latency_ms": latency_ms,
+        "audio_duration_ms": audio_duration_ms,
+        "cost_usd": round(cost, 6),
+        "provider": provider,
+        "model": model,
+        "chars": len(transcript),
+    }
+
+
 @app.get("/api/admin/voice-verification")
 async def get_voice_verification_config(_=Depends(require_admin)):
     _sync_runtime_config()
