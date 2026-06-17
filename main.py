@@ -345,6 +345,7 @@ _STT_PRICING = {
     "whisper-1": 0.006,
     "nova-3": 0.0059,
     "nova-2": 0.0043,
+    "inworld/inworld-stt-1": 0.0025,  # $0.15/hr ≈ $0.0025/min
 }
 
 # TTS pricing per 1K characters (estimates)
@@ -968,6 +969,27 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
     model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
     tmp_path = None
     t0 = time.time()
+
+    # Inworld STT
+    if provider == "inworld" and INWORLD_API_KEY:
+        try:
+            audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
+            # Map common audio extensions to Inworld encoding names
+            enc_map = {"webm": "AUTO_DETECT", "wav": "LINEAR16", "mp3": "MP3", "ogg": "OGG_OPUS", "flac": "FLAC"}
+            encoding = enc_map.get(ext, "AUTO_DETECT")
+            r = http_requests.post("https://api.inworld.ai/stt/v1/transcribe",
+                headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
+                json={"model": model if model.startswith("inworld/") else "inworld/inworld-stt-1",
+                      "audioEncoding": encoding, "sampleRateHertz": 16000, "audio": audio_b64},
+                timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            text = data.get("transcript", data.get("text", "")).strip()
+            latency = round((time.time() - t0) * 1000)
+            print(f"[STT] Inworld/{model} {latency}ms — {len(text)} chars")
+            return text, latency
+        except Exception as e:
+            print(f"[STT] Inworld error: {e}, falling back to OpenAI")
 
     # Deepgram STT with VLSI keyword boosting
     if provider == "deepgram" and DEEPGRAM_API_KEY:
@@ -3240,6 +3262,7 @@ async def get_stt_config(_=Depends(require_admin)):
             {"provider": "openai", "model": "whisper-1", "name": "OpenAI Whisper-1", "latency": "~400-800ms", "cost": "$0.006/min"},
             {"provider": "deepgram", "model": "nova-3", "name": "Deepgram Nova-3 (fastest)", "latency": "~200-500ms", "cost": "$0.0059/min"},
             {"provider": "deepgram", "model": "nova-2", "name": "Deepgram Nova-2", "latency": "~300-600ms", "cost": "$0.0043/min"},
+            {"provider": "inworld", "model": "inworld/inworld-stt-1", "name": "Inworld STT-1", "latency": "~300-800ms", "cost": "$0.15/hr ($0.0025/min)"},
         ],
     }
 
