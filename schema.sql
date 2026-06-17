@@ -193,3 +193,13 @@ CREATE TABLE IF NOT EXISTS candidate_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_candidate_history_email ON candidate_history(email);
+
+-- FACE REFERENCES (AWS Rekognition — one reference per candidate email)
+-- ═══════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS face_references (
+    email TEXT PRIMARY KEY,
+    face_image BYTEA NOT NULL,
+    liveness_confidence REAL NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

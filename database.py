@@ -421,3 +421,50 @@ def get_candidate_history(email):
     except Exception as e:
         print(f"[DB] get_candidate_history failed: {e}")
         return []
+
+
+# ── Face References ──────────────────────────────────────────────────────
+
+def save_face_reference(email, face_image_bytes, liveness_confidence=0):
+    """Store or update a candidate's face reference image (bytes) keyed by email."""
+    pool = _get_pool()
+    if not pool:
+        return False
+    try:
+        with pool.getconn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO face_references (email, face_image, liveness_confidence, updated_at)
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (email) DO UPDATE SET
+                        face_image = EXCLUDED.face_image,
+                        liveness_confidence = EXCLUDED.liveness_confidence,
+                        updated_at = NOW()
+                """, (email, face_image_bytes, liveness_confidence))
+                conn.commit()
+            pool.putconn(conn)
+        print(f"[DB] Face reference saved for {email} ({len(face_image_bytes)} bytes, confidence={liveness_confidence:.1f}%)")
+        return True
+    except Exception as e:
+        print(f"[DB] save_face_reference failed: {e}")
+        return False
+
+
+def get_face_reference(email):
+    """Retrieve a candidate's face reference image bytes. Returns (bytes, confidence) or (None, 0)."""
+    pool = _get_pool()
+    if not pool:
+        return None, 0
+    try:
+        with pool.getconn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT face_image, liveness_confidence FROM face_references WHERE email = %s", (email,))
+                row = cur.fetchone()
+            pool.putconn(conn)
+            if row:
+                face_bytes = bytes(row[0]) if row[0] else None
+                return face_bytes, float(row[1] or 0)
+            return None, 0
+    except Exception as e:
+        print(f"[DB] get_face_reference failed: {e}")
+        return None, 0

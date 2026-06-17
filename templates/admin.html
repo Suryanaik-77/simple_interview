@@ -1861,7 +1861,7 @@ const AC_CATEGORIES = {
   ai_detect: { label: 'AI Detection', icon: '&#129302;', color: 'var(--red)' },
   behavioral:{ label: 'Behavioral Analysis', icon: '&#128200;', color: 'var(--purple)' },
 };
-const AC_TOGGLABLE = ['behavior_guard','abuse_email_alert','tab_switch','window_blur','paste_detect','screen_share','dom_overlay','canary_trigger','ai_answer_detect','phone_detect','face_detect','eye_away'];
+const AC_TOGGLABLE = ['behavior_guard','abuse_email_alert','tab_switch','window_blur','paste_detect','screen_share','dom_overlay','canary_trigger','ai_answer_detect','phone_detect','face_detect','eye_away','face_liveness','face_comparison'];
 let _acFeatures = {};
 
 async function loadAcConfig() {
@@ -2212,7 +2212,7 @@ function renderAcDetail(d) {
 
   // Anti-cheat events
   const ac_events = d.anticheat_log || [];
-  const ac_types  = ['tab_switch','window_blur','paste_event','dom_overlay','screen_share','canary_triggered','eye_away','split_screen','keyboard_activity','ai_answer_overlay','ai_extension_detected','phone_detected'];
+  const ac_types  = ['tab_switch','window_blur','paste_event','dom_overlay','screen_share','canary_triggered','eye_away','split_screen','keyboard_activity','ai_answer_overlay','ai_extension_detected','phone_detected','face_liveness','face_comparison','face_mismatch','face_mismatch_termination'];
   const eventsHtml = ac_types.map(t => {
     const matching = ac_events.filter(e => e.event_type === t);
     const count = matching.length;
@@ -2308,6 +2308,10 @@ function renderAcDetail(d) {
     phone_detected: {bg:'var(--rb)',bd:'var(--rbd)'},
     screen_share: {bg:'var(--rb)',bd:'var(--rbd)'},
     canary_triggered: {bg:'var(--rb)',bd:'var(--rbd)'},
+    face_liveness: {bg:'#F0FDF4',bd:'#BBF7D0'},
+    face_comparison: {bg:'#F0FDF4',bd:'#BBF7D0'},
+    face_mismatch: {bg:'var(--rb)',bd:'var(--rbd)'},
+    face_mismatch_termination: {bg:'var(--rb)',bd:'var(--rbd)'},
   };
 
   const notable = allMoments.map(m => {

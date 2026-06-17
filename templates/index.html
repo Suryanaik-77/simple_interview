@@ -7,6 +7,7 @@
 <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@aws-amplify/ui@6.15.4/dist/styles.css"/>
 <script>
 tailwind.config = {
   theme: {
@@ -246,6 +247,57 @@ body { font-family: 'Inter', sans-serif; }
       </div>
     </div>
 
+    <!-- ── Row 1.5: Face Verification (AWS Rekognition Liveness) ── -->
+    <div class="card mb-5" id="card-face-verify" style="display:none;">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-accent-light flex items-center justify-center">
+            <span class="material-symbols-outlined text-brand text-lg">face_retouching_natural</span>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-text-primary">Face Verification</h3>
+            <p class="text-xs text-text-secondary">Verify your identity with a quick liveness check</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-outline-dark" id="dot-face"></span>
+          <span class="text-[10px] font-semibold text-text-tertiary" id="face-chip">Pending</span>
+        </div>
+      </div>
+      <div class="bg-surface-dim rounded-xl p-4 mb-3 border border-outline">
+        <div id="face-verify-prompt" class="text-center">
+          <span class="material-symbols-outlined text-4xl text-text-tertiary opacity-40 mb-2">sentiment_satisfied</span>
+          <p class="text-xs text-text-secondary mb-3">Position your face in the camera and follow the on-screen instructions.<br>This confirms you are a real person.</p>
+          <button onclick="startFaceLiveness()" class="px-5 py-2 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark transition-colors" id="face-verify-btn">
+            <span class="material-symbols-outlined text-sm align-middle mr-1">verified_user</span>Verify Identity
+          </button>
+        </div>
+        <div id="face-verify-status" class="text-center hidden">
+          <span class="material-symbols-outlined text-4xl text-success mb-1">check_circle</span>
+          <p class="text-xs text-success font-semibold">Identity Verified</p>
+          <p class="text-[10px] text-text-tertiary mt-1" id="face-confidence-text"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Face Liveness Modal (fullscreen overlay for AWS Rekognition) -->
+    <div id="face-liveness-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.95);backdrop-filter:blur(8px);">
+      <div style="position:absolute;top:16px;right:16px;z-index:10001;">
+        <button onclick="closeFaceLivenessModal()" style="background:rgba(255,255,255,0.15);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center;height:100%;padding:20px;">
+        <div id="liveness-container" style="width:100%;max-width:640px;background:#fff;border-radius:20px;overflow:hidden;min-height:480px;position:relative;">
+          <div id="liveness-loading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:480px;gap:12px;">
+            <div style="width:36px;height:36px;border:3px solid #e5e7eb;border-top-color:#ea580c;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+            <p style="font-family:'Inter',sans-serif;font-size:13px;color:#6b7280;">Loading face verification...</p>
+          </div>
+          <div id="liveness-root"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Row 2: Voice Verification ── -->
     <div class="card mb-5" id="card-voice">
       <div class="flex items-center justify-between mb-3">
@@ -402,6 +454,18 @@ body { font-family: 'Inter', sans-serif; }
             <span class="material-symbols-outlined text-brand text-base mb-1.5">record_voice_over</span>
             <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Voice Verification</h4>
             <p class="text-[10px] text-text-tertiary leading-snug">Verifies same person is speaking throughout</p>
+            <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
+          </div>
+          <div class="bg-surface-dim rounded-xl p-3 border border-outline">
+            <span class="material-symbols-outlined text-brand text-base mb-1.5">face_retouching_natural</span>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Face Liveness</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">AWS Rekognition verifies you're a real person</p>
+            <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
+          </div>
+          <div class="bg-surface-dim rounded-xl p-3 border border-outline">
+            <span class="material-symbols-outlined text-brand text-base mb-1.5">compare</span>
+            <h4 class="text-[11px] font-semibold text-text-primary mb-0.5">Face ID Check</h4>
+            <p class="text-[10px] text-text-tertiary leading-snug">Periodically verifies face matches registered identity</p>
             <div class="flex items-center gap-1 mt-2"><span class="w-1.5 h-1.5 rounded-full bg-success pulse"></span><span class="text-[9px] font-bold text-success uppercase">Active</span></div>
           </div>
         </div>
@@ -565,11 +629,12 @@ body { font-family: 'Inter', sans-serif; }
 </nav>
 
 <script>
-const S = { sessionId:null, resumeParsed:null, mediaStream:null, micPassed:false, camPassed:false, resumePassed:false, voicePassed:false, voiceBlob:null, voiceVerificationEnabled:true };
+const S = { sessionId:null, resumeParsed:null, mediaStream:null, micPassed:false, camPassed:false, resumePassed:false, voicePassed:false, voiceBlob:null, voiceVerificationEnabled:true, facePassed:false, faceEnabled:true, faceRefB64:null };
 
 function updateChecks() {
   const requiredChecks = [S.resumePassed, S.micPassed, S.camPassed];
   if (S.voiceVerificationEnabled) requiredChecks.push(S.voicePassed);
+  if (S.faceEnabled) requiredChecks.push(S.facePassed);
   const count = requiredChecks.filter(Boolean).length;
   const total = requiredChecks.length;
   const dot = document.getElementById('status-dot');
@@ -588,15 +653,31 @@ function updateChecks() {
   }
 }
 
-// Fetch lobby config (voice verification toggle)
+// Fetch lobby config (voice verification + face liveness toggles)
 fetch('/api/lobby-config').then(r => r.json()).then(cfg => {
   S.voiceVerificationEnabled = cfg.voice_verification_enabled;
   if (!S.voiceVerificationEnabled) {
-    // Hide voice card and mark as not required
     const voiceCard = document.getElementById('card-voice');
     if (voiceCard) voiceCard.style.display = 'none';
   }
+  // Face liveness toggle
+  S.faceEnabled = cfg.face_liveness_enabled !== false;
+  if (S.faceEnabled) {
+    document.getElementById('card-face-verify').style.display = '';
+  } else {
+    S.facePassed = true; // not required
+  }
   updateChecks();
+}).catch(() => {});
+
+// Also fetch anticheat settings for face features
+fetch('/api/anticheat-settings').then(r => r.json()).then(settings => {
+  if (settings.face_liveness === false) {
+    S.faceEnabled = false;
+    S.facePassed = true;
+    document.getElementById('card-face-verify').style.display = 'none';
+    updateChecks();
+  }
 }).catch(() => {});
 
 // ── RESUME ──
@@ -637,6 +718,11 @@ async function processResume(file) {
 
     S.resumePassed = true;
     updateChecks();
+
+    // Check if candidate already has a face reference (skip liveness if so)
+    if (S.faceEnabled && p.email) {
+      checkExistingFaceRef(p.email);
+    }
   } catch(e) {
     document.getElementById('resume-loading').classList.add('hidden');
     document.getElementById('resume-empty').classList.remove('hidden');
@@ -823,6 +909,160 @@ async function startInterview() {
     document.getElementById('btn-text').textContent = "I'm Ready";
     document.getElementById('btn-arrow').style.display = '';
     alert('Error starting interview.');
+  }
+}
+
+// ── FACE VERIFICATION (AWS Rekognition Liveness) ──
+async function checkExistingFaceRef(email) {
+  try {
+    const r = await fetch('/api/face/check?email=' + encodeURIComponent(email));
+    const d = await r.json();
+    if (d.has_reference) {
+      // Already verified — skip liveness
+      markFacePassed(d.liveness_confidence, true);
+    }
+  } catch(e) { console.warn('[Face] check failed:', e); }
+}
+
+function markFacePassed(confidence, existing) {
+  S.facePassed = true;
+  const dot = document.getElementById('dot-face');
+  const chip = document.getElementById('face-chip');
+  dot.className = 'w-2 h-2 rounded-full bg-success';
+  chip.textContent = 'Verified'; chip.className = 'text-[10px] font-semibold text-success';
+  document.getElementById('face-verify-prompt').classList.add('hidden');
+  document.getElementById('face-verify-status').classList.remove('hidden');
+  const confText = document.getElementById('face-confidence-text');
+  if (existing) {
+    confText.textContent = 'Previously verified — confidence ' + confidence.toFixed(1) + '%';
+  } else {
+    confText.textContent = 'Liveness confidence: ' + confidence.toFixed(1) + '%';
+  }
+  updateChecks();
+}
+
+let _livenessSessionId = null;
+let _livenessCredentials = null;
+let _livenessRegion = 'us-east-1';
+
+async function startFaceLiveness() {
+  const btn = document.getElementById('face-verify-btn');
+  btn.disabled = true; btn.textContent = 'Starting...';
+  try {
+    // 1. Create liveness session on backend
+    const r = await fetch('/api/face/liveness/start', { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.reason || 'Failed to start liveness');
+    _livenessSessionId = d.liveness_session_id;
+    _livenessCredentials = d.credentials;
+    _livenessRegion = d.region;
+
+    // 2. Open the liveness modal and load the React component
+    document.getElementById('face-liveness-modal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    loadLivenessComponent();
+  } catch(e) {
+    console.error('[Face] liveness start failed:', e);
+    btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined text-sm align-middle mr-1">verified_user</span>Retry Verification';
+    alert('Face verification failed to start: ' + e.message);
+  }
+}
+
+function closeFaceLivenessModal() {
+  document.getElementById('face-liveness-modal').style.display = 'none';
+  document.body.style.overflow = '';
+  document.getElementById('liveness-root').innerHTML = '';
+  document.getElementById('liveness-loading').style.display = 'flex';
+  const btn = document.getElementById('face-verify-btn');
+  btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined text-sm align-middle mr-1">verified_user</span>Retry Verification';
+}
+
+async function onLivenessComplete() {
+  // Fetch results from backend
+  try {
+    const email = S.resumeParsed ? (S.resumeParsed.email || '') : '';
+    const r = await fetch('/api/face/liveness/result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        liveness_session_id: _livenessSessionId,
+        session_id: S.lmsSessionId || '',
+        email: email
+      })
+    });
+    const d = await r.json();
+    closeFaceLivenessModal();
+    if (d.is_live) {
+      markFacePassed(d.confidence, false);
+    } else {
+      const btn = document.getElementById('face-verify-btn');
+      btn.innerHTML = '<span class="material-symbols-outlined text-sm align-middle mr-1">verified_user</span>Retry Verification';
+      document.getElementById('face-chip').textContent = 'Failed';
+      document.getElementById('face-chip').className = 'text-[10px] font-semibold text-danger';
+      document.getElementById('dot-face').className = 'w-2 h-2 rounded-full bg-danger';
+      alert('Liveness check failed (confidence: ' + d.confidence + '%). Please try again.');
+    }
+  } catch(e) {
+    closeFaceLivenessModal();
+    console.error('[Face] liveness result failed:', e);
+    alert('Failed to verify liveness results. Please try again.');
+  }
+}
+
+function onLivenessError(err) {
+  console.error('[Face] Liveness error:', err);
+  closeFaceLivenessModal();
+  alert('Face verification encountered an error. Please try again.');
+}
+
+async function loadLivenessComponent() {
+  const loading = document.getElementById('liveness-loading');
+  const root = document.getElementById('liveness-root');
+  try {
+    // Dynamically import React + Amplify from CDN
+    const [React, ReactDOMClient, AmplifyAuth, AmplifyLiveness] = await Promise.all([
+      import('https://esm.sh/react@18.3.1'),
+      import('https://esm.sh/react-dom@18.3.1/client'),
+      import('https://esm.sh/aws-amplify@6.15.9?deps=react@18.3.1,react-dom@18.3.1'),
+      import('https://esm.sh/@aws-amplify/ui-react-liveness@3.6.7?deps=react@18.3.1,react-dom@18.3.1')
+    ]);
+
+    const { Amplify } = AmplifyAuth;
+    const { FaceLivenessDetector } = AmplifyLiveness;
+    const { createElement, useState, useEffect } = React;
+
+    // Configure Amplify with temp credentials
+    Amplify.configure({
+      Auth: {
+        Cognito: {
+          identityPoolId: 'dummy', // not used — we override credentialProvider
+        }
+      }
+    });
+
+    loading.style.display = 'none';
+
+    const App = () => {
+      return createElement(FaceLivenessDetector, {
+        sessionId: _livenessSessionId,
+        region: _livenessRegion,
+        onAnalysisComplete: onLivenessComplete,
+        onError: onLivenessError,
+        config: {
+          credentialProvider: async () => ({
+            accessKeyId: _livenessCredentials.accessKeyId,
+            secretAccessKey: _livenessCredentials.secretAccessKey,
+            sessionToken: _livenessCredentials.sessionToken,
+          })
+        }
+      });
+    };
+
+    const reactRoot = ReactDOMClient.createRoot(root);
+    reactRoot.render(createElement(App));
+  } catch(e) {
+    console.error('[Face] Failed to load liveness component:', e);
+    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Please check your connection and try again.</p>';
   }
 }
 
@@ -1100,6 +1340,10 @@ function backToLobby() {
       document.getElementById('voice-name-prompt').textContent = name.split(' ')[0];
 
       S.resumePassed = true;
+      // Check for existing face reference (LMS provides email)
+      if (S.faceEnabled && resume.email) {
+        checkExistingFaceRef(resume.email);
+      }
       // LMS may have already sent voice via /api/lms/launch — check session
       if (data.has_voice_ref) {
         S.voicePassed = true;

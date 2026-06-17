@@ -72,9 +72,12 @@ if CEREBRAS_API_KEY:
     print("Cerebras LLM ready.")
 
 bedrock_client = None
+rekognition_client = None
 try:
     import boto3
     bedrock_client = boto3.client("bedrock-runtime", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    rekognition_client = boto3.client("rekognition", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    print("AWS Rekognition client ready.")
 except: pass
 
 # ── Runtime Config ───────────────────────────────────────────────────────
@@ -348,21 +351,51 @@ _TTS_PRICING = {
 }
 
 
-def _estimate_tokens(text: str) -> int:
-    """Rough token estimate: ~4 chars per token for English."""
+_tiktoken_enc = None
+def _get_tiktoken():
+    """Lazy-load tiktoken encoder (cl100k_base covers GPT-4o, GPT-4o-mini, GPT-4)."""
+    global _tiktoken_enc
+    if _tiktoken_enc is None:
+        try:
+            import tiktoken
+            _tiktoken_enc = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            _tiktoken_enc = False  # mark as unavailable
+    return _tiktoken_enc if _tiktoken_enc else None
+
+
+def _estimate_tokens(text: str, model: str = "") -> int:
+    """Count tokens using tiktoken for OpenAI/Grok models, estimate for others.
+    Claude ~3.5 chars/token, Llama ~3.8, OpenAI ~exact via tiktoken."""
+    if not text:
+        return 0
+    enc = _get_tiktoken()
+    # tiktoken is accurate for OpenAI and Grok (same tokenizer family)
+    if enc and (not model or model.startswith("gpt-") or model.startswith("grok-")):
+        return len(enc.encode(text))
+    # Claude models: ~3.5 chars per token
+    if model and ("anthropic" in model or "claude" in model):
+        return max(1, int(len(text) / 3.5))
+    # Llama/Meta models: ~3.8 chars per token
+    if model and ("meta" in model or "llama" in model):
+        return max(1, int(len(text) / 3.8))
+    # tiktoken available but unknown model — still better than guessing
+    if enc:
+        return len(enc.encode(text))
+    # Fallback: ~4 chars per token
     return max(1, len(text) // 4)
 
 
-def _estimate_message_tokens(messages: list) -> int:
+def _estimate_message_tokens(messages: list, model: str = "") -> int:
     """Estimate input tokens from a message list."""
     total = 0
     for msg in messages:
         content = msg.get("content", "")
         if isinstance(content, str):
-            total += _estimate_tokens(content)
+            total += _estimate_tokens(content, model)
         elif isinstance(content, list):
             for block in content:
-                total += _estimate_tokens(block.get("text", ""))
+                total += _estimate_tokens(block.get("text", ""), model)
         total += 4  # role + formatting overhead
     return total
 
@@ -433,7 +466,7 @@ def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
     """Route to correct LLM: OpenAI, Bedrock, or Grok.
     Returns (text, usage_dict) where usage_dict has input_tokens, output_tokens, cost_usd."""
     model = model_id or RUNTIME_CONFIG["qgen_model"]
-    input_est = _estimate_message_tokens(messages)
+    input_est = _estimate_message_tokens(messages, model)
 
     # Grok
     if model.startswith("grok-") and xai_client:
@@ -445,13 +478,13 @@ def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
         )
         text = resp.choices[0].message.content.strip()
         in_tok = getattr(resp.usage, "prompt_tokens", input_est) if resp.usage else input_est
-        out_tok = getattr(resp.usage, "completion_tokens", _estimate_tokens(text)) if resp.usage else _estimate_tokens(text)
+        out_tok = getattr(resp.usage, "completion_tokens", _estimate_tokens(text, model)) if resp.usage else _estimate_tokens(text, model)
         return text, {"input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": _calc_llm_cost(model, in_tok, out_tok)}
 
     # Bedrock (Claude, Llama, Nova, etc.)
     if bedrock_client and (model.startswith("us.") or "anthropic" in model or "amazon" in model or "meta" in model):
         text = _call_bedrock(messages, model, temperature, max_tokens)
-        out_tok = _estimate_tokens(text)
+        out_tok = _estimate_tokens(text, model)
         return text, {"input_tokens": input_est, "output_tokens": out_tok, "cost_usd": _calc_llm_cost(model, input_est, out_tok)}
 
     # OpenAI (default)
@@ -461,42 +494,51 @@ def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
     )
     text = resp.choices[0].message.content.strip()
     in_tok = resp.usage.prompt_tokens if resp.usage else input_est
-    out_tok = resp.usage.completion_tokens if resp.usage else _estimate_tokens(text)
+    out_tok = resp.usage.completion_tokens if resp.usage else _estimate_tokens(text, model)
     return text, {"input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": _calc_llm_cost(model, in_tok, out_tok)}
 
 
 def stream_llm(messages, model_id="", temperature=0.5, max_tokens=500):
     """Stream LLM tokens. Yields text chunks. Works with OpenAI and Grok."""
+    import httpx
     model = model_id or RUNTIME_CONFIG["qgen_model"]
 
     # Grok streaming
     if model.startswith("grok-") and xai_client:
-        import httpx
-        stream = xai_client.chat.completions.create(
-            model=model, messages=messages,
-            temperature=temperature, max_tokens=max_tokens,
-            stream=True, timeout=httpx.Timeout(15.0),
-        )
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        try:
+            stream = xai_client.chat.completions.create(
+                model=model, messages=messages,
+                temperature=temperature, max_tokens=max_tokens,
+                stream=True, timeout=httpx.Timeout(20.0),
+            )
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            print(f"[StreamLLM] Grok streaming error: {e}")
         return
 
     # Bedrock streaming (Claude, Llama, Nova, etc.)
     if bedrock_client and (model.startswith("us.") or "anthropic" in model or "amazon" in model or "meta" in model):
-        for chunk in _stream_bedrock(messages, model, temperature, max_tokens):
-            yield chunk
+        try:
+            for chunk in _stream_bedrock(messages, model, temperature, max_tokens):
+                yield chunk
+        except Exception as e:
+            print(f"[StreamLLM] Bedrock streaming error: {e}")
         return
 
     # OpenAI streaming
-    stream = openai_client.chat.completions.create(
-        model=model, messages=messages,
-        temperature=temperature, max_tokens=max_tokens,
-        stream=True,
-    )
-    for chunk in stream:
-        if chunk.choices and chunk.choices[0].delta.content:
-            yield chunk.choices[0].delta.content
+    try:
+        stream = openai_client.chat.completions.create(
+            model=model, messages=messages,
+            temperature=temperature, max_tokens=max_tokens,
+            stream=True, timeout=httpx.Timeout(20.0),
+        )
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+    except Exception as e:
+        print(f"[StreamLLM] OpenAI streaming error: {e}")
 
 
 def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 24000) -> bytes:
@@ -2052,7 +2094,10 @@ async def health():
 async def lobby_config():
     """Public endpoint for lobby to check feature toggles."""
     _sync_runtime_config()
-    return {"voice_verification_enabled": RUNTIME_CONFIG.get("voice_verification_enabled", True)}
+    return {
+        "voice_verification_enabled": RUNTIME_CONFIG.get("voice_verification_enabled", True),
+        "face_liveness_enabled": ANTICHEAT_FEATURES.get("face_liveness", {}).get("enabled", True),
+    }
 
 
 @app.get("/api/domains")
@@ -2198,6 +2243,15 @@ async def lms_launch(
     if voice_bytes:
         import base64
         session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
+
+    # Load face reference from DB if candidate already has one
+    if email and ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
+        face_bytes, face_conf = database.get_face_reference(email)
+        if face_bytes:
+            session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
+            session["face_liveness_confidence"] = face_conf
+            print(f"[FaceID] LMS: loaded face reference for {email} (confidence={face_conf:.1f}%)")
+
     sessions[sid] = session
 
     token = jwt.encode({
@@ -2371,6 +2425,15 @@ async def create_session_endpoint(
             session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
             print(f"[Voice] Stored reference voice for session {sid} ({len(voice_bytes)} bytes)")
 
+    # Load face reference from DB if candidate already has one (by email)
+    candidate_email = resume.get("email", "")
+    if candidate_email and ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
+        face_bytes, face_conf = database.get_face_reference(candidate_email)
+        if face_bytes:
+            session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
+            session["face_liveness_confidence"] = face_conf
+            print(f"[FaceID] Loaded existing face reference for {candidate_email} (confidence={face_conf:.1f}%)")
+
     sessions[sid] = session
     return {"session_id": sid, "resume": resume}
 
@@ -2542,30 +2605,48 @@ def stream_answer(data: dict):
         sentence_count = 0
         total_tts_ms = 0
         total_tts_chars = 0
-        input_tokens_est = _estimate_message_tokens(messages)
+        qgen_model = RUNTIME_CONFIG["qgen_model"]
+        input_tokens_est = _estimate_message_tokens(messages, qgen_model)
+        stream_error = False
 
-        for token in stream_llm(messages, temperature=0.7, max_tokens=200):
-            full_text += token
-            sentence_buffer += token
+        try:
+            for token in stream_llm(messages, temperature=0.7, max_tokens=200):
+                full_text += token
+                sentence_buffer += token
 
-            # Send text token to frontend immediately (for typewriter)
-            yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                # Send text token to frontend immediately (for typewriter)
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
-            # Check for sentence boundary
-            if re.search(r'[.?!]\s*$', sentence_buffer) or len(sentence_buffer) > 150:
-                sentence = sentence_buffer.strip()
-                sentence_buffer = ""
-                if sentence:
-                    sentence_count += 1
-                    # Generate TTS for this sentence
-                    t0_tts = time.time()
-                    audio_bytes = tts_chunk(sentence)
-                    tts_ms = round((time.time() - t0_tts) * 1000)
-                    total_tts_ms += tts_ms
-                    total_tts_chars += len(sentence)
-                    if audio_bytes:
-                        yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
-                    print(f"[Stream] Sentence {sentence_count}: TTS {tts_ms}ms — \"{sentence[:50]}...\"")
+                # Check for sentence boundary
+                if re.search(r'[.?!]\s*$', sentence_buffer) or len(sentence_buffer) > 150:
+                    sentence = sentence_buffer.strip()
+                    sentence_buffer = ""
+                    if sentence:
+                        sentence_count += 1
+                        # Generate TTS for this sentence
+                        t0_tts = time.time()
+                        audio_bytes = tts_chunk(sentence)
+                        tts_ms = round((time.time() - t0_tts) * 1000)
+                        total_tts_ms += tts_ms
+                        total_tts_chars += len(sentence)
+                        if audio_bytes:
+                            yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
+                        print(f"[Stream] Sentence {sentence_count}: TTS {tts_ms}ms — \"{sentence[:50]}...\"")
+        except Exception as e:
+            stream_error = True
+            print(f"[Stream] LLM streaming error: {e}")
+            session.setdefault("obs_log", []).append(
+                _obs_entry("LLM_question", qgen_model, round((time.time() - t0_llm) * 1000), "error", error=str(e)))
+
+        # If LLM returned nothing or errored with no text, send a fallback
+        if not full_text.strip():
+            fallback = "Could you repeat that? I missed what you said."
+            full_text = fallback
+            yield f"data: {json.dumps({'type': 'token', 'content': fallback})}\n\n"
+            audio_bytes = tts_chunk(fallback)
+            if audio_bytes:
+                yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': 0})}\n\n"
+            print(f"[Stream] Empty LLM response — sent fallback (error={stream_error})")
 
         # Flush remaining buffer
         if sentence_buffer.strip():
@@ -2579,8 +2660,8 @@ def stream_answer(data: dict):
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
 
         llm_ms = round((time.time() - t0_llm) * 1000)
-        output_tokens_est = _estimate_tokens(full_text)
-        llm_cost = _calc_llm_cost(RUNTIME_CONFIG["qgen_model"], input_tokens_est, output_tokens_est)
+        output_tokens_est = _estimate_tokens(full_text, qgen_model)
+        llm_cost = _calc_llm_cost(qgen_model, input_tokens_est, output_tokens_est)
 
         # Clean the full text
         question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', full_text)
@@ -2614,11 +2695,12 @@ def stream_answer(data: dict):
         # Track LLM cost
         tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
         tts_cost = _calc_tts_cost(tts_provider, total_tts_chars)
-        session.setdefault("obs_log", []).append(
-            _obs_entry("LLM_question", RUNTIME_CONFIG["qgen_model"], llm_ms, "success",
-                       input_tokens=input_tokens_est, output_tokens=output_tokens_est, cost_usd=llm_cost))
+        if not stream_error:
+            session.setdefault("obs_log", []).append(
+                _obs_entry("LLM_question", qgen_model, llm_ms, "success",
+                           input_tokens=input_tokens_est, output_tokens=output_tokens_est, cost_usd=llm_cost))
         # Track TTS cost
-        session["obs_log"].append(
+        session.setdefault("obs_log", []).append(
             _obs_entry("TTS", tts_provider, total_tts_ms, "success",
                        chars=total_tts_chars, cost_usd=tts_cost))
 
@@ -2633,7 +2715,7 @@ def stream_answer(data: dict):
             _evaluate_async(session)
 
         total_ms = round((time.time() - t0) * 1000)
-        print(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks)")
+        print(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks, error={stream_error})")
 
         # Final done event
         yield f"data: {json.dumps({'type': 'done', 'question': question, 'turn': session['turn'], 'phase': session['phase'], 'should_end': is_end, 'pause_prompt': is_pause_prompt, 'timing': {'llm_ms': llm_ms, 'total_ms': total_ms}})}\n\n"
@@ -2817,6 +2899,18 @@ ANTICHEAT_FEATURES = {
         "category": "camera",
         "enabled": True,
     },
+    "face_liveness": {
+        "label": "Face Liveness (AWS)",
+        "description": "Verifies the candidate is a real person (not a photo/video) using AWS Rekognition challenge-response",
+        "category": "camera",
+        "enabled": True,
+    },
+    "face_comparison": {
+        "label": "Face ID Verification (AWS)",
+        "description": "Periodically compares candidate face against registered reference using AWS Rekognition CompareFaces every 60 seconds",
+        "category": "camera",
+        "enabled": True,
+    },
 }
 
 
@@ -2921,6 +3015,218 @@ def anticheat_gaze(data: dict):
 @app.post("/api/sim/ai-done")
 async def sim_ai_done(data: dict):
     return {"ok": True}
+
+
+# ── Face Liveness & Comparison (AWS Rekognition) ─────────────────────────
+FACE_COMPARE_THRESHOLD = 90.0   # minimum similarity % for CompareFaces
+FACE_LIVENESS_THRESHOLD = 85.0  # minimum confidence % for liveness
+
+@app.post("/api/face/liveness/start")
+def face_liveness_start():
+    """Create an AWS Rekognition Face Liveness session and return session_id + temp credentials."""
+    if not ANTICHEAT_FEATURES.get("face_liveness", {}).get("enabled", True):
+        return {"ok": True, "ignored": True, "reason": "feature_disabled"}
+    if not rekognition_client:
+        raise HTTPException(503, "AWS Rekognition not configured")
+    try:
+        resp = rekognition_client.create_face_liveness_session(
+            Settings={"AuditImagesLimit": 4}
+        )
+        session_id = resp["SessionId"]
+        # Generate temporary credentials for the frontend Amplify component
+        sts = boto3.client("sts", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+        temp = sts.get_session_token(DurationSeconds=900)["Credentials"]
+        return {
+            "ok": True,
+            "liveness_session_id": session_id,
+            "region": os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+            "credentials": {
+                "accessKeyId": temp["AccessKeyId"],
+                "secretAccessKey": temp["SecretAccessKey"],
+                "sessionToken": temp["SessionToken"],
+            },
+        }
+    except Exception as e:
+        print(f"[FaceLiveness] Failed to create session: {e}")
+        raise HTTPException(500, f"Liveness session creation failed: {e}")
+
+
+@app.get("/api/face/check")
+def face_check(email: str = ""):
+    """Check if a candidate already has a stored face reference (by email)."""
+    if not email:
+        return {"ok": True, "has_reference": False}
+    face_bytes, confidence = database.get_face_reference(email)
+    return {
+        "ok": True,
+        "has_reference": face_bytes is not None,
+        "liveness_confidence": round(confidence, 2) if face_bytes else 0,
+    }
+
+
+@app.post("/api/face/liveness/result")
+def face_liveness_result(data: dict):
+    """Get liveness session results. Store reference image in DB (by email) and in session."""
+    liveness_sid = data.get("liveness_session_id", "")
+    interview_sid = data.get("session_id", "")
+    email = data.get("email", "")
+    if not liveness_sid:
+        raise HTTPException(400, "Missing liveness_session_id")
+    if not rekognition_client:
+        raise HTTPException(503, "AWS Rekognition not configured")
+    try:
+        resp = rekognition_client.get_face_liveness_session_results(SessionId=liveness_sid)
+        confidence = resp.get("Confidence", 0)
+        status = resp.get("Status", "")
+        is_live = status == "SUCCEEDED" and confidence >= FACE_LIVENESS_THRESHOLD
+
+        result = {
+            "ok": True,
+            "is_live": is_live,
+            "confidence": round(confidence, 2),
+            "status": status,
+            "threshold": FACE_LIVENESS_THRESHOLD,
+        }
+
+        # Store reference image
+        if is_live:
+            ref_image = resp.get("ReferenceImage", {})
+            face_bytes = ref_image.get("Bytes")
+            if face_bytes:
+                face_b64 = base64.b64encode(face_bytes).decode("ascii")
+
+                # Persist in DB by email (reusable across sessions)
+                if email:
+                    database.save_face_reference(email, face_bytes, confidence)
+                    result["persisted"] = True
+
+                # Also load into current interview session if provided
+                if interview_sid:
+                    session = sessions.get(interview_sid)
+                    if session:
+                        session["face_ref_image"] = face_b64
+                        session["face_liveness_confidence"] = confidence
+                        sessions[interview_sid] = session
+                        result["face_registered"] = True
+                        print(f"[FaceLiveness] Session {interview_sid}: liveness={confidence:.1f}%, ref image stored ({len(face_bytes)} bytes)")
+
+        # Log anticheat event
+        if interview_sid:
+            session = sessions.get(interview_sid)
+            if session:
+                session.setdefault("anticheat_log", []).append({
+                    "event_type": "face_liveness",
+                    "turn": 0,
+                    "timestamp": time.time(),
+                    "metadata": f"confidence={confidence:.1f}%, is_live={is_live}",
+                })
+                sessions[interview_sid] = session
+
+        return result
+    except Exception as e:
+        print(f"[FaceLiveness] Failed to get results: {e}")
+        raise HTTPException(500, f"Liveness result fetch failed: {e}")
+
+
+@app.post("/api/face/register")
+def face_register(data: dict):
+    """Manually register a reference face image (base64 JPEG) for a session.
+    Used as fallback if liveness reference image is not available."""
+    sid = data.get("session_id", "")
+    image_b64 = data.get("image", "")
+    if not sid or not image_b64:
+        raise HTTPException(400, "Missing session_id or image")
+    session = sessions.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    # Validate face is detectable
+    if rekognition_client:
+        try:
+            img_bytes = base64.b64decode(image_b64)
+            resp = rekognition_client.detect_faces(
+                Image={"Bytes": img_bytes},
+                Attributes=["DEFAULT"]
+            )
+            faces = resp.get("FaceDetails", [])
+            if len(faces) == 0:
+                return {"ok": False, "error": "No face detected in the image"}
+            if len(faces) > 1:
+                return {"ok": False, "error": "Multiple faces detected — only one person should be visible"}
+        except Exception as e:
+            print(f"[FaceRegister] DetectFaces failed: {e}")
+            raise HTTPException(500, f"Face detection failed: {e}")
+    session["face_ref_image"] = image_b64
+    sessions[sid] = session
+    print(f"[FaceRegister] Reference face stored for session {sid}")
+    return {"ok": True, "face_registered": True}
+
+
+@app.post("/api/face/compare")
+def face_compare(data: dict):
+    """Compare a webcam frame against the registered reference face."""
+    if not ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
+        return {"ok": True, "ignored": True, "reason": "feature_disabled"}
+    if not rekognition_client:
+        raise HTTPException(503, "AWS Rekognition not configured")
+    sid = data.get("session_id", "")
+    image_b64 = data.get("image", "")
+    if not sid or not image_b64:
+        raise HTTPException(400, "Missing session_id or image")
+    session = sessions.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    ref_b64 = session.get("face_ref_image")
+    if not ref_b64:
+        return {"ok": True, "skipped": True, "reason": "no_reference_face"}
+    try:
+        ref_bytes = base64.b64decode(ref_b64)
+        target_bytes = base64.b64decode(image_b64)
+        resp = rekognition_client.compare_faces(
+            SourceImage={"Bytes": ref_bytes},
+            TargetImage={"Bytes": target_bytes},
+            SimilarityThreshold=FACE_COMPARE_THRESHOLD,
+        )
+        matches = resp.get("FaceMatches", [])
+        unmatched = resp.get("UnmatchedFaces", [])
+        if matches:
+            similarity = matches[0]["Similarity"]
+            matched = True
+        else:
+            similarity = 0.0
+            matched = False
+
+        # Log anticheat event
+        session.setdefault("anticheat_log", []).append({
+            "event_type": "face_comparison",
+            "turn": session.get("turn", 0),
+            "timestamp": time.time(),
+            "metadata": f"similarity={similarity:.1f}%, matched={matched}",
+        })
+        sessions[sid] = session
+
+        if not matched:
+            print(f"[FaceCompare] Session {sid}: MISMATCH — similarity={similarity:.1f}%")
+
+        return {
+            "ok": True,
+            "matched": matched,
+            "similarity": round(similarity, 2),
+            "threshold": FACE_COMPARE_THRESHOLD,
+            "faces_in_target": len(matches) + len(unmatched),
+        }
+    except rekognition_client.exceptions.InvalidParameterException as e:
+        # No face in source or target image
+        session.setdefault("anticheat_log", []).append({
+            "event_type": "face_comparison",
+            "turn": session.get("turn", 0),
+            "timestamp": time.time(),
+            "metadata": f"error=no_face_detected",
+        })
+        sessions[sid] = session
+        return {"ok": True, "matched": False, "similarity": 0, "error": "no_face_detected"}
+    except Exception as e:
+        print(f"[FaceCompare] Error: {e}")
+        raise HTTPException(500, f"Face comparison failed: {e}")
 
 
 # ── Admin: LLM Config ───────────────────────────────────────────────────
