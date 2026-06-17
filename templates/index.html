@@ -1024,9 +1024,9 @@ async function loadLivenessComponent() {
     // Use ?deps= to share a single React instance across all packages
     const REACT_V = 'react@18.3.1,react-dom@18.3.1';
 
-    console.log('[Face] Step 1: Loading React...');
-    const reactModule = await import('https://esm.sh/react@18.3.1');
-    const reactDomClient = await import('https://esm.sh/react-dom@18.3.1/client');
+    console.log('[Face] Step 1: Loading React (dev mode for error details)...');
+    const reactModule = await import('https://esm.sh/react@18.3.1?dev');
+    const reactDomClient = await import('https://esm.sh/react-dom@18.3.1/client?dev');
     console.log('[Face] Step 2: React v' + reactModule.version);
 
     console.log('[Face] Step 3: Loading FaceLivenessDetector...');
@@ -1040,12 +1040,32 @@ async function loadLivenessComponent() {
       throw new Error('FaceLivenessDetector not found. Exports: ' + Object.keys(livenessModule).join(', '));
     }
 
-    // No Amplify.configure() needed — pass credentials directly via component config prop
-    console.log('[Face] Step 5: Rendering component (no Amplify.configure needed)...');
+    console.log('[Face] Step 5: Rendering component...');
     loading.style.display = 'none';
 
     const h = reactModule.createElement;
-    const App = () => h(FaceLivenessDetector, {
+
+    // Error boundary to catch unminified errors
+    class ErrorBoundary extends reactModule.Component {
+      constructor(props) { super(props); this.state = { error: null }; }
+      static getDerivedStateFromError(error) { return { error }; }
+      componentDidCatch(error, info) {
+        console.error('[Face] React ErrorBoundary caught:', error.message, error.stack);
+        console.error('[Face] Component stack:', info?.componentStack);
+      }
+      render() {
+        if (this.state.error) {
+          return h('div', { style: { padding: '20px', color: '#dc2626', fontSize: '13px' } },
+            h('p', null, 'Face verification render error:'),
+            h('pre', { style: { whiteSpace: 'pre-wrap', fontSize: '11px', marginTop: '8px' } },
+              this.state.error.message + '\n\n' + (this.state.error.stack || ''))
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    const LivenessApp = () => h(FaceLivenessDetector, {
       sessionId: _livenessSessionId,
       region: _livenessRegion,
       onAnalysisComplete: onLivenessComplete,
@@ -1061,6 +1081,8 @@ async function loadLivenessComponent() {
         })
       }
     });
+
+    const App = () => h(ErrorBoundary, null, h(LivenessApp));
 
     const reactRoot = reactDomClient.createRoot(root);
     reactRoot.render(h(App));
