@@ -8,18 +8,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@aws-amplify/ui@6.15.4/dist/styles.css"/>
-<!-- Importmap pins React so all ESM packages share one instance -->
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.3.1",
-    "react/": "https://esm.sh/react@18.3.1/",
-    "react-dom": "https://esm.sh/react-dom@18.3.1",
-    "react-dom/": "https://esm.sh/react-dom@18.3.1/",
-    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
-  }
-}
-</script>
+<!-- React UMD (single global instance for Amplify Liveness) -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script>
 tailwind.config = {
   theme: {
@@ -1033,37 +1024,37 @@ async function loadLivenessComponent() {
   const loading = document.getElementById('liveness-loading');
   const root = document.getElementById('liveness-root');
   try {
-    // Load React as single shared instance
-    console.log('[Face] Step 1: Loading React...');
-    const React = await import('react');
-    const ReactDOMClient = await import('react-dom/client');
-    console.log('[Face] Step 2: React loaded v' + React.version);
+    // React is already loaded globally via UMD script tags
+    const h = window.React.createElement;
+    const reactRoot = window.ReactDOM.createRoot(root);
+    console.log('[Face] Step 1: React available v' + window.React.version);
 
-    // Expose React globally so bundled Amplify resolves the same instance
-    window.React = React;
-    window.ReactDOM = await import('react-dom');
+    // Load ONLY the liveness component from esm.sh (bundled = single file, no bare imports)
+    // ?external=react,react-dom tells esm.sh NOT to bundle React (use our global UMD instead)
+    console.log('[Face] Step 2: Loading FaceLivenessDetector bundle...');
+    const livenessModule = await import(
+      'https://esm.sh/@aws-amplify/ui-react-liveness@3.6.7?bundle&external=react,react-dom'
+    );
+    console.log('[Face] Step 3: Module loaded, exports:', Object.keys(livenessModule).join(', '));
 
-    // Load Amplify + Liveness as self-contained bundles
-    console.log('[Face] Step 3: Loading aws-amplify...');
-    const AmplifyAuth = await import('https://esm.sh/*aws-amplify@6.15.9');
-    console.log('[Face] Step 4: aws-amplify loaded, keys:', Object.keys(AmplifyAuth).slice(0,5));
-
-    console.log('[Face] Step 5: Loading FaceLivenessDetector...');
-    const AmplifyLiveness = await import('https://esm.sh/*@aws-amplify/ui-react-liveness@3.6.7');
-    console.log('[Face] Step 6: Liveness loaded, keys:', Object.keys(AmplifyLiveness).slice(0,5));
-
-    const Amplify = AmplifyAuth.Amplify || AmplifyAuth.default?.Amplify;
-    const FaceLivenessDetector = AmplifyLiveness.FaceLivenessDetector || AmplifyLiveness.default?.FaceLivenessDetector;
-
+    const FaceLivenessDetector = livenessModule.FaceLivenessDetector || livenessModule.default?.FaceLivenessDetector;
     if (!FaceLivenessDetector) {
-      throw new Error('FaceLivenessDetector not found in module exports: ' + Object.keys(AmplifyLiveness).join(', '));
+      throw new Error('FaceLivenessDetector not found. Exports: ' + Object.keys(livenessModule).join(', '));
     }
-    if (!Amplify) {
-      throw new Error('Amplify not found in module exports: ' + Object.keys(AmplifyAuth).join(', '));
-    }
+    console.log('[Face] Step 4: FaceLivenessDetector found');
 
-    console.log('[Face] Step 7: Configuring Amplify...');
-    // Configure Amplify v6 with custom credential provider
+    // Load aws-amplify for Amplify.configure (also bundled)
+    console.log('[Face] Step 5: Loading aws-amplify...');
+    const amplifyModule = await import(
+      'https://esm.sh/aws-amplify@6.15.9?bundle&external=react,react-dom'
+    );
+    const Amplify = amplifyModule.Amplify || amplifyModule.default?.Amplify;
+    if (!Amplify) {
+      throw new Error('Amplify not found. Exports: ' + Object.keys(amplifyModule).join(', '));
+    }
+    console.log('[Face] Step 6: Amplify found, configuring...');
+
+    // Configure with custom credential provider
     Amplify.configure({
       Auth: { Cognito: { identityPoolId: 'us-east-1:00000000-0000-0000-0000-000000000000' } }
     }, {
@@ -1081,11 +1072,10 @@ async function loadLivenessComponent() {
         }
       }
     });
-    console.log('[Face] Step 8: Amplify configured, rendering component...');
+    console.log('[Face] Step 7: Amplify configured, rendering...');
 
     loading.style.display = 'none';
 
-    const h = React.createElement;
     const App = () => h(FaceLivenessDetector, {
       sessionId: _livenessSessionId,
       region: _livenessRegion,
@@ -1096,12 +1086,11 @@ async function loadLivenessComponent() {
       }
     });
 
-    const reactRoot = ReactDOMClient.createRoot(root);
     reactRoot.render(h(App));
-    console.log('[Face] Step 9: Component rendered successfully');
+    console.log('[Face] Step 8: Component rendered');
   } catch(e) {
-    console.error('[Face] Failed to load liveness component:', e);
-    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Error: ' + (e.message || e) + '<br>Check browser console (F12) for [Face] Step logs.</p>';
+    console.error('[Face] Load failed:', e);
+    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Error: ' + (e.message || e) + '<br>Check browser console (F12) for details.</p>';
   }
 }
 
