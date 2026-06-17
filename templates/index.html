@@ -1033,65 +1033,75 @@ async function loadLivenessComponent() {
   const loading = document.getElementById('liveness-loading');
   const root = document.getElementById('liveness-root');
   try {
-    // Step 1: Load React from importmap (shared single instance)
-    console.log('[Face] Loading React...');
+    // Load React as single shared instance
+    console.log('[Face] Step 1: Loading React...');
     const React = await import('react');
     const ReactDOMClient = await import('react-dom/client');
-    console.log('[Face] React loaded:', React.version);
+    console.log('[Face] Step 2: React loaded v' + React.version);
 
-    // Step 2: Load Amplify packages with ?external=react,react-dom so they
-    // resolve React from the importmap (single instance, no duplication)
-    console.log('[Face] Loading Amplify Liveness...');
-    const [AmplifyAuth, AmplifyLiveness] = await Promise.all([
-      import('https://esm.sh/aws-amplify@6.15.9?external=react,react-dom'),
-      import('https://esm.sh/@aws-amplify/ui-react-liveness@3.6.7?external=react,react-dom')
-    ]);
-    console.log('[Face] Amplify modules loaded');
+    // Expose React globally so bundled Amplify resolves the same instance
+    window.React = React;
+    window.ReactDOM = await import('react-dom');
 
-    const { Amplify } = AmplifyAuth;
-    const { FaceLivenessDetector } = AmplifyLiveness;
-    const { createElement } = React;
+    // Load Amplify + Liveness as self-contained bundles
+    console.log('[Face] Step 3: Loading aws-amplify...');
+    const AmplifyAuth = await import('https://esm.sh/*aws-amplify@6.15.9');
+    console.log('[Face] Step 4: aws-amplify loaded, keys:', Object.keys(AmplifyAuth).slice(0,5));
 
-    // Configure Amplify v6 with custom credential provider (no real Cognito)
-    const customCredProvider = {
-      getCredentialsAndIdentityId: async () => ({
-        credentials: {
-          accessKeyId: _livenessCredentials.accessKeyId,
-          secretAccessKey: _livenessCredentials.secretAccessKey,
-          sessionToken: _livenessCredentials.sessionToken,
-        },
-        identityId: 'custom-face-liveness'
-      }),
-      clearCredentialsAndIdentityId: async () => {}
-    };
+    console.log('[Face] Step 5: Loading FaceLivenessDetector...');
+    const AmplifyLiveness = await import('https://esm.sh/*@aws-amplify/ui-react-liveness@3.6.7');
+    console.log('[Face] Step 6: Liveness loaded, keys:', Object.keys(AmplifyLiveness).slice(0,5));
 
+    const Amplify = AmplifyAuth.Amplify || AmplifyAuth.default?.Amplify;
+    const FaceLivenessDetector = AmplifyLiveness.FaceLivenessDetector || AmplifyLiveness.default?.FaceLivenessDetector;
+
+    if (!FaceLivenessDetector) {
+      throw new Error('FaceLivenessDetector not found in module exports: ' + Object.keys(AmplifyLiveness).join(', '));
+    }
+    if (!Amplify) {
+      throw new Error('Amplify not found in module exports: ' + Object.keys(AmplifyAuth).join(', '));
+    }
+
+    console.log('[Face] Step 7: Configuring Amplify...');
+    // Configure Amplify v6 with custom credential provider
     Amplify.configure({
       Auth: { Cognito: { identityPoolId: 'us-east-1:00000000-0000-0000-0000-000000000000' } }
     }, {
-      Auth: { credentialsProvider: customCredProvider }
+      Auth: {
+        credentialsProvider: {
+          getCredentialsAndIdentityId: async () => ({
+            credentials: {
+              accessKeyId: _livenessCredentials.accessKeyId,
+              secretAccessKey: _livenessCredentials.secretAccessKey,
+              sessionToken: _livenessCredentials.sessionToken,
+            },
+            identityId: 'custom-face-liveness'
+          }),
+          clearCredentialsAndIdentityId: async () => {}
+        }
+      }
     });
-    console.log('[Face] Amplify configured');
+    console.log('[Face] Step 8: Amplify configured, rendering component...');
 
     loading.style.display = 'none';
 
-    const App = () => {
-      return createElement(FaceLivenessDetector, {
-        sessionId: _livenessSessionId,
-        region: _livenessRegion,
-        onAnalysisComplete: onLivenessComplete,
-        onError: (err) => {
-          console.error('[Face] FaceLivenessDetector onError:', err);
-          onLivenessError(err);
-        }
-      });
-    };
+    const h = React.createElement;
+    const App = () => h(FaceLivenessDetector, {
+      sessionId: _livenessSessionId,
+      region: _livenessRegion,
+      onAnalysisComplete: onLivenessComplete,
+      onError: (err) => {
+        console.error('[Face] FaceLivenessDetector onError:', err);
+        onLivenessError(err);
+      }
+    });
 
     const reactRoot = ReactDOMClient.createRoot(root);
-    reactRoot.render(createElement(App));
-    console.log('[Face] FaceLivenessDetector rendered');
+    reactRoot.render(h(App));
+    console.log('[Face] Step 9: Component rendered successfully');
   } catch(e) {
     console.error('[Face] Failed to load liveness component:', e);
-    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Error: ' + (e.message || e) + '<br>Check browser console for details.</p>';
+    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Error: ' + (e.message || e) + '<br>Check browser console (F12) for [Face] Step logs.</p>';
   }
 }
 
