@@ -26,6 +26,11 @@ import requests as http_requests
 app = FastAPI(title="Simple Interview Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# Serve static files (face-liveness bundle, etc.)
+_static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
 # ── Config ───────────────────────────────────────────────────────────────
 OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
 DEEPGRAM_API_KEY = get_secret("DEEPGRAM_API_KEY")

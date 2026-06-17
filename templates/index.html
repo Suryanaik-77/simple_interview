@@ -1017,85 +1017,55 @@ function onLivenessError(err) {
   alert('Face verification error: ' + msg + '\nPlease try again.');
 }
 
-async function loadLivenessComponent() {
+// face-liveness.js is a pre-built bundle (React + Amplify, built with esbuild).
+// It exposes window.__mountFaceLiveness(container, opts).
+let _livenessScriptLoaded = false;
+
+function loadLivenessComponent() {
   const loading = document.getElementById('liveness-loading');
   const root = document.getElementById('liveness-root');
-  try {
-    // Use ?deps= to share a single React instance across all packages
-    const REACT_V = 'react@18.3.1,react-dom@18.3.1';
 
-    // IMPORTANT: React URL must match exactly what ?deps= resolves to inside the
-    // liveness package, otherwise two React instances are created and hooks break.
-    const REACT_URL = 'https://esm.sh/react@18.3.1';
-    const REACT_DOM_URL = 'https://esm.sh/react-dom@18.3.1';
-
-    console.log('[Face] Step 1: Loading React...');
-    const reactModule = await import(REACT_URL);
-    const reactDomClient = await import(REACT_DOM_URL + '/client');
-    console.log('[Face] Step 2: React v' + reactModule.version);
-
-    console.log('[Face] Step 3: Loading FaceLivenessDetector...');
-    const livenessModule = await import(
-      'https://esm.sh/@aws-amplify/ui-react-liveness@3.6.7?deps=' + REACT_V
-    );
-    console.log('[Face] Step 4: Liveness loaded, exports:', Object.keys(livenessModule).join(', '));
-
-    const FaceLivenessDetector = livenessModule.FaceLivenessDetector || livenessModule.default?.FaceLivenessDetector;
-    if (!FaceLivenessDetector) {
-      throw new Error('FaceLivenessDetector not found. Exports: ' + Object.keys(livenessModule).join(', '));
+  function doMount() {
+    if (!window.__mountFaceLiveness) {
+      loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Face verification bundle failed to initialize.<br>Check browser console for errors.</p>';
+      return;
     }
-
-    console.log('[Face] Step 5: Rendering component...');
     loading.style.display = 'none';
-
-    const h = reactModule.createElement;
-
-    // Error boundary to catch unminified errors
-    class ErrorBoundary extends reactModule.Component {
-      constructor(props) { super(props); this.state = { error: null }; }
-      static getDerivedStateFromError(error) { return { error }; }
-      componentDidCatch(error, info) {
-        console.error('[Face] React ErrorBoundary caught:', error.message, error.stack);
-        console.error('[Face] Component stack:', info?.componentStack);
-      }
-      render() {
-        if (this.state.error) {
-          return h('div', { style: { padding: '20px', color: '#dc2626', fontSize: '13px' } },
-            h('p', null, 'Face verification render error:'),
-            h('pre', { style: { whiteSpace: 'pre-wrap', fontSize: '11px', marginTop: '8px' } },
-              this.state.error.message + '\n\n' + (this.state.error.stack || ''))
-          );
+    try {
+      window.__mountFaceLiveness(root, {
+        sessionId: _livenessSessionId,
+        region: _livenessRegion,
+        credentials: _livenessCredentials,
+        onComplete: onLivenessComplete,
+        onError: (err) => {
+          console.error('[Face] onError:', err);
+          onLivenessError(err);
         }
-        return this.props.children;
-      }
+      });
+      console.log('[Face] Component mounted');
+    } catch(e) {
+      console.error('[Face] Mount error:', e);
+      loading.style.display = 'flex';
+      loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Face verification error: ' + (e.message || e) + '</p>';
     }
-
-    const LivenessApp = () => h(FaceLivenessDetector, {
-      sessionId: _livenessSessionId,
-      region: _livenessRegion,
-      onAnalysisComplete: onLivenessComplete,
-      onError: (err) => {
-        console.error('[Face] FaceLivenessDetector onError:', err);
-        onLivenessError(err);
-      },
-      config: {
-        credentialProvider: async () => ({
-          accessKeyId: _livenessCredentials.accessKeyId,
-          secretAccessKey: _livenessCredentials.secretAccessKey,
-          sessionToken: _livenessCredentials.sessionToken,
-        })
-      }
-    });
-
-    const App = () => h(ErrorBoundary, null, h(LivenessApp));
-
-    const reactRoot = reactDomClient.createRoot(root);
-    reactRoot.render(h(App));
-    console.log('[Face] Step 6: Component rendered');
-  } catch(e) {
-    console.error('[Face] Load failed:', e);
-    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Error: ' + (e.message || e) + '<br>Check browser console (F12) for details.</p>';
   }
+
+  if (_livenessScriptLoaded) {
+    doMount();
+    return;
+  }
+
+  const script = document.createElement('script');
+  script.src = '/static/face-liveness.js';
+  script.onload = () => {
+    _livenessScriptLoaded = true;
+    console.log('[Face] Bundle loaded');
+    doMount();
+  };
+  script.onerror = () => {
+    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification bundle.<br>Check network tab for /static/face-liveness.js</p>';
+  };
+  document.head.appendChild(script);
 }
 
 // ── REPORT CARD ──
