@@ -8,6 +8,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@aws-amplify/ui@6.15.4/dist/styles.css"/>
+<!-- Importmap pins React so all ESM packages share one instance -->
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/": "https://esm.sh/react@18.3.1/",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/": "https://esm.sh/react-dom@18.3.1/",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client"
+  }
+}
+</script>
 <script>
 tailwind.config = {
   theme: {
@@ -1021,39 +1033,44 @@ async function loadLivenessComponent() {
   const loading = document.getElementById('liveness-loading');
   const root = document.getElementById('liveness-root');
   try {
-    // Dynamically import React + Amplify from CDN
-    console.log('[Face] Loading React + Amplify Liveness from CDN...');
-    const [React, ReactDOMClient, AmplifyAuth, AmplifyLiveness] = await Promise.all([
-      import('https://esm.sh/react@18.3.1'),
-      import('https://esm.sh/react-dom@18.3.1/client'),
-      import('https://esm.sh/aws-amplify@6.15.9?deps=react@18.3.1,react-dom@18.3.1'),
-      import('https://esm.sh/@aws-amplify/ui-react-liveness@3.6.7?deps=react@18.3.1,react-dom@18.3.1')
+    // Step 1: Load React from importmap (shared single instance)
+    console.log('[Face] Loading React...');
+    const React = await import('react');
+    const ReactDOMClient = await import('react-dom/client');
+    console.log('[Face] React loaded:', React.version);
+
+    // Step 2: Load Amplify packages with ?external=react,react-dom so they
+    // resolve React from the importmap (single instance, no duplication)
+    console.log('[Face] Loading Amplify Liveness...');
+    const [AmplifyAuth, AmplifyLiveness] = await Promise.all([
+      import('https://esm.sh/aws-amplify@6.15.9?external=react,react-dom'),
+      import('https://esm.sh/@aws-amplify/ui-react-liveness@3.6.7?external=react,react-dom')
     ]);
-    console.log('[Face] CDN modules loaded successfully');
+    console.log('[Face] Amplify modules loaded');
 
     const { Amplify } = AmplifyAuth;
     const { FaceLivenessDetector } = AmplifyLiveness;
     const { createElement } = React;
 
-    // Configure Amplify v6 with custom credential provider (no Cognito needed)
+    // Configure Amplify v6 with custom credential provider (no real Cognito)
+    const customCredProvider = {
+      getCredentialsAndIdentityId: async () => ({
+        credentials: {
+          accessKeyId: _livenessCredentials.accessKeyId,
+          secretAccessKey: _livenessCredentials.secretAccessKey,
+          sessionToken: _livenessCredentials.sessionToken,
+        },
+        identityId: 'custom-face-liveness'
+      }),
+      clearCredentialsAndIdentityId: async () => {}
+    };
+
     Amplify.configure({
       Auth: { Cognito: { identityPoolId: 'us-east-1:00000000-0000-0000-0000-000000000000' } }
     }, {
-      Auth: {
-        credentialsProvider: {
-          getCredentialsAndIdentityId: async () => ({
-            credentials: {
-              accessKeyId: _livenessCredentials.accessKeyId,
-              secretAccessKey: _livenessCredentials.secretAccessKey,
-              sessionToken: _livenessCredentials.sessionToken,
-            },
-            identityId: 'custom'
-          }),
-          clearCredentialsAndIdentityId: () => {}
-        }
-      }
+      Auth: { credentialsProvider: customCredProvider }
     });
-    console.log('[Face] Amplify configured with temp credentials');
+    console.log('[Face] Amplify configured');
 
     loading.style.display = 'none';
 
@@ -1063,7 +1080,7 @@ async function loadLivenessComponent() {
         region: _livenessRegion,
         onAnalysisComplete: onLivenessComplete,
         onError: (err) => {
-          console.error('[Face] FaceLivenessDetector error:', err);
+          console.error('[Face] FaceLivenessDetector onError:', err);
           onLivenessError(err);
         }
       });
@@ -1071,9 +1088,10 @@ async function loadLivenessComponent() {
 
     const reactRoot = ReactDOMClient.createRoot(root);
     reactRoot.render(createElement(App));
+    console.log('[Face] FaceLivenessDetector rendered');
   } catch(e) {
     console.error('[Face] Failed to load liveness component:', e);
-    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Error: ' + (e.message || e) + '<br>Please check your connection and try again.</p>';
+    loading.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:20px;">Failed to load face verification.<br>Error: ' + (e.message || e) + '<br>Check browser console for details.</p>';
   }
 }
 
