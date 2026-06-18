@@ -2228,6 +2228,7 @@ async def lms_launch(
     resume: UploadFile = File(...),
     callback_url: str = Form(""),
     user_voice: UploadFile = File(None),
+    user_face: UploadFile = File(None),
 ):
     """LMS calls this to create a session and get a signed launch URL."""
     api_key = request.headers.get("X-API-Key", "")
@@ -2257,6 +2258,33 @@ async def lms_launch(
         voice_bytes = await user_voice.read()
         if len(voice_bytes) > 10_000_000:
             raise HTTPException(413, "Voice file too large. Max 10MB.")
+
+    # Process user face reference (for face verification)
+    face_image_bytes = None
+    if user_face and user_face.filename:
+        face_image_bytes = await user_face.read()
+        if len(face_image_bytes) > 5_000_000:
+            raise HTTPException(413, "Face image too large. Max 5MB.")
+        # Validate with Rekognition: must contain exactly 1 face
+        if rekognition_client:
+            try:
+                resp = rekognition_client.detect_faces(
+                    Image={"Bytes": face_image_bytes},
+                    Attributes=["DEFAULT"]
+                )
+                faces = resp.get("FaceDetails", [])
+                if len(faces) == 0:
+                    raise HTTPException(400, "No face detected in the uploaded image")
+                if len(faces) > 1:
+                    raise HTTPException(400, "Multiple faces detected — only one person should be visible")
+            except HTTPException:
+                raise
+            except Exception as e:
+                print(f"[FaceID] LMS face detection failed: {e}")
+                raise HTTPException(500, f"Face detection failed: {e}")
+        # Save to DB for reuse across sessions
+        database.save_face_reference(email, face_image_bytes, 0)
+        print(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes)")
 
     sid = secrets.token_hex(8)
     session = {
