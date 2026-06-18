@@ -2264,10 +2264,10 @@ async def lms_launch(
         "turn": 0, "conversation": [], "started_at": time.time(),
         "difficulty_level": 1, "lms_source": True,
     }
+    import base64
     if callback_url:
         session["lms_callback_url"] = callback_url
     if voice_bytes:
-        import base64
         session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
 
     # Load face reference from DB if candidate already has one
