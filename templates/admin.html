@@ -3062,16 +3062,18 @@ function renderRevQList() {
     const r = REV_STATE[i];
     const saved = r && r.status === 'saved';
     const dc = saved ? 'var(--green)' : i === REV_CUR ? 'var(--accent)' : 'var(--b2)';
-    return `<div class="qi${i===REV_CUR?' sel':''}${saved?' done':''}" onclick="revGoTo(${i})">
-      <div class="qi-top"><span class="qi-num">T${h.turn}</span><span class="qi-dot" style="background:${dc}"></span></div>
-      <div class="qi-topic">${escH(h.topic||'—')}</div>
-      <div class="qi-score">AI: ${h.score||'—'}/10 · ${h.difficulty||'—'}</div>
+    const isFU = h.is_followup;
+    return `<div class="qi${i===REV_CUR?' sel':''}${saved?' done':''}" onclick="revGoTo(${i})" style="${isFU?'margin-left:18px;border-left:2px solid var(--b2);':''}">
+      <div class="qi-top"><span class="qi-num">${isFU?'↳ ':''}T${h.turn}</span><span class="qi-dot" style="background:${dc}"></span></div>
+      <div class="qi-topic">${isFU?'<span style="font-size:9px;color:var(--t3);font-style:italic">follow-up · </span>':''}${escH(h.topic||'—')}</div>
+      <div class="qi-score">${isFU?'':'AI: '+(h.score||'—')+'/10 · '}${escH(h.difficulty||'—')}</div>
     </div>`;
   }).join('') || '<div style="padding:16px;font-size:11px;color:var(--t3);text-align:center">No technical turns found</div>';
   const done = Object.values(REV_STATE).filter(r=>r&&r.status==='saved').length;
-  document.getElementById('rev-prog-fill').style.width = (done/Math.max(REV_TURNS.length,1)*100)+'%';
+  const mainQs = REV_TURNS.filter(h => !h.is_followup).length;
+  document.getElementById('rev-prog-fill').style.width = (done/Math.max(mainQs,1)*100)+'%';
   document.getElementById('rev-prog-done').textContent = done + ' reviewed';
-  document.getElementById('rev-prog-total').textContent = REV_TURNS.length + ' questions';
+  document.getElementById('rev-prog-total').textContent = mainQs + ' questions';
 }
 
 function revGoTo(i) { REV_CUR = i; renderRevSections(); renderRevQList(); }
@@ -3108,7 +3110,7 @@ function revEvalSummaryHtml() {
         ${chip('Communication', EV.communication_score)}
         <div style="flex:1;min-width:160px">
           <div style="font-size:13px;font-weight:600;color:${recColor};text-transform:capitalize">${escH((EV.recommendation||'—').replace(/_/g,' '))}</div>
-          <div style="font-size:11px;color:var(--t2);margin-top:2px">Level fit: ${escH((EV.level_fit||'—').replace(/_/g,' '))} · ${EV.answered||0} questions answered</div>
+          <div style="font-size:11px;color:var(--t2);margin-top:2px">Level fit: ${escH((EV.level_fit||'—').replace(/_/g,' '))} · ${(EV.per_question||[]).length||EV.answered||0} questions answered</div>
           ${EV.verdict?`<div style="font-size:11px;color:var(--t2);font-style:italic;margin-top:4px">"${escH(EV.verdict)}"</div>`:''}
         </div>
       </div>
@@ -3165,7 +3167,8 @@ function renderRevSections() {
     <div class="sec-hd" onclick="revTogSec('A')"><div class="sec-badge" style="background:var(--green);border-color:var(--green);color:#fff">A</div><div class="sec-title">AI evaluation summary</div><span class="sec-sts" style="color:var(--t3)">Read only</span><span style="font-size:10px;color:var(--t3)" id="togA">▲</span></div>
     <div class="sec-body ro" id="bA">
       <div class="disclaimer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>You are evaluating the AI — not the candidate. Your corrections become training data.</div>
-      <div class="qa-box"><div class="qa-lbl">Question · ${escH(h.question_type||'')} · ${escH(h.difficulty||'')} · ${escH(h.topic||'')}</div><div class="qa-text" style="font-weight:500">${escH(h.question||'—')}</div></div>
+      ${h.is_followup ? `<div style="padding:6px 10px;background:var(--sf);border:1px solid var(--b2);border-radius:6px;margin-bottom:8px;font-size:11px;color:var(--t3);font-style:italic">Follow-up to Q${h.followup_of||'?'} — scored together as one question</div>` : ''}
+      <div class="qa-box"><div class="qa-lbl">${h.is_followup?'Follow-up question':'Question'} · ${escH(h.question_type||'')} · ${escH(h.difficulty||'')} · ${escH(h.topic||'')}</div><div class="qa-text" style="font-weight:500">${escH(h.question||'—')}</div></div>
       <div class="qa-box"><div class="qa-lbl">Candidate answer</div><div class="qa-text" style="color:var(--t2)">${escH(h.answer||'[no answer]')}</div></div>
       <div style="display:flex;gap:10px;align-items:flex-start;margin-top:10px">
         <div style="text-align:center;padding:9px 12px;background:var(--sf);border:1px solid var(--b);border-radius:8px;flex-shrink:0">

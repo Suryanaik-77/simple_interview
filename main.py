@@ -1651,7 +1651,7 @@ _EVAL_JSON_SCHEMA = """{
   "recommendation": "strong_yes|yes|maybe|no|strong_no",
   "level_fit": "below_level|at_level|above_level",
   "verdict": "one-line hire verdict",
-  "per_question": [{"q": <question number>, "question": "<first ~10 words>", "score": <0-10>, "comment": "one short clause", "expected_points": ["point 1", "point 2"], "missing_points": ["point 3"]}],
+  "per_question": [{"q": <main question number>, "followup_qs": [<list of followup Q numbers grouped with this main question, empty if none>], "question": "<first ~10 words of main question>", "score": <0-10>, "comment": "one short clause", "expected_points": ["point 1", "point 2"], "missing_points": ["point 3"]}],
   "communication_score": <integer 0-10>,
   "communication": "1-2 sentences on clarity, structure, and how they explain reasoning",
   "strengths": ["short bullet", "..."],
@@ -1668,12 +1668,18 @@ The transcript includes [EXPECTED_POINTS Qn] lines — these are the key points 
 
 {transcript}
 
+QUESTION GROUPING — CRITICAL:
+Some questions in the transcript are FOLLOW-UP questions that probe deeper into the SAME topic as a previous question. For example, if Q3 asks "What is floorplanning?" and Q4 asks "How do you handle macro placement in floorplanning?", then Q4 is a follow-up to Q3 — they should be scored as ONE question.
+Detect follow-ups by checking: does the question probe missing points, challenge the answer, or dig deeper into the SAME topic as the immediately preceding question? If yes, it is a follow-up.
+Group each main question with its follow-up(s) and produce ONE entry in "per_question" for the entire group. The score should reflect the candidate's COMBINED performance across the main question AND all its follow-ups. Consider what the candidate revealed in follow-up answers too — if they missed a point initially but covered it in a follow-up, give credit. Set "q" to the main question number and "followup_qs" to the list of follow-up question numbers.
+Do NOT create separate per_question entries for follow-up questions. Only create entries for MAIN (non-follow-up) questions.
+
 In addition to the overall assessment, do BOTH of these:
-- Score EVERY numbered question individually in "per_question", referencing its number. Judge each answer's technical merit at THIS candidate's level.
-- For each question in "per_question", populate:
-  - "expected_points": Use the [EXPECTED_POINTS Qn] from the transcript. If no expected points were provided for a question, generate 3-5 key points yourself.
-  - "missing_points": ONLY the concepts the candidate did NOT cover or got wrong. If the candidate mentioned a concept correctly (even partially), do NOT include it in missing_points. Compare the answer carefully against each expected point — give credit for correct mentions. Use an empty list [] if they covered all expected points.
-CRITICAL: "missing_points" must be a STRICT SUBSET of "expected_points". Never copy expected_points into missing_points blindly. Read the candidate's answer word by word — if they mentioned a concept, remove it from missing.
+- Score each GROUPED question (main + follow-ups) in "per_question". Judge the candidate's combined technical merit across all answers in the group at THIS candidate's level.
+- For each grouped question in "per_question", populate:
+  - "expected_points": Merge the [EXPECTED_POINTS] from the main question AND its follow-ups. If no expected points were provided, generate 3-5 key points yourself.
+  - "missing_points": ONLY the concepts the candidate did NOT cover or got wrong across ALL answers in the group (main + follow-ups). If the candidate mentioned a concept correctly in ANY answer within the group (even partially), do NOT include it in missing_points. Use an empty list [] if they covered all expected points.
+CRITICAL: "missing_points" must be a STRICT SUBSET of "expected_points". Never copy expected_points into missing_points blindly. Read ALL of the candidate's answers in the group word by word — if they mentioned a concept anywhere, remove it from missing.
 - Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
 
 Return ONLY valid JSON, no prose, no markdown fences:
@@ -3495,6 +3501,24 @@ async def set_anticheat_config(data: dict, _=Depends(require_admin)):
 
 # ── Admin: Sessions ──────────────────────────────────────────────────────
 
+def _build_pq_by_num(evaluation: dict) -> dict:
+    """Build a mapping from question number to per_question eval entry.
+    Maps both main question numbers and their follow-up question numbers
+    to the same parent entry so grouped scores apply correctly."""
+    pq_by_num = {}
+    for item in evaluation.get("per_question", []) or []:
+        try:
+            pq_by_num[int(item.get("q"))] = item
+            for fq in item.get("followup_qs", []) or []:
+                try:
+                    pq_by_num[int(fq)] = item
+                except (TypeError, ValueError):
+                    pass
+        except (TypeError, ValueError):
+            continue
+    return pq_by_num
+
+
 @app.get("/api/admin/sessions")
 def admin_sessions(_=Depends(require_admin)):
     session_list = []
@@ -3511,13 +3535,8 @@ def admin_sessions(_=Depends(require_admin)):
         signal_count = len(anticheat_log)
         
         # Calculate trajectory dynamically if not set
-        pq_by_num = {}
-        for item in evaluation.get("per_question", []) or []:
-            try:
-                pq_by_num[int(item.get("q"))] = item
-            except (TypeError, ValueError):
-                continue
-        scores = [pq.get("score") for pq in pq_by_num.values() if pq and isinstance(pq.get("score"), (int, float))]
+        pq_by_num = _build_pq_by_num(evaluation)
+        scores = [item.get("score") for item in (evaluation.get("per_question", []) or []) if isinstance(item.get("score"), (int, float))]
         trajectory = s.get("trajectory", "stable")
         if trajectory == "unknown" or not trajectory:
             if len(scores) >= 2:
@@ -3616,12 +3635,7 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
     # transcript [Q1], [Q2]... over conversation entries that have a question, so we
     # reproduce that exact counter here and look up each item by its "q" number.
     evaluation = session.get("evaluation", {}) or {}
-    pq_by_num = {}
-    for item in evaluation.get("per_question", []) or []:
-        try:
-            pq_by_num[int(item.get("q"))] = item
-        except (TypeError, ValueError):
-            continue
+    pq_by_num = _build_pq_by_num(evaluation)
 
     def _get_question_topic(q: str) -> str:
         q = q.lower()
@@ -3644,6 +3658,18 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             if k in q:
                 return v
         return "General VLSI"
+
+    # Build set of follow-up question numbers and their parent mappings
+    followup_nums = set()
+    followup_parent = {}  # followup_q_num -> parent_q_num
+    for item in evaluation.get("per_question", []) or []:
+        parent_q = item.get("q")
+        for fq in item.get("followup_qs", []) or []:
+            try:
+                followup_nums.add(int(fq))
+                followup_parent[int(fq)] = int(parent_q)
+            except (TypeError, ValueError):
+                pass
 
     turn_log = []
     qnum = 0
@@ -3702,10 +3728,12 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             "level_gap": 0,
             "behavioral_flags": [],
             "ai_detection": entry.get("ai_detection", {}),
+            "is_followup": qnum in followup_nums,
+            "followup_of": followup_parent.get(qnum),
         })
 
-    # Calculate trajectory
-    scores = [pq.get("score") for pq in pq_by_num.values() if pq and isinstance(pq.get("score"), (int, float))]
+    # Calculate trajectory (use per_question directly to avoid duplicates from follow-up mapping)
+    scores = [item.get("score") for item in (evaluation.get("per_question", []) or []) if isinstance(item.get("score"), (int, float))]
     trajectory = "stable"
     if len(scores) >= 2:
         first = sum(scores[:len(scores)//2]) / (len(scores)//2)
@@ -3786,12 +3814,19 @@ async def get_shared_session(token: str):
 
     # Reuse admin session detail logic but strip sensitive fields
     evaluation = session.get("evaluation", {}) or {}
-    pq_by_num = {}
+    pq_by_num = _build_pq_by_num(evaluation)
+
+    # Build follow-up tracking
+    followup_nums_lms = set()
+    followup_parent_lms = {}
     for item in evaluation.get("per_question", []) or []:
-        try:
-            pq_by_num[int(item.get("q"))] = item
-        except (TypeError, ValueError):
-            continue
+        parent_q = item.get("q")
+        for fq in item.get("followup_qs", []) or []:
+            try:
+                followup_nums_lms.add(int(fq))
+                followup_parent_lms[int(fq)] = int(parent_q)
+            except (TypeError, ValueError):
+                pass
 
     turn_log = []
     qnum = 0
@@ -3810,6 +3845,8 @@ async def get_shared_session(token: str):
             "notes": (pq or {}).get("comment", ""),
             "expected_points": (pq or {}).get("expected_points", []),
             "missing_points": (pq or {}).get("missing_points", []),
+            "is_followup": qnum in followup_nums_lms,
+            "followup_of": followup_parent_lms.get(qnum),
         })
 
     resume = session.get("resume", {}) or {}

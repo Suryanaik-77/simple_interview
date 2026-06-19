@@ -110,7 +110,7 @@ function render(data) {
         <div class="meta">
             <span class="badge badge-blue">${esc((data.domain || '').replace(/_/g, ' '))}</span>
             Level: ${esc((data.level || '').replace(/_/g, ' '))} &middot;
-            ${data.turn} questions &middot;
+            ${(ev.per_question||[]).length||data.turn} questions &middot;
             ${recBadge(ev.recommendation)}
         </div>
     </div>
@@ -144,17 +144,20 @@ function render(data) {
     <h2 style="font-size:16px;font-weight:600;margin-bottom:12px">Per-Question Breakdown</h2>
     `;
 
+    let mainQNum = 0;
     turns.forEach((t, i) => {
+        const isFU = t.is_followup;
+        if (!isFU) mainQNum++;
         const score = parseFloat(t.score);
         const hasScore = !isNaN(score);
         html += `
-        <div class="question-card">
+        <div class="question-card" style="${isFU?'margin-left:24px;border-left:3px solid #e5e7eb;':''}">
             <div class="q-header">
-                <span class="q-num">Q${i + 1}</span>
-                ${hasScore ? `<span class="q-score ${scoreColor(score)}">${score}/10</span>` : ''}
+                <span class="q-num">${isFU ? '↳ Follow-up' : 'Q' + mainQNum}</span>
+                ${hasScore && !isFU ? `<span class="q-score ${scoreColor(score)}">${score}/10</span>` : ''}
                 ${t.topic ? `<span class="q-topic">${esc(t.topic)}</span>` : ''}
             </div>
-            <div class="q-text"><div class="q-label">Question</div>${esc(t.question)}</div>
+            <div class="q-text"><div class="q-label">${isFU?'Follow-up Question':'Question'}</div>${esc(t.question)}</div>
             <div class="a-text"><div class="a-label">Candidate Answer</div>${esc(t.answer)}</div>
             ${(t.expected_points || []).length ? `
                 <div class="points">
