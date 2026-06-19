@@ -2944,6 +2944,14 @@
                 if (d.matched) {
                     console.log(`[FaceCompare] Match OK — similarity=${d.similarity}%`);
                     faceCompareWarnings = 0;
+                } else if (d.glasses_mismatch) {
+                    // Glasses mismatch — warn but don't count as identity mismatch
+                    console.warn(`[FaceCompare] Glasses mismatch: ${d.glasses_mismatch}, similarity=${d.similarity}%`);
+                    sendAntiCheat('glasses_mismatch', `type:${d.glasses_mismatch},similarity:${d.similarity}`);
+                    const msg = d.glasses_mismatch === 'registered_with_glasses'
+                        ? 'You registered with glasses but are not wearing them now.<br>Please wear your glasses for accurate face verification.'
+                        : 'You registered without glasses but are wearing them now.<br>Please remove your glasses or update your photo.';
+                    pauseInterview('glasses_mismatch', msg, 'Face verification may fail without matching appearance.');
                 } else {
                     faceCompareWarnings++;
                     console.warn(`[FaceCompare] MISMATCH — similarity=${d.similarity}%, warning ${faceCompareWarnings}`);

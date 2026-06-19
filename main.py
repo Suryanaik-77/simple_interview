@@ -2261,30 +2261,36 @@ async def lms_launch(
 
     # Process user face reference (for face verification)
     face_image_bytes = None
+    face_wearing_glasses = False
     if user_face and user_face.filename:
         face_image_bytes = await user_face.read()
         if len(face_image_bytes) > 5_000_000:
             raise HTTPException(413, "Face image too large. Max 5MB.")
-        # Validate with Rekognition: must contain exactly 1 face
+        # Validate with Rekognition: must contain exactly 1 face, detect glasses
         if rekognition_client:
             try:
                 resp = rekognition_client.detect_faces(
                     Image={"Bytes": face_image_bytes},
-                    Attributes=["DEFAULT"]
+                    Attributes=["ALL"]
                 )
                 faces = resp.get("FaceDetails", [])
                 if len(faces) == 0:
                     raise HTTPException(400, "No face detected in the uploaded image")
                 if len(faces) > 1:
                     raise HTTPException(400, "Multiple faces detected — only one person should be visible")
+                # Check glasses
+                face = faces[0]
+                glasses_info = face.get("Eyeglasses", {})
+                face_wearing_glasses = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
+                print(f"[FaceID] LMS glasses detected: {face_wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
             except HTTPException:
                 raise
             except Exception as e:
                 print(f"[FaceID] LMS face detection failed: {e}")
                 raise HTTPException(500, f"Face detection failed: {e}")
         # Save to DB for reuse across sessions
-        database.save_face_reference(email, face_image_bytes, 0)
-        print(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes)")
+        database.save_face_reference(email, face_image_bytes, 0, wearing_glasses=face_wearing_glasses)
+        print(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
 
     sid = secrets.token_hex(8)
     session = {
@@ -2300,11 +2306,12 @@ async def lms_launch(
 
     # Load face reference from DB if candidate already has one
     if email and ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
-        face_bytes, face_conf = database.get_face_reference(email)
+        face_bytes, face_conf, face_glasses = database.get_face_reference(email)
         if face_bytes:
             session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
             session["face_liveness_confidence"] = face_conf
-            print(f"[FaceID] LMS: loaded face reference for {email} (confidence={face_conf:.1f}%)")
+            session["face_ref_glasses"] = face_glasses
+            print(f"[FaceID] LMS: loaded face reference for {email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
 
     sessions[sid] = session
 
@@ -2482,11 +2489,12 @@ async def create_session_endpoint(
     # Load face reference from DB if candidate already has one (by email)
     candidate_email = resume.get("email", "")
     if candidate_email and ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
-        face_bytes, face_conf = database.get_face_reference(candidate_email)
+        face_bytes, face_conf, face_glasses = database.get_face_reference(candidate_email)
         if face_bytes:
             session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
             session["face_liveness_confidence"] = face_conf
-            print(f"[FaceID] Loaded existing face reference for {candidate_email} (confidence={face_conf:.1f}%)")
+            session["face_ref_glasses"] = face_glasses
+            print(f"[FaceID] Loaded existing face reference for {candidate_email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
 
     sessions[sid] = session
     return {"session_id": sid, "resume": resume}
@@ -3073,43 +3081,75 @@ def face_check(email: str = ""):
     """Check if a candidate already has a stored face reference (by email)."""
     if not email:
         return {"ok": True, "has_reference": False}
-    face_bytes, confidence = database.get_face_reference(email)
+    face_bytes, confidence, wearing_glasses = database.get_face_reference(email)
     return {
         "ok": True,
         "has_reference": face_bytes is not None,
+        "wearing_glasses": wearing_glasses,
     }
 
 
 @app.post("/api/face/register")
 def face_register(data: dict):
     """Register a reference face image (base64 JPEG) from webcam capture.
-    Validates with DetectFaces, persists in DB by email for reuse across sessions."""
+    Validates with DetectFaces, detects glasses, persists in DB by email."""
     image_b64 = data.get("image", "")
     email = data.get("email", "")
     if not image_b64:
         raise HTTPException(400, "Missing image")
-    # Validate face is detectable
+    wearing_glasses = False
+    # Validate face is detectable and check for glasses
     if rekognition_client:
         try:
             img_bytes = base64.b64decode(image_b64)
             resp = rekognition_client.detect_faces(
                 Image={"Bytes": img_bytes},
-                Attributes=["DEFAULT"]
+                Attributes=["ALL"]
             )
             faces = resp.get("FaceDetails", [])
             if len(faces) == 0:
                 return {"ok": False, "error": "No face detected in the image"}
             if len(faces) > 1:
                 return {"ok": False, "error": "Multiple faces detected — only one person should be visible"}
+            # Check glasses
+            face = faces[0]
+            glasses_info = face.get("Eyeglasses", {})
+            wearing_glasses = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
+            print(f"[FaceRegister] Glasses detected: {wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
         except Exception as e:
             print(f"[FaceRegister] DetectFaces failed: {e}")
             raise HTTPException(500, f"Face detection failed: {e}")
     # Persist in DB by email (reusable across sessions)
     if email:
         img_bytes = base64.b64decode(image_b64)
-        database.save_face_reference(email, img_bytes, 0)
-        print(f"[FaceRegister] Reference face persisted for {email} ({len(img_bytes)} bytes)")
-    return {"ok": True, "face_registered": True}
+        database.save_face_reference(email, img_bytes, 0, wearing_glasses=wearing_glasses)
+        print(f"[FaceRegister] Reference face persisted for {email} ({len(img_bytes)} bytes, glasses={wearing_glasses})")
+    return {"ok": True, "face_registered": True, "wearing_glasses": wearing_glasses}
+
+
+@app.post("/api/face/detect-glasses")
+def face_detect_glasses(data: dict):
+    """Detect if the person in the image is wearing glasses. Used for pre-interview check."""
+    if not rekognition_client:
+        return {"ok": False, "error": "AWS Rekognition not configured"}
+    image_b64 = data.get("image", "")
+    if not image_b64:
+        raise HTTPException(400, "Missing image")
+    try:
+        img_bytes = base64.b64decode(image_b64)
+        resp = rekognition_client.detect_faces(
+            Image={"Bytes": img_bytes},
+            Attributes=["ALL"]
+        )
+        faces = resp.get("FaceDetails", [])
+        if not faces:
+            return {"ok": True, "wearing_glasses": False, "no_face": True}
+        glasses_info = faces[0].get("Eyeglasses", {})
+        wearing = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
+        return {"ok": True, "wearing_glasses": wearing, "confidence": round(glasses_info.get("Confidence", 0), 1)}
+    except Exception as e:
+        print(f"[FaceDetectGlasses] Error: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 @app.post("/api/face/compare")
@@ -3146,25 +3186,47 @@ def face_compare(data: dict):
             similarity = 0.0
             matched = False
 
+        # Detect glasses on the live frame to check for glasses mismatch
+        glasses_mismatch = None
+        ref_glasses = session.get("face_ref_glasses", False)
+        try:
+            detect_resp = rekognition_client.detect_faces(
+                Image={"Bytes": target_bytes},
+                Attributes=["ALL"]
+            )
+            live_faces = detect_resp.get("FaceDetails", [])
+            if live_faces:
+                live_glasses_info = live_faces[0].get("Eyeglasses", {})
+                live_wearing = live_glasses_info.get("Value", False) and live_glasses_info.get("Confidence", 0) > 80
+                if ref_glasses and not live_wearing:
+                    glasses_mismatch = "registered_with_glasses"
+                elif not ref_glasses and live_wearing:
+                    glasses_mismatch = "registered_without_glasses"
+        except Exception as ge:
+            print(f"[FaceCompare] Glasses detection on live frame failed: {ge}")
+
         # Log anticheat event
         session.setdefault("anticheat_log", []).append({
             "event_type": "face_comparison",
             "turn": session.get("turn", 0),
             "timestamp": time.time(),
-            "metadata": f"similarity={similarity:.1f}%, matched={matched}",
+            "metadata": f"similarity={similarity:.1f}%, matched={matched}, glasses_mismatch={glasses_mismatch}",
         })
         sessions[sid] = session
 
         if not matched:
-            print(f"[FaceCompare] Session {sid}: MISMATCH — similarity={similarity:.1f}%")
+            print(f"[FaceCompare] Session {sid}: MISMATCH — similarity={similarity:.1f}%, glasses_mismatch={glasses_mismatch}")
 
-        return {
+        result = {
             "ok": True,
             "matched": matched,
             "similarity": round(similarity, 2),
             "threshold": FACE_COMPARE_THRESHOLD,
             "faces_in_target": len(matches) + len(unmatched),
         }
+        if glasses_mismatch:
+            result["glasses_mismatch"] = glasses_mismatch
+        return result
     except rekognition_client.exceptions.InvalidParameterException as e:
         # No face in source or target image
         session.setdefault("anticheat_log", []).append({

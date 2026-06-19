@@ -200,6 +200,13 @@ CREATE TABLE IF NOT EXISTS face_references (
     email TEXT PRIMARY KEY,
     face_image BYTEA NOT NULL,
     liveness_confidence REAL NOT NULL DEFAULT 0,
+    wearing_glasses BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add wearing_glasses column if table already exists (idempotent migration)
+DO $$ BEGIN
+    ALTER TABLE face_references ADD COLUMN wearing_glasses BOOLEAN NOT NULL DEFAULT FALSE;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;

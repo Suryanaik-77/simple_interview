@@ -425,7 +425,7 @@ def get_candidate_history(email):
 
 # ── Face References ──────────────────────────────────────────────────────
 
-def save_face_reference(email, face_image_bytes, liveness_confidence=0):
+def save_face_reference(email, face_image_bytes, liveness_confidence=0, wearing_glasses=False):
     """Store or update a candidate's face reference image (bytes) keyed by email."""
     if not _pool:
         return False
@@ -433,15 +433,16 @@ def save_face_reference(email, face_image_bytes, liveness_confidence=0):
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO face_references (email, face_image, liveness_confidence, updated_at)
-                    VALUES (%s, %s, %s, NOW())
+                    INSERT INTO face_references (email, face_image, liveness_confidence, wearing_glasses, updated_at)
+                    VALUES (%s, %s, %s, %s, NOW())
                     ON CONFLICT (email) DO UPDATE SET
                         face_image = EXCLUDED.face_image,
                         liveness_confidence = EXCLUDED.liveness_confidence,
+                        wearing_glasses = EXCLUDED.wearing_glasses,
                         updated_at = NOW()
-                """, (email, face_image_bytes, liveness_confidence))
+                """, (email, face_image_bytes, liveness_confidence, wearing_glasses))
                 conn.commit()
-        print(f"[DB] Face reference saved for {email} ({len(face_image_bytes)} bytes, confidence={liveness_confidence:.1f}%)")
+        print(f"[DB] Face reference saved for {email} ({len(face_image_bytes)} bytes, glasses={wearing_glasses})")
         return True
     except Exception as e:
         print(f"[DB] save_face_reference failed: {e}")
@@ -449,18 +450,18 @@ def save_face_reference(email, face_image_bytes, liveness_confidence=0):
 
 
 def get_face_reference(email):
-    """Retrieve a candidate's face reference image bytes. Returns (bytes, confidence) or (None, 0)."""
+    """Retrieve a candidate's face reference image bytes. Returns (bytes, confidence, wearing_glasses) or (None, 0, False)."""
     if not _pool:
-        return None, 0
+        return None, 0, False
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT face_image, liveness_confidence FROM face_references WHERE email = %s", (email,))
+                cur.execute("SELECT face_image, liveness_confidence, wearing_glasses FROM face_references WHERE email = %s", (email,))
                 row = cur.fetchone()
             if row:
                 face_bytes = bytes(row[0]) if row[0] else None
-                return face_bytes, float(row[1] or 0)
-            return None, 0
+                return face_bytes, float(row[1] or 0), bool(row[2])
+            return None, 0, False
     except Exception as e:
         print(f"[DB] get_face_reference failed: {e}")
-        return None, 0
+        return None, 0, False
