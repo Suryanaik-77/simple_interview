@@ -2621,34 +2621,45 @@ function renderAcDetail(d) {
       const exp = pq.expected_points || [];
       const mis = pq.missing_points || [];
       const comment = pq.comment || '';
-
-      // Render main question + answer
-      const mainTurn = turnByQNum[mainQ] || {};
-      let qaBlocks = `<div style="margin-bottom:6px">
-        <div style="font-size:12px;color:var(--t);font-weight:500;margin-bottom:4px">${escH(mainTurn.question||pq.question||'')}</div>
-        <div style="font-size:11px;color:var(--t3);background:var(--sf);padding:8px 10px;border-radius:6px;border-left:3px solid var(--b2);line-height:1.5">${escH(mainTurn.answer||'(no answer)')}</div>
-      </div>`;
-
-      // Render each follow-up Q + A
-      fups.forEach(fq => {
-        const fTurn = turnByQNum[fq] || {};
-        qaBlocks += `<div style="margin-bottom:6px;margin-left:16px;padding-left:10px;border-left:2px solid var(--b2)">
-          <div style="font-size:11px;color:var(--t2);font-weight:500;margin-bottom:4px"><span style="font-size:9px;padding:1px 5px;border-radius:3px;background:var(--sf);color:var(--t4);margin-right:5px">Follow-up</span>${escH(fTurn.question||'')}</div>
-          <div style="font-size:11px;color:var(--t3);background:var(--sf);padding:8px 10px;border-radius:6px;line-height:1.5">${escH(fTurn.answer||'(no answer)')}</div>
-        </div>`;
-      });
-
       const label = fups.length ? `Q${mainQ} + ${fups.length} follow-up${fups.length>1?'s':''}` : `Q${mainQ}`;
 
-      return `<div style="padding:14px;border-bottom:1px solid var(--b)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div style="font-family:var(--mono);font-size:11px;color:var(--t4)">${label}</div>
-          <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:${qcol}">${qsc}/10</div>
-        </div>
-        ${qaBlocks}
-        ${comment ? `<div style="font-size:11px;color:var(--t3);margin-top:8px;font-style:italic">${escH(comment)}</div>` : ''}
-        ${exp.length ? `<div style="font-size:10px;margin-top:8px"><span style="color:var(--t4);font-weight:500">Expected: </span><span style="color:var(--t3)">${exp.map(escH).join(' · ')}</span></div>` : ''}
-        ${mis.length ? `<div style="font-size:10px;margin-top:3px"><span style="color:var(--red);font-weight:500">Missing: </span><span style="color:var(--red);opacity:.8">${mis.map(escH).join(' · ')}</span></div>` : (exp.length ? `<div style="font-size:10px;margin-top:3px;color:var(--green)">All expected points covered</div>` : '')}
+      // Build all Q&A pairs in one continuous flow
+      const mainTurn = turnByQNum[mainQ] || {};
+      let qaFlow = '';
+
+      // Main question
+      qaFlow += `<div style="font-size:10px;font-weight:600;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Question</div>`;
+      qaFlow += `<div style="font-size:12px;color:var(--t);font-weight:500;margin-bottom:8px;line-height:1.5">${escH(mainTurn.question||pq.question||'')}</div>`;
+
+      // Main answer
+      qaFlow += `<div style="font-size:10px;font-weight:600;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Answer</div>`;
+      qaFlow += `<div style="font-size:11px;color:var(--t2);background:var(--sf);padding:10px 12px;border-radius:6px;border-left:3px solid var(--b2);line-height:1.6;margin-bottom:12px">${escH(mainTurn.answer||'(no answer)')}</div>`;
+
+      // Each follow-up Q + A
+      fups.forEach((fq, fi) => {
+        const fTurn = turnByQNum[fq] || {};
+        qaFlow += `<div style="font-size:10px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Follow-up ${fups.length > 1 ? (fi+1) : ''}</div>`;
+        qaFlow += `<div style="font-size:12px;color:var(--t);font-weight:500;margin-bottom:8px;line-height:1.5">${escH(fTurn.question||'')}</div>`;
+        qaFlow += `<div style="font-size:10px;font-weight:600;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Answer</div>`;
+        qaFlow += `<div style="font-size:11px;color:var(--t2);background:var(--sf);padding:10px 12px;border-radius:6px;border-left:3px solid var(--blue);line-height:1.6;margin-bottom:12px">${escH(fTurn.answer||'(no answer)')}</div>`;
+      });
+
+      // Score + reasoning + expected/missing at the bottom
+      let footer = `<div style="border-top:1px solid var(--b);padding-top:12px;margin-top:4px">`;
+      footer += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">`;
+      footer += `<div style="font-family:var(--mono);font-size:20px;font-weight:600;color:${qcol}">${qsc}<span style="font-size:12px;color:var(--t4)">/10</span></div>`;
+      footer += `<div style="flex:1;height:6px;background:var(--sf);border-radius:3px;overflow:hidden"><div style="height:100%;width:${qsc*10}%;background:${qcol};border-radius:3px"></div></div>`;
+      footer += `</div>`;
+      if (comment) footer += `<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:8px">${escH(comment)}</div>`;
+      if (exp.length) footer += `<div style="font-size:10px;margin-bottom:4px"><span style="color:var(--t4);font-weight:600">Expected: </span><span style="color:var(--t3)">${exp.map(escH).join(' · ')}</span></div>`;
+      if (mis.length) footer += `<div style="font-size:10px"><span style="color:var(--red);font-weight:600">Missing: </span><span style="color:var(--red);opacity:.8">${mis.map(escH).join(' · ')}</span></div>`;
+      else if (exp.length) footer += `<div style="font-size:10px;color:var(--green)">All expected points covered</div>`;
+      footer += `</div>`;
+
+      return `<div style="padding:16px;border:1px solid var(--b);border-radius:10px;margin-bottom:12px;background:var(--w)">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--t4);margin-bottom:12px">${label}</div>
+        ${qaFlow}
+        ${footer}
       </div>`;
     }).join('') : '<div style="padding:24px;text-align:center;color:var(--t4);font-size:12px">No scored questions yet</div>';
 
@@ -2687,14 +2698,12 @@ function renderAcDetail(d) {
       ${topicsHtml}
     </div>
 
-    <div class="card" style="margin-bottom:14px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0">
+    <div style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="sec-label" style="margin-bottom:0">Per-Question Scores</div>
         <span style="font-size:10px;color:var(--t4)">${pqGroups.length} questions</span>
       </div>
-      <div style="border:1px solid var(--b);border-radius:8px;overflow:hidden;margin-top:10px">
-        ${pqHtml}
-      </div>
+      ${pqHtml}
     </div>
 
     ${ev.summary ? `<div class="card"><div class="sec-label" style="margin-bottom:8px">Overall Assessment</div><div style="font-size:12px;color:var(--t2);line-height:1.6">${escH(ev.summary)}</div></div>` : ''}
