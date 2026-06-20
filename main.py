@@ -1678,12 +1678,12 @@ Follow-up questions are explicitly marked with [FOLLOWUP_OF Qn] — for example,
 {transcript}
 
 QUESTION GROUPING — CRITICAL:
-Questions marked [FOLLOWUP_OF Qn] are follow-up questions that probe deeper into the SAME topic as the referenced parent question. They MUST be grouped with their parent and scored together as ONE entry.
-Group each main question with its follow-up(s) and produce ONE entry in "per_question" for the entire group. The score should reflect the candidate's COMBINED performance across the main question AND all its follow-ups. Consider what the candidate revealed in follow-up answers too — if they missed a point initially but covered it in a follow-up, give credit. Set "q" to the main question number and "followup_qs" to the list of follow-up question numbers.
-Do NOT create separate per_question entries for follow-up questions. Only create entries for MAIN (non-follow-up) questions.
+The transcript ends with a QUESTION GROUPS section listing exactly which questions to group. Follow it exactly.
+Questions marked [FOLLOWUP_OF Qn] are follow-ups — they MUST be merged with their parent into ONE per_question entry. The "per_question" array must have exactly ONE entry per group listed in QUESTION GROUPS. NEVER create a separate entry for a follow-up question — if Q5 is a follow-up of Q3, there must be NO entry with "q": 5, only an entry with "q": 3 and "followup_qs": [5].
+The score for each group reflects the candidate's COMBINED performance across the main question AND all its follow-ups. If the candidate missed a point initially but covered it in a follow-up, give credit.
 
 In addition to the overall assessment, do BOTH of these:
-- Score each GROUPED question (main + follow-ups) in "per_question". Judge the candidate's combined technical merit across all answers in the group at THIS candidate's level.
+- Score each group from QUESTION GROUPS as ONE entry in "per_question". Judge the candidate's combined technical merit across all answers in the group at THIS candidate's level.
 - For each grouped question in "per_question", populate:
   - "expected_points": Merge the [EXPECTED_POINTS] from the main question AND its follow-ups. If no expected points were provided, generate 3-5 key points yourself.
   - "missing_points": ONLY the concepts the candidate did NOT cover or got wrong across ALL answers in the group (main + follow-ups). If the candidate mentioned a concept correctly in ANY answer within the group (even partially), do NOT include it in missing_points. Use an empty list [] if they covered all expected points.
@@ -1739,10 +1739,12 @@ def _build_eval_transcript(session, max_chars: int = 25000) -> str:
     """Render the conversation as numbered Q/A pairs so the evaluator can map a
     per-question score back to each question by its number.
     Includes pre-generated expected points so the evaluator doesn't regenerate them.
-    Marks follow-up questions with [FOLLOWUP_OF Q{parent}] so the evaluator groups them."""
+    Marks follow-up questions with [FOLLOWUP_OF Q{parent}] and appends a
+    QUESTION GROUPS summary so the evaluator knows exactly which to combine."""
     lines = []
     n = 0
     last_main_q = 0
+    groups = {}  # main_q_num -> [followup_q_nums]
     for e in session.get("conversation", []):
         q = (e.get("question") or "").strip()
         if not q:
@@ -1751,14 +1753,102 @@ def _build_eval_transcript(session, max_chars: int = 25000) -> str:
         a = (e.get("answer") or "").strip()
         if e.get("is_followup") and last_main_q > 0:
             lines.append(f"[Q{n}] [FOLLOWUP_OF Q{last_main_q}] {q}")
+            groups.setdefault(last_main_q, []).append(n)
         else:
             lines.append(f"[Q{n}] {q}")
             last_main_q = n
+            groups.setdefault(n, [])
         pts = e.get("expected_points")
         if pts and isinstance(pts, list):
             lines.append(f"[EXPECTED_POINTS Q{n}] {'; '.join(pts)}")
         lines.append(f"[A{n}] {a if a else '(no answer)'}")
+
+    if groups:
+        lines.append("")
+        lines.append("QUESTION GROUPS (produce exactly ONE per_question entry per group):")
+        for main_q in sorted(groups):
+            fups = groups[main_q]
+            if fups:
+                lines.append(f"  - Q{main_q} + follow-ups Q{', Q'.join(str(f) for f in fups)} → one entry with q={main_q}, followup_qs={fups}")
+            else:
+                lines.append(f"  - Q{main_q} → one entry with q={main_q}, followup_qs=[]")
+
     return "\n".join(lines)[:max_chars]
+
+
+def _enforce_followup_grouping(session, per_question: list) -> list:
+    """Post-process per_question to enforce correct follow-up grouping.
+    Uses the is_followup flag stored on conversation entries as ground truth.
+    Merges any standalone follow-up entries into their parent, and removes duplicates."""
+    if not per_question:
+        return per_question
+
+    # Build ground-truth groups from conversation entries
+    groups = {}  # main_q_num -> [followup_q_nums]
+    followup_set = set()  # all q nums that are follow-ups
+    n = 0
+    last_main = 0
+    for e in session.get("conversation", []):
+        if not (e.get("question") or "").strip():
+            continue
+        n += 1
+        if e.get("is_followup") and last_main > 0:
+            groups.setdefault(last_main, []).append(n)
+            followup_set.add(n)
+        else:
+            groups.setdefault(n, [])
+            last_main = n
+
+    if not followup_set:
+        return per_question
+
+    # Index LLM entries by q number
+    by_q = {}
+    for item in per_question:
+        q = item.get("q")
+        if isinstance(q, (int, float)):
+            by_q[int(q)] = item
+
+    # Build merged result: one entry per main question
+    merged = []
+    seen_main = set()
+    for item in per_question:
+        q = int(item.get("q", 0))
+        if q in followup_set:
+            continue  # skip standalone follow-up entries
+        if q in seen_main:
+            continue
+        seen_main.add(q)
+
+        expected_fups = groups.get(q, [])
+        existing_fups = [int(f) for f in (item.get("followup_qs") or []) if isinstance(f, (int, float, str))]
+        try:
+            existing_fups = [int(f) for f in existing_fups]
+        except (TypeError, ValueError):
+            existing_fups = []
+
+        # Merge follow-up data from standalone entries the LLM created
+        all_fups = sorted(set(expected_fups) | set(existing_fups))
+        for fq in expected_fups:
+            fq_item = by_q.get(fq)
+            if fq_item:
+                for pt in (fq_item.get("expected_points") or []):
+                    if pt not in (item.get("expected_points") or []):
+                        item.setdefault("expected_points", []).append(pt)
+                for pt in (fq_item.get("missing_points") or []):
+                    if pt not in (item.get("missing_points") or []):
+                        item.setdefault("missing_points", []).append(pt)
+
+        item["followup_qs"] = all_fups
+        merged.append(item)
+
+    if merged:
+        before = len(per_question)
+        after = len(merged)
+        if before != after:
+            print(f"[Eval] Enforced grouping: {before} entries → {after} groups (merged {before - after} follow-ups)")
+        return merged
+    return per_question
 
 
 _eval_locks = {}  # per-session locks to prevent duplicate evaluation
@@ -1824,6 +1914,8 @@ def evaluate_interview(session) -> dict:
 
         print(f"[Eval] {sid[:8]} — raw response length: {len(raw)} chars, first 300: {raw[:300]}")
         parsed = safe_json(raw) or {}
+        if parsed:
+            parsed["per_question"] = _enforce_followup_grouping(session, parsed.get("per_question", []))
         result = {
             "status": "done",
             "answered": answered,
