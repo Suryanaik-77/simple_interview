@@ -1519,14 +1519,14 @@ def generate_question(session, candidate_answer: str) -> dict:
 
     # Check behavior tags from LLM
     if "[PERSONAL]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
-        reply = question.replace("[PERSONAL]", "").strip()
+        reply = question.replace("[PERSONAL]", "").replace("[FOLLOWUP]", "").strip()
         session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
         session["turn"] += 1
         session.setdefault("obs_log", []).append(obs)
         return {"question": reply, "should_end": False, "llm_ms": llm_ms}
 
     if "[ABUSIVE]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
-        reply = question.replace("[ABUSIVE]", "").strip()
+        reply = question.replace("[ABUSIVE]", "").replace("[FOLLOWUP]", "").strip()
         session["phase"] = "ended"
         session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
         session.setdefault("obs_log", []).append(obs)
@@ -1540,12 +1540,20 @@ def generate_question(session, candidate_answer: str) -> dict:
         question = question.replace("[END_INTERVIEW]", "").strip()
         session["phase"] = "ended"
 
+    # Detect follow-up tag
+    is_followup = "[FOLLOWUP]" in question
+    if is_followup:
+        question = question.replace("[FOLLOWUP]", "").strip()
+
     # Pause prompt ("Take your time") — don't count as a new question.
     is_pause_prompt = _is_pause_prompt(question)
     if is_pause_prompt:
         print(f"[Submit] Pause prompt detected — not counting as a turn: \"{question}\"")
     else:
-        session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
+        entry = {"question": question, "answer": None, "turn": session["turn"]}
+        if is_followup:
+            entry["is_followup"] = True
+        session["conversation"].append(entry)
         session["turn"] += 1
 
     # Store LLM timing + cost
@@ -1665,12 +1673,12 @@ _EVAL_JSON_SCHEMA = """{
 # communication scoring instructions, and the JSON contract.
 _EVAL_TASK = """FULL TRANSCRIPT (each question is numbered [Q1], [Q2], ...; [A1] is the answer to [Q1]):
 The transcript includes [EXPECTED_POINTS Qn] lines — these are the key points already identified during the interview. Use them directly as the "expected_points" for that question. Do NOT regenerate expected points from scratch.
+Follow-up questions are explicitly marked with [FOLLOWUP_OF Qn] — for example, "[Q4] [FOLLOWUP_OF Q3] You mentioned skew but what about insertion delay?" means Q4 is a follow-up to Q3.
 
 {transcript}
 
 QUESTION GROUPING — CRITICAL:
-Some questions in the transcript are FOLLOW-UP questions that probe deeper into the SAME topic as a previous question. For example, if Q3 asks "What is floorplanning?" and Q4 asks "How do you handle macro placement in floorplanning?", then Q4 is a follow-up to Q3 — they should be scored as ONE question.
-Detect follow-ups by checking: does the question probe missing points, challenge the answer, or dig deeper into the SAME topic as the immediately preceding question? If yes, it is a follow-up.
+Questions marked [FOLLOWUP_OF Qn] are follow-up questions that probe deeper into the SAME topic as the referenced parent question. They MUST be grouped with their parent and scored together as ONE entry.
 Group each main question with its follow-up(s) and produce ONE entry in "per_question" for the entire group. The score should reflect the candidate's COMBINED performance across the main question AND all its follow-ups. Consider what the candidate revealed in follow-up answers too — if they missed a point initially but covered it in a follow-up, give credit. Set "q" to the main question number and "followup_qs" to the list of follow-up question numbers.
 Do NOT create separate per_question entries for follow-up questions. Only create entries for MAIN (non-follow-up) questions.
 
@@ -1730,17 +1738,22 @@ def _answered_count(session) -> int:
 def _build_eval_transcript(session, max_chars: int = 25000) -> str:
     """Render the conversation as numbered Q/A pairs so the evaluator can map a
     per-question score back to each question by its number.
-    Includes pre-generated expected points so the evaluator doesn't regenerate them."""
+    Includes pre-generated expected points so the evaluator doesn't regenerate them.
+    Marks follow-up questions with [FOLLOWUP_OF Q{parent}] so the evaluator groups them."""
     lines = []
     n = 0
+    last_main_q = 0
     for e in session.get("conversation", []):
         q = (e.get("question") or "").strip()
         if not q:
             continue
         n += 1
         a = (e.get("answer") or "").strip()
-        lines.append(f"[Q{n}] {q}")
-        # Include expected points generated during interview
+        if e.get("is_followup") and last_main_q > 0:
+            lines.append(f"[Q{n}] [FOLLOWUP_OF Q{last_main_q}] {q}")
+        else:
+            lines.append(f"[Q{n}] {q}")
+            last_main_q = n
         pts = e.get("expected_points")
         if pts and isinstance(pts, list):
             lines.append(f"[EXPECTED_POINTS Q{n}] {'; '.join(pts)}")
