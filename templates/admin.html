@@ -2606,24 +2606,49 @@ function renderAcDetail(d) {
       </div>`;
     }).join('') : '<div style="font-size:11px;color:var(--t4)">No topic breakdown available</div>';
 
-    // Per-question breakdown with expected/missing points
-    const scoredTurns = (tl||[]).filter(h => h.quality && h.phase !== 'warmup');
-    let qIdx = 0;
-    const pqHtml = scoredTurns.length ? scoredTurns.map(h => {
-      qIdx++;
-      const qsc = h.score || 0;
+    // Per-question breakdown — group main Q + follow-ups together with one combined score
+    // Build a map from question number to turn_log entry (1-based, counting only entries with questions)
+    const turnByQNum = {};
+    let _qn = 0;
+    (tl||[]).forEach(h => { if (h.question) { _qn++; turnByQNum[_qn] = h; } });
+
+    const pqGroups = ev.per_question || [];
+    const pqHtml = pqGroups.length ? pqGroups.map(pq => {
+      const mainQ = pq.q;
+      const fups = pq.followup_qs || [];
+      const qsc = pq.score || 0;
       const qcol = qsc >= 8 ? 'var(--green)' : qsc >= 5 ? 'var(--amber)' : 'var(--red)';
-      const exp = h.expected_points || [];
-      const mis = h.missing_points || [];
-      return `<div style="padding:12px 14px;border-bottom:1px solid var(--b);display:flex;gap:12px;align-items:flex-start">
-        <div style="font-family:var(--mono);font-size:11px;color:var(--t4);min-width:28px;padding-top:2px">Q${h.turn||qIdx}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:12px;color:var(--t);font-weight:500;margin-bottom:3px">${escH(h.question||'').substring(0,90)}${(h.question||'').length>90?'…':''}</div>
-          ${h.notes ? `<div style="font-size:11px;color:var(--t3);margin-bottom:5px">${escH(h.notes)}</div>` : ''}
-          ${exp.length ? `<div style="font-size:10px;margin-bottom:3px"><span style="color:var(--t4);font-weight:500">Expected: </span><span style="color:var(--t3)">${exp.map(escH).join(' · ')}</span></div>` : ''}
-          ${mis.length ? `<div style="font-size:10px"><span style="color:var(--red);font-weight:500">Missing: </span><span style="color:var(--red);opacity:.8">${mis.map(escH).join(' · ')}</span></div>` : (exp.length ? `<div style="font-size:10px;color:var(--green)">✓ All expected points covered</div>` : '')}
+      const exp = pq.expected_points || [];
+      const mis = pq.missing_points || [];
+      const comment = pq.comment || '';
+
+      // Render main question + answer
+      const mainTurn = turnByQNum[mainQ] || {};
+      let qaBlocks = `<div style="margin-bottom:6px">
+        <div style="font-size:12px;color:var(--t);font-weight:500;margin-bottom:4px">${escH(mainTurn.question||pq.question||'')}</div>
+        <div style="font-size:11px;color:var(--t3);background:var(--sf);padding:8px 10px;border-radius:6px;border-left:3px solid var(--b2);line-height:1.5">${escH(mainTurn.answer||'(no answer)')}</div>
+      </div>`;
+
+      // Render each follow-up Q + A
+      fups.forEach(fq => {
+        const fTurn = turnByQNum[fq] || {};
+        qaBlocks += `<div style="margin-bottom:6px;margin-left:16px;padding-left:10px;border-left:2px solid var(--b2)">
+          <div style="font-size:11px;color:var(--t2);font-weight:500;margin-bottom:4px"><span style="font-size:9px;padding:1px 5px;border-radius:3px;background:var(--sf);color:var(--t4);margin-right:5px">Follow-up</span>${escH(fTurn.question||'')}</div>
+          <div style="font-size:11px;color:var(--t3);background:var(--sf);padding:8px 10px;border-radius:6px;line-height:1.5">${escH(fTurn.answer||'(no answer)')}</div>
+        </div>`;
+      });
+
+      const label = fups.length ? `Q${mainQ} + ${fups.length} follow-up${fups.length>1?'s':''}` : `Q${mainQ}`;
+
+      return `<div style="padding:14px;border-bottom:1px solid var(--b)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--t4)">${label}</div>
+          <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:${qcol}">${qsc}/10</div>
         </div>
-        <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:${qcol};min-width:40px;text-align:right">${qsc}/10</div>
+        ${qaBlocks}
+        ${comment ? `<div style="font-size:11px;color:var(--t3);margin-top:8px;font-style:italic">${escH(comment)}</div>` : ''}
+        ${exp.length ? `<div style="font-size:10px;margin-top:8px"><span style="color:var(--t4);font-weight:500">Expected: </span><span style="color:var(--t3)">${exp.map(escH).join(' · ')}</span></div>` : ''}
+        ${mis.length ? `<div style="font-size:10px;margin-top:3px"><span style="color:var(--red);font-weight:500">Missing: </span><span style="color:var(--red);opacity:.8">${mis.map(escH).join(' · ')}</span></div>` : (exp.length ? `<div style="font-size:10px;margin-top:3px;color:var(--green)">All expected points covered</div>` : '')}
       </div>`;
     }).join('') : '<div style="padding:24px;text-align:center;color:var(--t4);font-size:12px">No scored questions yet</div>';
 
@@ -2652,6 +2677,11 @@ function renderAcDetail(d) {
       </div>
     </div>
 
+    ${(ev.red_flags||[]).length ? `<div class="card" style="margin-bottom:14px">
+      <div class="sec-label" style="margin-bottom:9px;color:var(--red)">Red Flags</div>
+      ${(ev.red_flags).map(f=>'<div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:7px"><span style="color:var(--red);font-size:14px;flex-shrink:0;line-height:1.4">&#9873;</span><span style="font-size:12px;color:var(--t2)">'+escH(f)+'</span></div>').join('')}
+    </div>` : ''}
+
     <div class="card" style="margin-bottom:14px">
       <div class="sec-label" style="margin-bottom:12px">Topic Breakdown</div>
       ${topicsHtml}
@@ -2660,7 +2690,7 @@ function renderAcDetail(d) {
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0">
         <div class="sec-label" style="margin-bottom:0">Per-Question Scores</div>
-        <span style="font-size:10px;color:var(--t4)">${scoredTurns.length} questions</span>
+        <span style="font-size:10px;color:var(--t4)">${pqGroups.length} questions</span>
       </div>
       <div style="border:1px solid var(--b);border-radius:8px;overflow:hidden;margin-top:10px">
         ${pqHtml}
