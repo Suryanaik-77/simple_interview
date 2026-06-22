@@ -1310,10 +1310,8 @@ def _get_topics_covered(session) -> list[str]:
 SESSION_MAX_DURATION_SEC = int(os.getenv("SESSION_MAX_DURATION_SEC", "3600"))  # 1 hour
 
 def _should_end_interview(session) -> tuple[bool, str]:
-    """Hard limit: turn count and session duration. Early end decided by LLM via system prompt."""
     if session.get("turn", 0) >= 25:
         return True, "That's all from my side. Thank you for your time."
-    # Auto-end after 1 hour
     started = session.get("started_at", 0)
     if started and (time.time() - started) > SESSION_MAX_DURATION_SEC:
         return True, "We've run out of time. Thank you for your time."
@@ -1506,7 +1504,7 @@ def generate_question(session, candidate_answer: str) -> dict:
     t0_llm = time.time()
     question, usage = call_llm(messages, temperature=0.7, max_tokens=200)
     llm_ms = round((time.time() - t0_llm) * 1000)
-    print(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {session['turn']} | in={usage['input_tokens']} out={usage['output_tokens']} ${usage['cost_usd']:.4f}")
+    print(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {turn} | in={usage['input_tokens']} out={usage['output_tokens']} ${usage['cost_usd']:.4f}")
 
     # Clean markdown
     question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', question)
@@ -1520,7 +1518,7 @@ def generate_question(session, candidate_answer: str) -> dict:
     # Check behavior tags from LLM
     if "[PERSONAL]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
         reply = question.replace("[PERSONAL]", "").replace("[FOLLOWUP]", "").strip()
-        session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
+        session["conversation"].append({"question": reply, "answer": None, "turn": turn})
         session["turn"] += 1
         session.setdefault("obs_log", []).append(obs)
         return {"question": reply, "should_end": False, "llm_ms": llm_ms}
@@ -1528,7 +1526,7 @@ def generate_question(session, candidate_answer: str) -> dict:
     if "[ABUSIVE]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
         reply = question.replace("[ABUSIVE]", "").replace("[FOLLOWUP]", "").strip()
         session["phase"] = "ended"
-        session["conversation"].append({"question": reply, "answer": None, "turn": session["turn"]})
+        session["conversation"].append({"question": reply, "answer": None, "turn": turn})
         session.setdefault("obs_log", []).append(obs)
         if ANTICHEAT_FEATURES.get("abuse_email_alert", {}).get("enabled", True):
             threading.Thread(target=send_abuse_email, args=(session, candidate_answer), daemon=True).start()
@@ -2766,9 +2764,10 @@ def stream_answer(data: dict):
 
         # Build prompt
         messages = build_interview_prompt(session)
-        phase = _get_interview_phase(session["turn"])
+        turn = session["turn"]
+        phase = _get_interview_phase(turn)
         topics_covered = _get_topics_covered(session)
-        pacing = f"\nPHASE: {phase} | Turn: {session['turn']}"
+        pacing = f"\nPHASE: {phase} | Turn: {turn}"
         if topics_covered:
             pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
         messages.append({"role": "user", "content": answer + pacing})
