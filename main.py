@@ -3742,7 +3742,8 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
     # Map per-question eval scores back onto turns. evaluate_interview numbers the
     # transcript [Q1], [Q2]... over conversation entries that have a question, so we
     # reproduce that exact counter here and look up each item by its "q" number.
-    evaluation = session.get("evaluation", {}) or {}
+    # Use a copy so we don't mutate session state on read.
+    evaluation = dict(session.get("evaluation", {}) or {})
     if evaluation.get("per_question"):
         evaluation["per_question"] = _enforce_followup_grouping(session, evaluation["per_question"])
     pq_by_num = _build_pq_by_num(evaluation)
@@ -3783,13 +3784,15 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
 
     turn_log = []
     qnum = 0
+    qnum_to_turn = {}
     for entry in session.get("conversation", []):
         has_q = bool((entry.get("question") or "").strip())
         if has_q:
             qnum += 1
+            qnum_to_turn[qnum] = entry.get("turn", 0)
         pq = pq_by_num.get(qnum) if has_q else None
         comment = (pq or {}).get("comment", "")
-        
+
         # Calculate quadrant dynamically
         qd = ""
         if pq:
@@ -3803,7 +3806,7 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
                     qd = "dangerous_fake"
             else:
                 qd = "unknown"
-        
+
         turn = entry.get("turn", 0)
         difficulty = "basic"
         if turn >= 13:
@@ -3817,6 +3820,7 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
         else:
             difficulty = "foundational"
 
+        parent_qnum = followup_parent.get(qnum)
         turn_log.append({
             "turn": turn,
             "phase": "interview",
@@ -3839,7 +3843,7 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             "behavioral_flags": [],
             "ai_detection": entry.get("ai_detection", {}),
             "is_followup": qnum in followup_nums,
-            "followup_of": followup_parent.get(qnum),
+            "followup_of": qnum_to_turn.get(parent_qnum) if parent_qnum else None,
         })
 
     # Calculate trajectory (use per_question directly to avoid duplicates from follow-up mapping)
@@ -3922,8 +3926,9 @@ async def get_shared_session(token: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    # Reuse admin session detail logic but strip sensitive fields
-    evaluation = session.get("evaluation", {}) or {}
+    # Reuse admin session detail logic but strip sensitive fields.
+    # Copy so we don't mutate session state on read.
+    evaluation = dict(session.get("evaluation", {}) or {})
     if evaluation.get("per_question"):
         evaluation["per_question"] = _enforce_followup_grouping(session, evaluation["per_question"])
     pq_by_num = _build_pq_by_num(evaluation)
@@ -3942,12 +3947,15 @@ async def get_shared_session(token: str):
 
     turn_log = []
     qnum = 0
+    qnum_to_turn_lms = {}
     for entry in session.get("conversation", []):
         has_q = bool((entry.get("question") or "").strip())
         if has_q:
             qnum += 1
+            qnum_to_turn_lms[qnum] = entry.get("turn", 0)
         pq = pq_by_num.get(qnum) if has_q else None
 
+        parent_qnum = followup_parent_lms.get(qnum)
         turn_log.append({
             "turn": entry.get("turn", 0),
             "question": entry.get("question", ""),
@@ -3958,7 +3966,7 @@ async def get_shared_session(token: str):
             "expected_points": (pq or {}).get("expected_points", []),
             "missing_points": (pq or {}).get("missing_points", []),
             "is_followup": qnum in followup_nums_lms,
-            "followup_of": followup_parent_lms.get(qnum),
+            "followup_of": qnum_to_turn_lms.get(parent_qnum) if parent_qnum else None,
         })
 
     resume = session.get("resume", {}) or {}
