@@ -3209,6 +3209,19 @@ function renderRevSections() {
       ${h.is_followup ? `<div style="padding:6px 10px;background:var(--sf);border:1px solid var(--b2);border-radius:6px;margin-bottom:8px;font-size:11px;color:var(--t3);font-style:italic">Follow-up to Q${h.followup_of||'?'} — scored together as one question</div>` : ''}
       <div class="qa-box"><div class="qa-lbl">${h.is_followup?'Follow-up question':'Question'} · ${escH(h.question_type||'')} · ${escH(h.difficulty||'')} · ${escH(h.topic||'')}</div><div class="qa-text" style="font-weight:500">${escH(h.question||'—')}</div></div>
       <div class="qa-box"><div class="qa-lbl">Candidate answer</div><div class="qa-text" style="color:var(--t2)">${escH(h.answer||'[no answer]')}</div></div>
+      ${!h.is_followup ? (()=>{
+        const fuTurns = REV_TURNS.filter(t => t.is_followup && t.followup_of === h.turn);
+        return fuTurns.map((ft, fi) => `
+          <div class="qa-box" style="border-left:3px solid var(--blue);margin-left:8px;padding-left:10px">
+            <div class="qa-lbl" style="color:var(--blue)">Follow-up ${fuTurns.length > 1 ? (fi+1) : ''}</div>
+            <div class="qa-text" style="font-weight:500">${escH(ft.question||'')}</div>
+          </div>
+          <div class="qa-box" style="margin-left:8px;padding-left:10px">
+            <div class="qa-lbl">Candidate answer</div>
+            <div class="qa-text" style="color:var(--t2)">${escH(ft.answer||'[no answer]')}</div>
+          </div>
+        `).join('');
+      })() : ''}
       <div style="display:flex;gap:10px;align-items:flex-start;margin-top:10px">
         <div style="text-align:center;padding:9px 12px;background:var(--sf);border:1px solid var(--b);border-radius:8px;flex-shrink:0">
           <div style="font-size:26px;font-weight:400;letter-spacing:-1.5px;font-family:var(--mono);color:${scColor(aiScore)}">${aiScore}</div>
