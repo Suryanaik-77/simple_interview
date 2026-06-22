@@ -2400,8 +2400,10 @@ async def lms_launch(
                 print(f"[FaceID] LMS face detection failed: {e}")
                 raise HTTPException(500, f"Face detection failed: {e}")
         # Save to DB for reuse across sessions
-        database.save_face_reference(email, face_image_bytes, 0, wearing_glasses=face_wearing_glasses)
-        print(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
+        if not database.save_face_reference(email, face_image_bytes, 0, wearing_glasses=face_wearing_glasses):
+            print(f"[FaceID] WARNING: failed to save face reference for {email}")
+        else:
+            print(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
 
     sid = secrets.token_hex(8)
     session = {
@@ -3211,32 +3213,33 @@ def face_register(data: dict):
     email = data.get("email", "")
     if not image_b64:
         raise HTTPException(400, "Missing image")
+    if not rekognition_client:
+        return {"ok": False, "error": "AWS Rekognition not configured — cannot register face"}
     wearing_glasses = False
-    # Validate face is detectable and check for glasses
-    if rekognition_client:
-        try:
-            img_bytes = base64.b64decode(image_b64)
-            resp = rekognition_client.detect_faces(
-                Image={"Bytes": img_bytes},
-                Attributes=["ALL"]
-            )
-            faces = resp.get("FaceDetails", [])
-            if len(faces) == 0:
-                return {"ok": False, "error": "No face detected in the image"}
-            if len(faces) > 1:
-                return {"ok": False, "error": "Multiple faces detected — only one person should be visible"}
-            # Check glasses
-            face = faces[0]
-            glasses_info = face.get("Eyeglasses", {})
-            wearing_glasses = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
-            print(f"[FaceRegister] Glasses detected: {wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
-        except Exception as e:
-            print(f"[FaceRegister] DetectFaces failed: {e}")
-            raise HTTPException(500, f"Face detection failed: {e}")
+    try:
+        img_bytes = base64.b64decode(image_b64)
+        resp = rekognition_client.detect_faces(
+            Image={"Bytes": img_bytes},
+            Attributes=["ALL"]
+        )
+        faces = resp.get("FaceDetails", [])
+        if len(faces) == 0:
+            return {"ok": False, "error": "No face detected in the image"}
+        if len(faces) > 1:
+            return {"ok": False, "error": "Multiple faces detected — only one person should be visible"}
+        face = faces[0]
+        glasses_info = face.get("Eyeglasses", {})
+        wearing_glasses = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
+        print(f"[FaceRegister] Glasses detected: {wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
+    except Exception as e:
+        print(f"[FaceRegister] DetectFaces failed: {e}")
+        raise HTTPException(500, f"Face detection failed: {e}")
     # Persist in DB by email (reusable across sessions)
     if email:
         img_bytes = base64.b64decode(image_b64)
-        database.save_face_reference(email, img_bytes, 0, wearing_glasses=wearing_glasses)
+        if not database.save_face_reference(email, img_bytes, 0, wearing_glasses=wearing_glasses):
+            print(f"[FaceRegister] WARNING: failed to save face reference for {email}")
+            raise HTTPException(500, "Failed to save face reference")
         print(f"[FaceRegister] Reference face persisted for {email} ({len(img_bytes)} bytes, glasses={wearing_glasses})")
     return {"ok": True, "face_registered": True, "wearing_glasses": wearing_glasses}
 
@@ -3289,13 +3292,12 @@ def face_compare(data: dict):
         resp = rekognition_client.compare_faces(
             SourceImage={"Bytes": ref_bytes},
             TargetImage={"Bytes": target_bytes},
-            SimilarityThreshold=FACE_COMPARE_THRESHOLD,
+            SimilarityThreshold=0.0,
         )
         matches = resp.get("FaceMatches", [])
-        unmatched = resp.get("UnmatchedFaces", [])
         if matches:
             similarity = matches[0]["Similarity"]
-            matched = True
+            matched = similarity >= FACE_COMPARE_THRESHOLD
         else:
             similarity = 0.0
             matched = False
@@ -3336,7 +3338,7 @@ def face_compare(data: dict):
             "matched": matched,
             "similarity": round(similarity, 2),
             "threshold": FACE_COMPARE_THRESHOLD,
-            "faces_in_target": len(matches) + len(unmatched),
+            "faces_in_target": len(matches),
         }
         if glasses_mismatch:
             result["glasses_mismatch"] = glasses_mismatch

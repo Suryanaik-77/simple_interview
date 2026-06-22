@@ -2944,25 +2944,26 @@
                 if (d.matched) {
                     console.log(`[FaceCompare] Match OK — similarity=${d.similarity}%`);
                     faceCompareWarnings = 0;
-                } else if (d.glasses_mismatch) {
-                    // Glasses mismatch — warn but don't count as identity mismatch
-                    console.warn(`[FaceCompare] Glasses mismatch: ${d.glasses_mismatch}, similarity=${d.similarity}%`);
-                    sendAntiCheat('glasses_mismatch', `type:${d.glasses_mismatch},similarity:${d.similarity}`);
-                    const msg = d.glasses_mismatch === 'registered_with_glasses'
-                        ? 'You registered with glasses but are not wearing them now.<br>Please wear your glasses for accurate face verification.'
-                        : 'You registered without glasses but are wearing them now.<br>Please remove your glasses or update your photo.';
-                    pauseInterview('glasses_mismatch', msg, 'Face verification may fail without matching appearance.');
                 } else {
                     faceCompareWarnings++;
-                    console.warn(`[FaceCompare] MISMATCH — similarity=${d.similarity}%, warning ${faceCompareWarnings}`);
-                    sendAntiCheat('face_mismatch', `similarity:${d.similarity},warning:${faceCompareWarnings}`);
+                    console.warn(`[FaceCompare] MISMATCH — similarity=${d.similarity}%, warning ${faceCompareWarnings}, glasses_mismatch=${d.glasses_mismatch||'none'}`);
+
+                    if (d.glasses_mismatch) {
+                        sendAntiCheat('glasses_mismatch', `type:${d.glasses_mismatch},similarity:${d.similarity},warning:${faceCompareWarnings}`);
+                        const msg = d.glasses_mismatch === 'registered_with_glasses'
+                            ? 'You registered with glasses but are not wearing them now.<br>Please wear your glasses for accurate face verification.'
+                            : 'You registered without glasses but are wearing them now.<br>Please remove your glasses or update your photo.';
+                        pauseInterview('glasses_mismatch', msg, 'Face verification may fail without matching appearance.');
+                    } else {
+                        sendAntiCheat('face_mismatch', `similarity:${d.similarity},warning:${faceCompareWarnings}`);
+                    }
 
                     if (faceCompareWarnings >= 3) {
                         sendAntiCheat('face_mismatch_termination', `mismatches:${faceCompareWarnings}`);
                         endSessionWithMessage('Interview ended — face identity mismatch detected.');
-                    } else {
+                    } else if (!d.glasses_mismatch) {
                         pauseInterview('face_mismatch',
-                            'Face identity mismatch detected.<br>Please ensure the same person who registered is taking the interview.<br><span style="color:#ef4444;font-weight:600;">Warning ' + faceCompareWarnings + ' of 2</span>',
+                            'Face identity mismatch detected.<br>Please ensure the same person who registered is taking the interview.<br><span style="color:#ef4444;font-weight:600;">Warning ' + faceCompareWarnings + ' of 3</span>',
                             faceCompareWarnings >= 2 ? 'Next mismatch will end the interview.' : '');
                     }
                 }
