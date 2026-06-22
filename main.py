@@ -2973,6 +2973,9 @@ def generate_report(data: dict):
                 "error": evaluation.get("error", "Evaluation failed")}
 
     # status == "done" — strip admin-only fields before returning to candidate.
+    pq = evaluation.get("per_question", [])
+    if pq:
+        pq = _enforce_followup_grouping(session, pq)
     scores = {
         "overall_score": evaluation.get("overall_score"),
         "level_fit": evaluation.get("level_fit"),
@@ -2981,7 +2984,7 @@ def generate_report(data: dict):
         "communication": evaluation.get("communication"),
         "strengths": evaluation.get("strengths", []),
         "weaknesses": evaluation.get("weaknesses", []),
-        "per_question": evaluation.get("per_question", []),
+        "per_question": pq,
         "topic_breakdown": evaluation.get("topic_breakdown", []),
         "summary": evaluation.get("summary", ""),
         "answered": evaluation.get("answered", 0),
@@ -3740,6 +3743,8 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
     # transcript [Q1], [Q2]... over conversation entries that have a question, so we
     # reproduce that exact counter here and look up each item by its "q" number.
     evaluation = session.get("evaluation", {}) or {}
+    if evaluation.get("per_question"):
+        evaluation["per_question"] = _enforce_followup_grouping(session, evaluation["per_question"])
     pq_by_num = _build_pq_by_num(evaluation)
 
     def _get_question_topic(q: str) -> str:
@@ -3919,6 +3924,8 @@ async def get_shared_session(token: str):
 
     # Reuse admin session detail logic but strip sensitive fields
     evaluation = session.get("evaluation", {}) or {}
+    if evaluation.get("per_question"):
+        evaluation["per_question"] = _enforce_followup_grouping(session, evaluation["per_question"])
     pq_by_num = _build_pq_by_num(evaluation)
 
     # Build follow-up tracking
