@@ -963,6 +963,21 @@ def _get_stt_prompt(domain: str) -> str:
     return _OPENAI_STT_PROMPT
 
 
+_STT_HALLUCINATION_RE = re.compile(
+    r"^(thank you( for watching| for listening)?\.?|thanks for watching\.?"
+    r"|please subscribe\.?|you|\.+|,+|\s+)$",
+    re.IGNORECASE,
+)
+
+def _is_stt_hallucination(text: str) -> bool:
+    if not text:
+        return False
+    if "This is a VLSI" in text or "VLSI semiconductor" in text or "Common terms:" in text:
+        return True
+    if _STT_HALLUCINATION_RE.match(text.strip()):
+        return True
+    return False
+
 def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") -> tuple[str, int]:
     """Returns (transcript, latency_ms)."""
     provider = RUNTIME_CONFIG.get("stt_provider", "openai")
@@ -986,6 +1001,9 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
             data = r.json()
             text = data.get("transcript", data.get("text", "")).strip()
             latency = round((time.time() - t0) * 1000)
+            if _is_stt_hallucination(text):
+                print(f"[STT] Inworld/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
+                return "", latency
             print(f"[STT] Inworld/{model} {latency}ms — {len(text)} chars")
             return text, latency
         except Exception as e:
@@ -1003,6 +1021,9 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
             alt = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0]
             text = alt.get("transcript", "").strip()
             latency = round((time.time() - t0) * 1000)
+            if _is_stt_hallucination(text):
+                print(f"[STT] Deepgram/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
+                return "", latency
             print(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars")
             return text, latency
         except Exception as e:
@@ -1021,11 +1042,8 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
             )
         latency = round((time.time() - t0) * 1000)
         text = response.text.strip() if hasattr(response, "text") else str(response).strip()
-        # Filter STT hallucinations — model echoes prompt hint when audio is silent.
-        # Check the actual prompt used (every domain prompt starts with "This is a VLSI"
-        # and contains "Common terms:" so those substrings cover all variants).
-        if text and ("This is a VLSI" in text or "VLSI semiconductor" in text or "Common terms:" in text):
-            print(f"[STT] OpenAI/{model} {latency}ms — HALLUCINATION filtered (prompt echo)")
+        if _is_stt_hallucination(text):
+            print(f"[STT] OpenAI/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
             return "", latency
         print(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars (domain={domain or 'generic'})")
         return text, latency

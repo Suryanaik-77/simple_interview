@@ -1274,6 +1274,11 @@
             if (msg.event === 'connected') {
                 vadMode = msg.vad || 'browser';
                 console.log('[VAD] Mode:', vadMode);
+                if (vadMode === 'browser' && vadWs) {
+                    vadWs.close();
+                    vadWs = null;
+                    console.log('[VAD] Server uses browser VAD — closed WebSocket');
+                }
             }
             if (msg.event === 'speech_start') {
                 speechDetected = true;
@@ -1300,7 +1305,7 @@
     }
 
     function startVadAudioStream() {
-        if (!vadWs || vadWs.readyState !== WebSocket.OPEN || vadMode !== 'silero') return;
+        if (vadMode !== 'silero' || !vadWs || vadWs.readyState !== WebSocket.OPEN) return;
         // Send raw PCM16 audio chunks to server every 100ms
         const vadChunkSize = 1600;  // 100ms at 16kHz
         const vadProcessor = audioContext.createScriptProcessor(vadChunkSize, 1, 1);
@@ -1732,6 +1737,7 @@
         mediaRecorder.start(100);
         isRecording = true;
         recordingStartTime = Date.now();
+        if (!_answerStartTime) _answerStartTime = recordingStartTime;
         speechDetected = false;
         silenceStart = null;
         speculativeSttResult = null;
@@ -1813,6 +1819,11 @@
                 // No speech yet in a fresh turn
                 const waitTime = now - recordingStartTime;
                 if (waitTime >= NO_SPEECH_TIMEOUT) {
+                    if (_accumulatedTranscript.trim()) {
+                        // Accumulated transcript from a prior chunk but no new speech — finalize it
+                        stopRecording();
+                        return;
+                    }
                     document.getElementById('sub-label').textContent = 'Please speak your answer...';
                     document.getElementById('main-label').textContent = 'Waiting for you...';
                 } else {
@@ -1846,7 +1857,8 @@
     let _accumulatedTranscript = '';
     let _wasAutoChunk = false;
     let _lastSttMs = 0;
-    let _pendingChunkSTT = null;  // Promise for background chunk transcription
+    let _pendingChunkSTTs = [];  // Array of in-flight chunk transcription Promises
+    let _answerStartTime = 0;   // Wall-clock of first recording in this answer (survives restarts)
 
     async function sendAudioForTranscription() {
         if (interviewEnded) return;
@@ -1879,21 +1891,24 @@
                 } else {
                     if (!interviewEnded) startRecording();           // 30s case: zero-gap restart
                 }
-                _pendingChunkSTT = fetch('/api/transcribe', { method: 'POST', body: form })
+                const chunkPromise = fetch('/api/transcribe', { method: 'POST', body: form })
                     .then(r => r.json())
                     .then(td => {
                         const txt = (td.transcript || '').trim();
                         if (txt) _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
                     })
-                    .catch(() => {})
-                    .finally(() => { _pendingChunkSTT = null; });
+                    .catch(e => { console.warn('[STT] Chunk transcription failed:', e); });
+                _pendingChunkSTTs.push(chunkPromise);
+                chunkPromise.finally(() => {
+                    _pendingChunkSTTs = _pendingChunkSTTs.filter(p => p !== chunkPromise);
+                });
                 return;
             }
 
-            // Wait for any pending background chunk STT to finish before combining
-            if (_pendingChunkSTT) {
+            // Wait for all pending background chunk STTs to finish before combining
+            if (_pendingChunkSTTs.length > 0) {
                 document.getElementById('sub-label').textContent = 'waiting for chunk...';
-                await _pendingChunkSTT;
+                await Promise.all(_pendingChunkSTTs);
             }
 
             // Check if speculative STT from Silero 1.0s silence is already available
@@ -1921,15 +1936,18 @@
 
             // Combine all chunks into final text
             const finalText = _accumulatedTranscript.trim();
-            _accumulatedTranscript = '';
 
             if (!finalText) {
+                _accumulatedTranscript = '';
                 document.getElementById('sub-label').textContent = 'could not hear, try again...';
                 if (!interviewEnded) setTimeout(startRecording, 1500);
                 return;
             }
 
-            await submitFinalAnswerAndStream(finalText, dur);
+            const answerDur = _answerStartTime ? (Date.now() - _answerStartTime) / 1000 : dur;
+            await submitFinalAnswerAndStream(finalText, answerDur);
+            _accumulatedTranscript = '';
+            _answerStartTime = 0;
 
         } catch (e) {
             console.error('Error:', e);
@@ -1994,20 +2012,22 @@
         _hadCommitInPause = false;
         if (interviewEnded) return;
         try {
-            if (_pendingChunkSTT) {
+            if (_pendingChunkSTTs.length > 0) {
                 document.getElementById('sub-label').textContent = 'waiting for chunk STT...';
-                await _pendingChunkSTT;
+                await Promise.all(_pendingChunkSTTs);
             }
             const finalText = _accumulatedTranscript.trim();
-            _accumulatedTranscript = '';
             if (interviewEnded) return;
             if (!finalText) {
+                _accumulatedTranscript = '';
                 document.getElementById('sub-label').textContent = 'no audio recorded';
                 if (!interviewEnded) setTimeout(startRecording, 500);
                 return;
             }
-            const dur = (Date.now() - recordingStartTime) / 1000;
+            const dur = _answerStartTime ? (Date.now() - _answerStartTime) / 1000 : (Date.now() - recordingStartTime) / 1000;
             await submitFinalAnswerAndStream(finalText, dur);
+            _accumulatedTranscript = '';
+            _answerStartTime = 0;
         } catch (e) {
             console.error('[Finalize after pause] Error:', e);
             document.getElementById('sub-label').textContent = 'error, retrying...';
