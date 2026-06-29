@@ -465,3 +465,290 @@ def get_face_reference(email):
     except Exception as e:
         print(f"[DB] get_face_reference failed: {e}")
         return None, 0, False
+
+
+# ── Expert Reviews ──────────────────────────────────────────────────────
+
+def save_expert_review(review_id, session_id, turn_number, reviewer_name="unknown",
+                       reviewer_domain="", reviewer_expertise="", ai_score=0,
+                       human_score=0, verdict="", feedback="", error_flags=None):
+    if not _db_available:
+        return False
+    try:
+        import json
+        score_delta = round(human_score - ai_score, 2)
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO expert_reviews
+                        (review_id, session_id, turn_number, reviewer_name, reviewer_domain,
+                         reviewer_expertise, ai_score, human_score, score_delta, verdict,
+                         feedback, error_flags)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (review_id) DO NOTHING
+                """, (review_id, session_id, turn_number, reviewer_name, reviewer_domain,
+                      reviewer_expertise, ai_score, human_score, score_delta, verdict,
+                      feedback, json.dumps(error_flags or [])))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] save_expert_review failed: {e}")
+        return False
+
+
+def list_expert_reviews(session_id=None, limit=100):
+    if not _db_available:
+        return []
+    try:
+        from psycopg.rows import dict_row
+        with get_conn() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                if session_id is not None:
+                    cur.execute("""
+                        SELECT * FROM expert_reviews WHERE session_id = %s
+                        ORDER BY reviewed_at DESC LIMIT %s
+                    """, (session_id, limit))
+                else:
+                    cur.execute("SELECT * FROM expert_reviews ORDER BY reviewed_at DESC LIMIT %s", (limit,))
+                return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        print(f"[DB] list_expert_reviews failed: {e}")
+        return []
+
+
+# ── Cognition AI ────────────────────────────────────────────────────────
+
+def save_cognition_signal(signal_type, severity, domain="", level="",
+                          session_id="", turn_number=0, evidence=None):
+    if not _db_available:
+        return None
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO cognition_signals
+                        (signal_type, severity, domain, level, session_id, turn_number, evidence)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (signal_type, severity, domain, level, session_id, turn_number,
+                      json.dumps(evidence or {})))
+                conn.commit()
+                return cur.fetchone()[0]
+    except Exception as e:
+        print(f"[DB] save_cognition_signal failed: {e}")
+        return None
+
+
+def list_cognition_signals(signal_type=None, domain=None, level=None,
+                           severity=None, since=None, limit=200):
+    if not _db_available:
+        return []
+    try:
+        from psycopg.rows import dict_row
+        clauses, params = [], []
+        if signal_type:
+            clauses.append("signal_type = %s"); params.append(signal_type)
+        if domain:
+            clauses.append("domain = %s"); params.append(domain)
+        if level:
+            clauses.append("level = %s"); params.append(level)
+        if severity:
+            clauses.append("severity = %s"); params.append(severity)
+        if since:
+            clauses.append("created_at >= %s"); params.append(since)
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        params.append(limit)
+        with get_conn() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(f"SELECT * FROM cognition_signals {where} ORDER BY created_at DESC LIMIT %s", params)
+                return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        print(f"[DB] list_cognition_signals failed: {e}")
+        return []
+
+
+def cognition_signal_summary():
+    if not _db_available:
+        return []
+    try:
+        from psycopg.rows import dict_row
+        with get_conn() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT signal_type, severity, domain, level, COUNT(*) as count,
+                           MAX(created_at) as latest
+                    FROM cognition_signals
+                    GROUP BY signal_type, severity, domain, level
+                    ORDER BY count DESC
+                """)
+                return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        print(f"[DB] cognition_signal_summary failed: {e}")
+        return []
+
+
+def count_recent_signals(domain, level, hours=24):
+    if not _db_available:
+        return 0
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COUNT(*) FROM cognition_signals
+                    WHERE domain = %s AND level = %s
+                      AND created_at >= NOW() - (%s || ' hours')::interval
+                """, (domain, level, str(hours)))
+                return cur.fetchone()[0]
+    except Exception as e:
+        print(f"[DB] count_recent_signals failed: {e}")
+        return 0
+
+
+def save_cognition_diagnosis(domain, level, signal_ids, prompt_section,
+                             problem, suggestion):
+    if not _db_available:
+        return None
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO cognition_diagnoses
+                        (domain, level, signal_ids, prompt_section, problem, suggestion)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (domain, level, signal_ids, prompt_section, problem, suggestion))
+                conn.commit()
+                return cur.fetchone()[0]
+    except Exception as e:
+        print(f"[DB] save_cognition_diagnosis failed: {e}")
+        return None
+
+
+def list_cognition_diagnoses(status=None, domain=None, limit=100):
+    if not _db_available:
+        return []
+    try:
+        from psycopg.rows import dict_row
+        clauses, params = [], []
+        if status:
+            clauses.append("status = %s"); params.append(status)
+        if domain:
+            clauses.append("domain = %s"); params.append(domain)
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        params.append(limit)
+        with get_conn() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(f"SELECT * FROM cognition_diagnoses {where} ORDER BY created_at DESC LIMIT %s", params)
+                return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        print(f"[DB] list_cognition_diagnoses failed: {e}")
+        return []
+
+
+def update_diagnosis_status(diagnosis_id, status):
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                resolved = "NOW()" if status in ("applied", "dismissed") else "NULL"
+                cur.execute(f"""
+                    UPDATE cognition_diagnoses
+                    SET status = %s, resolved_at = {resolved}
+                    WHERE id = %s
+                """, (status, diagnosis_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] update_diagnosis_status failed: {e}")
+        return False
+
+
+def get_cognition_state(key):
+    if not _db_available:
+        return None
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT state_value FROM cognition_state WHERE state_key = %s", (key,))
+                row = cur.fetchone()
+                if row:
+                    val = row[0]
+                    if isinstance(val, str):
+                        import json
+                        return json.loads(val)
+                    return val
+                return None
+    except Exception as e:
+        print(f"[DB] get_cognition_state failed: {e}")
+        return None
+
+
+def save_cognition_state(key, value):
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO cognition_state (state_key, state_value, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (state_key) DO UPDATE SET
+                        state_value = EXCLUDED.state_value,
+                        updated_at = NOW()
+                """, (key, json.dumps(value)))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"[DB] save_cognition_state failed: {e}")
+        return False
+
+
+def list_sessions_since(since_ts, limit=200):
+    """Fetch ended sessions updated after a timestamp. For cognition sweeper."""
+    if not _db_available:
+        return []
+    try:
+        import json as _json
+        from datetime import datetime, timezone
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT session_id, session_data FROM active_sessions
+                    WHERE session_data->>'phase' = 'ended'
+                      AND updated_at >= %s
+                    ORDER BY updated_at ASC LIMIT %s
+                """, (since_ts, limit))
+                out = []
+                for sid, data in cur.fetchall():
+                    if isinstance(data, str):
+                        data = _json.loads(data)
+                    out.append((sid, data))
+                return out
+    except Exception as e:
+        print(f"[DB] list_sessions_since failed: {e}")
+        return []
+
+
+def get_recent_score_drift_stats(hours=168):
+    """Average absolute score_delta from expert reviews in the last N hours."""
+    if not _db_available:
+        return {}
+    try:
+        from psycopg.rows import dict_row
+        with get_conn() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT er.reviewer_domain as domain,
+                           AVG(ABS(er.score_delta)) as avg_delta,
+                           COUNT(*) as review_count
+                    FROM expert_reviews er
+                    WHERE er.reviewed_at >= NOW() - (%s || ' hours')::interval
+                    GROUP BY er.reviewer_domain
+                """, (str(hours),))
+                return {r["domain"]: dict(r) for r in cur.fetchall()}
+    except Exception as e:
+        print(f"[DB] get_recent_score_drift_stats failed: {e}")
+        return {}

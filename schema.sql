@@ -126,7 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_reports_session ON reports(session_id);
 CREATE TABLE IF NOT EXISTS expert_reviews (
     id                      SERIAL PRIMARY KEY,
     review_id               TEXT UNIQUE NOT NULL,
-    session_id              INTEGER NOT NULL REFERENCES sessions(id),
+    session_id              TEXT NOT NULL DEFAULT '',
     turn_number             INTEGER NOT NULL,
     reviewer_name           TEXT DEFAULT 'unknown',
     reviewer_domain         TEXT DEFAULT '',
@@ -141,6 +141,16 @@ CREATE TABLE IF NOT EXISTS expert_reviews (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reviews_session ON expert_reviews(session_id);
+
+-- Migrate expert_reviews.session_id from INTEGER FK to TEXT (matches active_sessions PK)
+DO $$ BEGIN
+    ALTER TABLE expert_reviews DROP CONSTRAINT IF EXISTS expert_reviews_session_id_fkey;
+EXCEPTION WHEN undefined_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE expert_reviews ALTER COLUMN session_id TYPE TEXT USING session_id::TEXT;
+EXCEPTION WHEN others THEN NULL;
+END $$;
 
 -- ═══════════════════════════════════════════
 -- LLM CALLS
@@ -210,3 +220,44 @@ DO $$ BEGIN
     ALTER TABLE face_references ADD COLUMN wearing_glasses BOOLEAN NOT NULL DEFAULT FALSE;
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
+
+-- ═══════════════════════════════════════════
+-- COGNITION AI — Signal Collector & Diagnosis Engine
+-- ═══════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS cognition_signals (
+    id              SERIAL PRIMARY KEY,
+    signal_type     TEXT NOT NULL,
+    severity        TEXT NOT NULL DEFAULT 'info',
+    domain          TEXT NOT NULL DEFAULT '',
+    level           TEXT NOT NULL DEFAULT '',
+    session_id      TEXT DEFAULT '',
+    turn_number     INTEGER DEFAULT 0,
+    evidence        JSONB DEFAULT '{}',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cognition_signals_type ON cognition_signals(signal_type);
+CREATE INDEX IF NOT EXISTS idx_cognition_signals_created ON cognition_signals(created_at);
+CREATE INDEX IF NOT EXISTS idx_cognition_signals_domain_level ON cognition_signals(domain, level);
+
+CREATE TABLE IF NOT EXISTS cognition_diagnoses (
+    id              SERIAL PRIMARY KEY,
+    domain          TEXT NOT NULL DEFAULT '',
+    level           TEXT NOT NULL DEFAULT '',
+    signal_ids      INTEGER[] DEFAULT '{}',
+    prompt_section  TEXT DEFAULT '',
+    problem         TEXT DEFAULT '',
+    suggestion      TEXT DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'open',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at     TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_cognition_diagnoses_status ON cognition_diagnoses(status);
+CREATE INDEX IF NOT EXISTS idx_cognition_diagnoses_domain_level ON cognition_diagnoses(domain, level);
+
+CREATE TABLE IF NOT EXISTS cognition_state (
+    state_key       TEXT PRIMARY KEY,
+    state_value     JSONB NOT NULL DEFAULT '{}',
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

@@ -94,6 +94,7 @@ RUNTIME_CONFIG = {
     "stt_model": "gpt-4o-mini-transcribe",
     "qgen_model": "gpt-4o-mini",
     "eval_model": "gpt-4o-mini",
+    "cognition_model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "voice_verification_enabled": True,
 }
 import database
@@ -2047,6 +2048,9 @@ def _stale_session_sweeper():
 
 
 threading.Thread(target=_stale_session_sweeper, daemon=True, name="stale-sweeper").start()
+
+import cognition
+cognition.start_sweeper()
 
 
 # ── API Endpoints ────────────────────────────────────────────────────────
@@ -4090,7 +4094,83 @@ def obs_logs(limit: int = 500, _=Depends(require_admin)):
 
 @app.post("/api/admin/review")
 def submit_review(data: dict, _=Depends(require_admin)):
-    return {"ok": True, "review_id": f"R-{secrets.token_hex(4).upper()}"}
+    review_id = f"R-{secrets.token_hex(4).upper()}"
+    session_id = data.get("session_id", "")
+    turn_number = int(data.get("turn_number", 0))
+
+    session_data = database.get_active_session(session_id) if session_id else None
+    ai_score = float(data.get("ai_score", 0))
+    if ai_score == 0 and session_data:
+        ev = session_data.get("evaluation", {})
+        per_q = ev.get("per_question_scores") or ev.get("per_question", [])
+        if isinstance(per_q, list) and turn_number < len(per_q):
+            q_data = per_q[turn_number]
+            if isinstance(q_data, dict):
+                ai_score = float(q_data.get("score") or q_data.get("rating") or 0)
+
+    ok = database.save_expert_review(
+        review_id=review_id,
+        session_id=session_id,
+        turn_number=turn_number,
+        reviewer_name=data.get("reviewer_name", "unknown"),
+        reviewer_domain=data.get("reviewer_domain", ""),
+        reviewer_expertise=data.get("reviewer_expertise", ""),
+        ai_score=ai_score,
+        human_score=float(data.get("human_score", 0)),
+        verdict=data.get("verdict", ""),
+        feedback=data.get("feedback", ""),
+        error_flags=data.get("error_flags"),
+    )
+    return {"ok": ok, "review_id": review_id}
+
+
+@app.get("/api/admin/reviews")
+def list_reviews(limit: int = 100, _=Depends(require_admin)):
+    return database.list_expert_reviews(limit=limit)
+
+
+@app.get("/api/admin/reviews/{session_id}")
+def get_session_reviews(session_id: str, _=Depends(require_admin)):
+    return database.list_expert_reviews(session_id=session_id)
+
+
+# ── Admin: Cognition AI ─────────────────────────────────────────────────
+
+@app.get("/api/admin/cognition/signals")
+def get_cognition_signals(signal_type: str = None, domain: str = None,
+                          level: str = None, severity: str = None,
+                          limit: int = 200, _=Depends(require_admin)):
+    return database.list_cognition_signals(
+        signal_type=signal_type, domain=domain,
+        level=level, severity=severity, limit=limit,
+    )
+
+
+@app.get("/api/admin/cognition/summary")
+def get_cognition_summary(_=Depends(require_admin)):
+    return database.cognition_signal_summary()
+
+
+@app.get("/api/admin/cognition/diagnoses")
+def get_cognition_diagnoses(status: str = None, domain: str = None,
+                            limit: int = 100, _=Depends(require_admin)):
+    return database.list_cognition_diagnoses(status=status, domain=domain, limit=limit)
+
+
+@app.post("/api/admin/cognition/diagnoses/{diagnosis_id}")
+def update_cognition_diagnosis(diagnosis_id: int, data: dict, _=Depends(require_admin)):
+    new_status = data.get("status", "")
+    if new_status not in ("applied", "dismissed", "open"):
+        raise HTTPException(400, "status must be 'applied', 'dismissed', or 'open'")
+    ok = database.update_diagnosis_status(diagnosis_id, new_status)
+    return {"ok": ok}
+
+
+@app.post("/api/admin/cognition/trigger")
+def trigger_cognition_sweep(_=Depends(require_admin)):
+    import cognition
+    saved = cognition.run_sweep()
+    return {"ok": True, "signals_saved": saved}
 
 
 # ── Start ────────────────────────────────────────────────────────────────
