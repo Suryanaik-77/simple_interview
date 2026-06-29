@@ -261,7 +261,13 @@ Verify the `X-API-Key` header matches your shared secret to authenticate the cal
 
 ---
 
-## 4. Your Callback Endpoint
+## 4. Callback Endpoints
+
+| Environment | URL |
+|-------------|-----|
+| Local | `http://127.0.0.1:8000/api/interview-result` |
+| Staging | `http://13.232.251.185/api/interview-result` |
+| Production | `https://eduspark.sumedhait.com/api/interview-result` |
 
 Your endpoint should:
 
