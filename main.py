@@ -2470,33 +2470,85 @@ async def lms_launch(
     return RedirectResponse(launch_url, status_code=303)
 
 
-def _lms_callback(session):
-    """POST evaluation results back to LMS callback URL (fire-and-forget)."""
+def _lms_callback(session, retries=3):
+    """POST evaluation results back to LMS callback URL with retry."""
     url = session.get("lms_callback_url")
     if not url:
         return
     evaluation = session.get("evaluation", {})
     resume = session.get("resume", {})
+    anticheat = session.get("anticheat_log", {})
+    per_q = evaluation.get("per_question_scores") or evaluation.get("per_question", [])
+    if not isinstance(per_q, list):
+        per_q = []
+
     payload = {
+        "event": "interview_completed",
         "session_id": session.get("id"),
-        "email": resume.get("email", ""),
-        "name": resume.get("candidate_name", ""),
-        "status": evaluation.get("status", "error"),
-        "overall_score": evaluation.get("overall_score"),
-        "communication_score": evaluation.get("communication_score"),
-        "verdict": evaluation.get("verdict"),
-        "level_fit": evaluation.get("level_fit"),
-        "summary": evaluation.get("summary", ""),
-        "strengths": evaluation.get("strengths", []),
-        "weaknesses": evaluation.get("weaknesses", []),
+        "student": {
+            "email": resume.get("email", ""),
+            "name": resume.get("candidate_name", ""),
+            "domain": resume.get("domain", ""),
+            "level": resume.get("level", ""),
+        },
+        "result": {
+            "status": evaluation.get("status", "error"),
+            "overall_score": evaluation.get("overall_score"),
+            "communication_score": evaluation.get("communication_score"),
+            "recommendation": evaluation.get("recommendation", ""),
+            "verdict": evaluation.get("verdict", ""),
+            "level_fit": evaluation.get("level_fit", ""),
+            "grade": evaluation.get("grade", ""),
+            "trajectory": evaluation.get("trajectory", ""),
+            "summary": evaluation.get("summary", ""),
+            "strengths": evaluation.get("strengths", []),
+            "weaknesses": evaluation.get("weaknesses", []),
+            "topic_scores": evaluation.get("topic_scores", {}),
+            "questions_answered": evaluation.get("answered", 0),
+        },
+        "integrity": {
+            "ai_detection_flags": anticheat.get("ai_detection_flags", 0),
+            "face_mismatch_count": anticheat.get("face_mismatch_count", 0),
+            "tab_switch_count": anticheat.get("tab_switch_count", 0),
+            "trust_score": anticheat.get("trust_score"),
+        },
+        "questions": [
+            {
+                "turn": i + 1,
+                "question": entry.get("question", ""),
+                "answer": entry.get("answer", ""),
+                "topic": entry.get("topic", ""),
+                "difficulty": entry.get("difficulty", ""),
+                "is_followup": entry.get("is_followup", False),
+                "score": (per_q[i].get("score") or per_q[i].get("rating"))
+                         if i < len(per_q) and isinstance(per_q[i], dict) else None,
+                "feedback": per_q[i].get("feedback", "")
+                            if i < len(per_q) and isinstance(per_q[i], dict) else "",
+            }
+            for i, entry in enumerate(session.get("conversation", []))
+            if entry.get("answer")
+        ],
+        "timestamps": {
+            "started_at": session.get("started_at"),
+            "completed_at": evaluation.get("ts"),
+            "duration_sec": round(evaluation.get("ts", 0) - session.get("started_at", 0))
+                           if evaluation.get("ts") and session.get("started_at") else None,
+        },
     }
-    try:
-        resp = http_requests.post(url, json=payload,
-                                  headers={"X-API-Key": LMS_API_KEY},
-                                  timeout=10)
-        print(f"[LMS] Callback to {url} — {resp.status_code}")
-    except Exception as e:
-        print(f"[LMS] Callback failed: {e}")
+
+    for attempt in range(1, retries + 1):
+        try:
+            resp = http_requests.post(url, json=payload,
+                                      headers={"X-API-Key": LMS_API_KEY,
+                                               "Content-Type": "application/json"},
+                                      timeout=15)
+            print(f"[LMS] Callback to {url} — {resp.status_code}")
+            if resp.status_code < 500:
+                return
+        except Exception as e:
+            print(f"[LMS] Callback attempt {attempt}/{retries} failed: {e}")
+        if attempt < retries:
+            time.sleep(2 ** attempt)
 
 
 # ── Resume Parsing ───────────────────────────────────────────────────────
