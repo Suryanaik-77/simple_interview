@@ -2146,8 +2146,7 @@ def _verify_speaker_background(audio_bytes, session, turn):
     sid = session.get("id", "?")[:8]
 
     try:
-        # If session already ended or already flagged as mismatch, skip
-        if session.get("phase") == "ended" or session.get("speaker_mismatch"):
+        if session.get("phase") == "ended":
             return
 
         # Compute embedding for current audio
@@ -2175,10 +2174,12 @@ def _verify_speaker_background(audio_bytes, session, turn):
                                   (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
                     print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
                     if score < SPEAKER_VERIFY_THRESHOLD:
-                        # First strike only — don't end on turn 1
-                        session["speaker_strike"] = {"turn": turn, "score": round(score, 4)}
+                        count = session.get("speaker_mismatch_count", 0) + 1
+                        session["speaker_mismatch_count"] = count
+                        session.setdefault("speaker_mismatches", []).append(
+                            {"turn": turn, "score": round(score, 4), "ts": time.time()})
                         sessions[session["id"]] = session
-                        print(f"[SpeakerVerify] {sid} — STRIKE 1 at turn {turn} (score={score:.4f}) — will recheck next turn")
+                        print(f"[SpeakerVerify] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f})")
                     return
             # No LMS voice — use first answer as reference
             session["speaker_ref_embedding"] = current_emb.tolist()  # list for JSON
@@ -2193,43 +2194,21 @@ def _verify_speaker_background(audio_bytes, session, turn):
         print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
 
         if score < SPEAKER_VERIFY_THRESHOLD:
-            # Two-strike system: first mismatch → silent flag; any subsequent mismatch → end interview
-            prev_strike = session.get("speaker_strike")
-            if prev_strike:
-                # Second strike — end interview (strike is never cleared)
-                _flag_speaker_mismatch(session, turn, score)
-            else:
-                # First strike — silently note, force recheck next turn
-                session["speaker_strike"] = {"turn": turn, "score": round(score, 4)}
-                sessions[session["id"]] = session
-                print(f"[SpeakerVerify] {sid} — STRIKE 1 at turn {turn} (score={score:.4f}) — next mismatch ends interview")
+            count = session.get("speaker_mismatch_count", 0) + 1
+            session["speaker_mismatch_count"] = count
+            session.setdefault("speaker_mismatches", []).append(
+                {"turn": turn, "score": round(score, 4), "ts": time.time()})
+            sessions[session["id"]] = session
+            print(f"[SpeakerVerify] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f})")
 
     except Exception as e:
         print(f"[SpeakerVerify] {sid} — Error: {e}")
-
-
-def _flag_speaker_mismatch(session, turn, score):
-    """Flag session as speaker mismatch — ends interview."""
-    sid = session.get("id", "?")[:8]
-    session["speaker_mismatch"] = {
-        "detected_at_turn": turn,
-        "score": round(score, 4),
-        "threshold": SPEAKER_VERIFY_THRESHOLD,
-        "timestamp": time.time(),
-    }
-    session["phase"] = "ended"
-    session["end_reason"] = "speaker_mismatch"
-    sessions[session["id"]] = session
-    print(f"[SpeakerVerify] {sid} — MISMATCH at turn {turn} (score={score:.4f} < {SPEAKER_VERIFY_THRESHOLD}) — INTERVIEW ENDED")
-    # Run evaluation on whatever answers were collected
-    _evaluate_async(session)
 
 
 def _should_run_speaker_check(session, turn):
     """Decide whether to run speaker verification on this turn.
     - Skipped entirely if voice_verification_enabled is False
     - Always on turn 1 (to store/verify reference)
-    - Always after a strike (forced recheck)
     - Random ~40% chance on other turns (to avoid overhead every turn)
     """
     if not RUNTIME_CONFIG.get("voice_verification_enabled", True):
@@ -2238,9 +2217,6 @@ def _should_run_speaker_check(session, turn):
         return True
     if session.get("phase") == "ended":
         return False
-    # Always recheck after a strike
-    if session.get("speaker_strike"):
-        return True
     return _random.random() < 0.4
 
 
@@ -2509,6 +2485,7 @@ def _lms_callback(session, retries=3):
         "integrity": {
             "ai_detection_flags": anticheat.get("ai_detection_flags", 0),
             "face_mismatch_count": anticheat.get("face_mismatch_count", 0),
+            "voice_mismatch_count": session.get("speaker_mismatch_count", 0),
             "tab_switch_count": anticheat.get("tab_switch_count", 0),
             "trust_score": anticheat.get("trust_score"),
         },
