@@ -1,3 +1,5 @@
+import logging
+log = logging.getLogger('interview')
 """
 Redis cache for active sessions.
 
@@ -21,7 +23,7 @@ def init_cache():
     """Connect to Redis. Called once per worker at startup. No-op if REDIS_URL unset."""
     global _client, _available
     if not REDIS_URL:
-        print("[Cache] REDIS_URL not set — running without Redis cache")
+        log.info("[Cache] REDIS_URL not set — running without Redis cache")
         return
     try:
         import redis
@@ -31,11 +33,11 @@ def init_cache():
         )
         _client.ping()
         _available = True
-        print("[Cache] Redis connected — active-session cache enabled")
+        log.info("[Cache] Redis connected — active-session cache enabled")
     except ImportError:
-        print("[Cache] redis not installed — pip install redis (running without cache)")
+        log.info("[Cache] redis not installed — pip install redis (running without cache)")
     except Exception as e:
-        print(f"[Cache] Redis connection failed: {e} — running without cache")
+        log.error(f"[Cache] Redis connection failed: {e} — running without cache")
 
 
 def is_available():
@@ -50,7 +52,7 @@ def get_session(session_id):
         raw = _client.get(_KEY + session_id)
         return json.loads(raw) if raw else None
     except Exception as e:
-        print(f"[Cache] get failed: {e}")
+        log.error(f"[Cache] get failed: {e}")
         return None
 
 
@@ -61,7 +63,7 @@ def set_session(session_id, data):
     try:
         _client.set(_KEY + session_id, json.dumps(data, default=str), ex=SESSION_TTL)
     except Exception as e:
-        print(f"[Cache] set failed: {e}")
+        log.error(f"[Cache] set failed: {e}")
 
 
 def delete_session(session_id):
@@ -72,7 +74,7 @@ def delete_session(session_id):
     try:
         _client.delete(_KEY + session_id)
     except Exception as e:
-        print(f"[Cache] delete failed: {e}")
+        log.error(f"[Cache] delete failed: {e}")
 
 
 # ── Shared key/value JSON (no TTL) — used for cross-worker runtime config ──
@@ -85,7 +87,7 @@ def get_json(key):
         raw = _client.get(key)
         return json.loads(raw) if raw else None
     except Exception as e:
-        print(f"[Cache] get_json({key}) failed: {e}")
+        log.error(f"[Cache] get_json({key}) failed: {e}")
         return None
 
 
@@ -96,4 +98,4 @@ def set_json(key, data):
     try:
         _client.set(key, json.dumps(data, default=str))
     except Exception as e:
-        print(f"[Cache] set_json({key}) failed: {e}")
+        log.error(f"[Cache] set_json({key}) failed: {e}")

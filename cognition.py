@@ -1,3 +1,5 @@
+import logging
+log = logging.getLogger('interview')
 """
 Cognition AI — Self-improving signal collector & diagnosis engine.
 
@@ -261,13 +263,13 @@ def run_sweep():
         try:
             all_signals.extend(collector(sessions))
         except Exception as e:
-            print(f"[Cognition] collector {collector.__name__} failed: {e}")
+            log.error(f"[Cognition] collector {collector.__name__} failed: {e}")
 
     for collector in REVIEW_COLLECTORS:
         try:
             all_signals.extend(collector())
         except Exception as e:
-            print(f"[Cognition] collector {collector.__name__} failed: {e}")
+            log.error(f"[Cognition] collector {collector.__name__} failed: {e}")
 
     saved = 0
     for sig in all_signals:
@@ -286,7 +288,7 @@ def run_sweep():
     database.save_cognition_state(_WATERMARK_KEY, {"since": now_ts})
 
     if saved:
-        print(f"[Cognition] Sweep complete: {saved} new signal(s) from {len(sessions)} session(s)")
+        log.info(f"[Cognition] Sweep complete: {saved} new signal(s) from {len(sessions)} session(s)")
 
     _maybe_run_diagnosis(all_signals)
     return saved
@@ -327,7 +329,7 @@ def _run_diagnosis(domain, level, signals):
                     created = datetime.fromisoformat(created)
                 age_hours = (datetime.now(timezone.utc) - created.replace(tzinfo=timezone.utc)).total_seconds() / 3600
                 if age_hours < DIAGNOSIS_COOLDOWN_HOURS:
-                    print(f"[Cognition] Diagnosis cooldown active for {domain}/{level}")
+                    log.info(f"[Cognition] Diagnosis cooldown active for {domain}/{level}")
                     return
 
         try:
@@ -383,11 +385,11 @@ def _run_diagnosis(domain, level, signals):
                     problem=result.get("problem", ""),
                     suggestion=result.get("suggestion", ""),
                 )
-                print(f"[Cognition] Diagnosis saved for {domain}/{level}: {result.get('problem', '')[:80]}")
+                log.info(f"[Cognition] Diagnosis saved for {domain}/{level}: {result.get('problem', '')[:80]}")
             else:
-                print(f"[Cognition] Diagnosis LLM returned unparseable output")
+                log.info(f"[Cognition] Diagnosis LLM returned unparseable output")
         except Exception as e:
-            print(f"[Cognition] Diagnosis LLM call failed: {e}")
+            log.error(f"[Cognition] Diagnosis LLM call failed: {e}")
     finally:
         _DIAGNOSIS_LOCK.release()
 
@@ -403,7 +405,7 @@ def _cognition_sweeper_loop():
                 continue
             run_sweep()
         except Exception as e:
-            print(f"[Cognition] sweeper loop error: {e}")
+            log.error(f"[Cognition] sweeper loop error: {e}")
 
 
 def start_sweeper():
@@ -413,4 +415,4 @@ def start_sweeper():
         daemon=True,
         name="cognition-sweeper",
     ).start()
-    print(f"[Cognition] Sweeper started (interval={COGNITION_SWEEP_INTERVAL_SEC}s)")
+    log.info(f"[Cognition] Sweeper started (interval={COGNITION_SWEEP_INTERVAL_SEC}s)")

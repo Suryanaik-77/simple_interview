@@ -1,3 +1,5 @@
+import logging
+log = logging.getLogger('interview')
 """
 VLSI Interview Platform — PostgreSQL Database Module
 """
@@ -18,7 +20,7 @@ def init_db():
     """Initialize connection pool and create tables. Called once per worker at startup."""
     global _pool, _db_available
     if not DATABASE_URL:
-        print("[DB] DATABASE_URL not set — running without database (in-memory only)")
+        log.info("[DB] DATABASE_URL not set — running without database (in-memory only)")
         return
 
     # Step 1 — connect. DB availability hinges ONLY on a working connection, never on
@@ -37,11 +39,11 @@ def init_db():
                 cur.execute("SELECT 1")
         _db_available = True
     except ImportError:
-        print("[DB] psycopg not installed — pip install psycopg[binary] psycopg_pool")
+        log.info("[DB] psycopg not installed — pip install psycopg[binary] psycopg_pool")
         return
     except Exception as e:
-        print(f"[DB] PostgreSQL connection failed: {e}")
-        print("[DB] Running without database (in-memory only)")
+        log.error(f"[DB] PostgreSQL connection failed: {e}")
+        log.info("[DB] Running without database (in-memory only)")
         return
 
     # Step 2 — create tables. With 4 workers booting together, concurrent
@@ -59,11 +61,11 @@ def init_db():
                     with open(schema_path, "r", encoding="utf-8") as f:
                         cur.execute(f.read())
                 conn.commit()
-            print("[DB] PostgreSQL connected and schema ready")
+            log.info("[DB] PostgreSQL connected and schema ready")
         except Exception as e:
-            print(f"[DB] schema init skipped ({e}) — assuming another worker created it")
+            log.info(f"[DB] schema init skipped ({e}) — assuming another worker created it")
     else:
-        print("[DB] PostgreSQL connected (no schema.sql found)")
+        log.info("[DB] PostgreSQL connected (no schema.sql found)")
 
 
 def is_available():
@@ -118,7 +120,7 @@ def get_or_create_candidate(candidate_key, candidate_name, domain="physical_desi
                 conn.commit()
                 return cur.fetchone()["id"]
     except Exception as e:
-        print(f"[DB] get_or_create_candidate failed: {e}")
+        log.error(f"[DB] get_or_create_candidate failed: {e}")
         return None
 
 
@@ -140,7 +142,7 @@ def save_active_session(session_id, session_data):
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] save_active_session failed: {e}")
+        log.error(f"[DB] save_active_session failed: {e}")
         return False
 
 
@@ -161,7 +163,7 @@ def get_active_session(session_id):
                     return data
                 return None
     except Exception as e:
-        print(f"[DB] get_active_session failed: {e}")
+        log.error(f"[DB] get_active_session failed: {e}")
         return None
 
 
@@ -175,7 +177,7 @@ def active_session_exists(session_id):
                 cur.execute("SELECT 1 FROM active_sessions WHERE session_id = %s", (session_id,))
                 return cur.fetchone() is not None
     except Exception as e:
-        print(f"[DB] active_session_exists failed: {e}")
+        log.error(f"[DB] active_session_exists failed: {e}")
         return False
 
 
@@ -197,7 +199,7 @@ def list_active_sessions():
                     sessions_list.append(data)
                 return sessions_list
     except Exception as e:
-        print(f"[DB] list_active_sessions failed: {e}")
+        log.error(f"[DB] list_active_sessions failed: {e}")
         return []
 
 
@@ -227,7 +229,7 @@ def list_ended_sessions_needing_eval(grace_sec: int = 120, limit: int = 50):
                     out.append(data)
                 return out
     except Exception as e:
-        print(f"[DB] list_ended_sessions_needing_eval failed: {e}")
+        log.error(f"[DB] list_ended_sessions_needing_eval failed: {e}")
         return []
 
 
@@ -241,7 +243,7 @@ def list_active_session_keys():
                 cur.execute("SELECT session_id FROM active_sessions")
                 return [row[0] for row in cur.fetchall()]
     except Exception as e:
-        print(f"[DB] list_active_session_keys failed: {e}")
+        log.error(f"[DB] list_active_session_keys failed: {e}")
         return []
 
 
@@ -257,7 +259,7 @@ def delete_active_session(session_id):
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] delete_active_session failed: {e}")
+        log.error(f"[DB] delete_active_session failed: {e}")
         return False
 
 
@@ -283,7 +285,7 @@ def update_session_ai_detection(session_id, turn_index, detection):
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] update_session_ai_detection failed: {e}")
+        log.error(f"[DB] update_session_ai_detection failed: {e}")
         return False
 
 
@@ -304,7 +306,7 @@ def get_app_config(key):
                     return val
                 return None
     except Exception as e:
-        print(f"[DB] get_app_config failed: {e}")
+        log.error(f"[DB] get_app_config failed: {e}")
         return None
 
 
@@ -326,7 +328,7 @@ def save_app_config(key, value):
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] save_app_config failed: {e}")
+        log.error(f"[DB] save_app_config failed: {e}")
         return False
 
 
@@ -350,7 +352,7 @@ def save_session_evaluation(session_id, evaluation):
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] save_session_evaluation failed: {e}")
+        log.error(f"[DB] save_session_evaluation failed: {e}")
         return False
 
 
@@ -375,7 +377,7 @@ def append_session_obs(session_id, entry):
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] append_session_obs failed: {e}")
+        log.error(f"[DB] append_session_obs failed: {e}")
         return False
 
 
@@ -397,7 +399,7 @@ def save_candidate_history(email, session_id, session_summary):
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] save_candidate_history failed: {e}")
+        log.error(f"[DB] save_candidate_history failed: {e}")
         return False
 
 
@@ -419,7 +421,7 @@ def get_candidate_history(email):
                     history.append(summary)
                 return history
     except Exception as e:
-        print(f"[DB] get_candidate_history failed: {e}")
+        log.error(f"[DB] get_candidate_history failed: {e}")
         return []
 
 
@@ -442,10 +444,10 @@ def save_face_reference(email, face_image_bytes, liveness_confidence=0, wearing_
                         updated_at = NOW()
                 """, (email, face_image_bytes, liveness_confidence, wearing_glasses))
                 conn.commit()
-        print(f"[DB] Face reference saved for {email} ({len(face_image_bytes)} bytes, glasses={wearing_glasses})")
+        log.info(f"[DB] Face reference saved for {email} ({len(face_image_bytes)} bytes, glasses={wearing_glasses})")
         return True
     except Exception as e:
-        print(f"[DB] save_face_reference failed: {e}")
+        log.error(f"[DB] save_face_reference failed: {e}")
         return False
 
 
@@ -463,7 +465,7 @@ def get_face_reference(email):
                 return face_bytes, float(row[1] or 0), bool(row[2])
             return None, 0, False
     except Exception as e:
-        print(f"[DB] get_face_reference failed: {e}")
+        log.error(f"[DB] get_face_reference failed: {e}")
         return None, 0, False
 
 
@@ -492,7 +494,7 @@ def save_expert_review(review_id, session_id, turn_number, reviewer_name="unknow
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] save_expert_review failed: {e}")
+        log.error(f"[DB] save_expert_review failed: {e}")
         return False
 
 
@@ -512,7 +514,7 @@ def list_expert_reviews(session_id=None, limit=100):
                     cur.execute("SELECT * FROM expert_reviews ORDER BY reviewed_at DESC LIMIT %s", (limit,))
                 return [dict(r) for r in cur.fetchall()]
     except Exception as e:
-        print(f"[DB] list_expert_reviews failed: {e}")
+        log.error(f"[DB] list_expert_reviews failed: {e}")
         return []
 
 
@@ -536,7 +538,7 @@ def save_cognition_signal(signal_type, severity, domain="", level="",
                 conn.commit()
                 return cur.fetchone()[0]
     except Exception as e:
-        print(f"[DB] save_cognition_signal failed: {e}")
+        log.error(f"[DB] save_cognition_signal failed: {e}")
         return None
 
 
@@ -564,7 +566,7 @@ def list_cognition_signals(signal_type=None, domain=None, level=None,
                 cur.execute(f"SELECT * FROM cognition_signals {where} ORDER BY created_at DESC LIMIT %s", params)
                 return [dict(r) for r in cur.fetchall()]
     except Exception as e:
-        print(f"[DB] list_cognition_signals failed: {e}")
+        log.error(f"[DB] list_cognition_signals failed: {e}")
         return []
 
 
@@ -584,7 +586,7 @@ def cognition_signal_summary():
                 """)
                 return [dict(r) for r in cur.fetchall()]
     except Exception as e:
-        print(f"[DB] cognition_signal_summary failed: {e}")
+        log.error(f"[DB] cognition_signal_summary failed: {e}")
         return []
 
 
@@ -601,7 +603,7 @@ def count_recent_signals(domain, level, hours=24):
                 """, (domain, level, str(hours)))
                 return cur.fetchone()[0]
     except Exception as e:
-        print(f"[DB] count_recent_signals failed: {e}")
+        log.error(f"[DB] count_recent_signals failed: {e}")
         return 0
 
 
@@ -621,7 +623,7 @@ def save_cognition_diagnosis(domain, level, signal_ids, prompt_section,
                 conn.commit()
                 return cur.fetchone()[0]
     except Exception as e:
-        print(f"[DB] save_cognition_diagnosis failed: {e}")
+        log.error(f"[DB] save_cognition_diagnosis failed: {e}")
         return None
 
 
@@ -642,7 +644,7 @@ def list_cognition_diagnoses(status=None, domain=None, limit=100):
                 cur.execute(f"SELECT * FROM cognition_diagnoses {where} ORDER BY created_at DESC LIMIT %s", params)
                 return [dict(r) for r in cur.fetchall()]
     except Exception as e:
-        print(f"[DB] list_cognition_diagnoses failed: {e}")
+        log.error(f"[DB] list_cognition_diagnoses failed: {e}")
         return []
 
 
@@ -661,7 +663,7 @@ def update_diagnosis_status(diagnosis_id, status):
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] update_diagnosis_status failed: {e}")
+        log.error(f"[DB] update_diagnosis_status failed: {e}")
         return False
 
 
@@ -681,7 +683,7 @@ def get_cognition_state(key):
                     return val
                 return None
     except Exception as e:
-        print(f"[DB] get_cognition_state failed: {e}")
+        log.error(f"[DB] get_cognition_state failed: {e}")
         return None
 
 
@@ -702,7 +704,7 @@ def save_cognition_state(key, value):
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"[DB] save_cognition_state failed: {e}")
+        log.error(f"[DB] save_cognition_state failed: {e}")
         return False
 
 
@@ -728,7 +730,7 @@ def list_sessions_since(since_ts, limit=200):
                     out.append((sid, data))
                 return out
     except Exception as e:
-        print(f"[DB] list_sessions_since failed: {e}")
+        log.error(f"[DB] list_sessions_since failed: {e}")
         return []
 
 
@@ -750,5 +752,5 @@ def get_recent_score_drift_stats(hours=168):
                 """, (str(hours),))
                 return {r["domain"]: dict(r) for r in cur.fetchall()}
     except Exception as e:
-        print(f"[DB] get_recent_score_drift_stats failed: {e}")
+        log.error(f"[DB] get_recent_score_drift_stats failed: {e}")
         return {}

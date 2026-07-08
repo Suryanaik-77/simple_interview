@@ -9,6 +9,8 @@
 __pycache__/
 *.pyc
 
+# Logs
+logs/
+
 # Models (large binaries)
 models/spkrec-ecapa/
-# CI/CD test - 1783502521

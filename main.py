@@ -6,7 +6,8 @@ question pipeline, evaluation pipeline, evaluation validator.
 Question generation: conversation history + resume → LLM → next question.
 That's it. No complex routing.
 """
-import os, time, json, re, secrets, tempfile, base64, threading, smtplib
+import os, time, json, re, secrets, tempfile, base64, threading, smtplib, logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -21,6 +22,25 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from jose import JWTError, jwt
 import requests as http_requests
+
+# ── Logging ─────────────────────────────────────────────────────────────
+_log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(_log_dir, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        RotatingFileHandler(
+            os.path.join(_log_dir, "app.log"),
+            maxBytes=10 * 1024 * 1024,  # 10 MB per file
+            backupCount=5,              # keep 5 rotated files (50 MB total max)
+        ),
+        logging.StreamHandler(),        # also print to stdout
+    ],
+)
+log = logging.getLogger("interview")
 
 # ── App ──────────────────────────────────────────────────────────────────
 app = FastAPI(title="Simple Interview Agent")
@@ -74,7 +94,7 @@ if XAI_API_KEY:
 cerebras_client = None
 if CEREBRAS_API_KEY:
     cerebras_client = OpenAI(api_key=CEREBRAS_API_KEY, base_url="https://api.cerebras.ai/v1")
-    print("Cerebras LLM ready.")
+    log.info("Cerebras LLM ready.")
 
 bedrock_client = None
 rekognition_client = None
@@ -82,7 +102,7 @@ try:
     import boto3
     bedrock_client = boto3.client("bedrock-runtime", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
     rekognition_client = boto3.client("rekognition", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-    print("AWS Rekognition client ready.")
+    log.info("AWS Rekognition client ready.")
 except: pass
 
 # ── Runtime Config ───────────────────────────────────────────────────────
@@ -241,14 +261,14 @@ def _save_history_to_disk():
         with open(HISTORY_FILE, "w") as f:
             json.dump(candidate_history, f, indent=2, default=str)
     except Exception as e:
-        print(f"[History] Save failed: {e}")
+        log.error(f"[History] Save failed: {e}")
 
 # Only load the whole-file snapshot in the no-DB fallback. When the DB is the source of
 # truth, returning-candidate history is fetched per-email on demand via get_candidate_previous,
 # so loading every candidate into each worker at startup would be wasted RAM and stale.
 candidate_history: dict[str, list[dict]] = {} if database.is_available() else _load_history()
 if not database.is_available():
-    print(f"[History] Loaded {sum(len(v) for v in candidate_history.values())} sessions for {len(candidate_history)} candidates")
+    log.info(f"[History] Loaded {sum(len(v) for v in candidate_history.values())} sessions for {len(candidate_history)} candidates")
 
 
 def save_candidate_session(session):
@@ -281,7 +301,7 @@ def save_candidate_session(session):
     else:
         candidate_history.setdefault(email, []).append(summary)
         _save_history_to_disk()
-    print(f"[History] Saved for {email}: {summary['turns']} turns, session {summary['session_id'][:8]}")
+    log.info(f"[History] Saved for {email}: {summary['turns']} turns, session {summary['session_id'][:8]}")
 
 
 def get_candidate_previous(email: str) -> list[dict]:
@@ -522,7 +542,7 @@ def stream_llm(messages, model_id="", temperature=0.5, max_tokens=500):
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
         except Exception as e:
-            print(f"[StreamLLM] Grok streaming error: {e}")
+            log.error(f"[StreamLLM] Grok streaming error: {e}")
         return
 
     # Bedrock streaming (Claude, Llama, Nova, etc.)
@@ -531,7 +551,7 @@ def stream_llm(messages, model_id="", temperature=0.5, max_tokens=500):
             for chunk in _stream_bedrock(messages, model, temperature, max_tokens):
                 yield chunk
         except Exception as e:
-            print(f"[StreamLLM] Bedrock streaming error: {e}")
+            log.error(f"[StreamLLM] Bedrock streaming error: {e}")
         return
 
     # OpenAI streaming
@@ -545,7 +565,7 @@ def stream_llm(messages, model_id="", temperature=0.5, max_tokens=500):
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
     except Exception as e:
-        print(f"[StreamLLM] OpenAI streaming error: {e}")
+        log.error(f"[StreamLLM] OpenAI streaming error: {e}")
 
 
 def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 24000) -> bytes:
@@ -582,7 +602,7 @@ def _kugel_tts(text: str, voice: str) -> bytes:
         sr = int(r.headers.get("X-Sample-Rate", KUGEL_SAMPLE_RATE))
         return _pcm_to_wav(r.content, sample_rate=sr)
     except Exception as e:
-        print(f"[TTS] Kugel error: {e}")
+        log.error(f"[TTS] Kugel error: {e}")
         return b""
 
 
@@ -601,7 +621,7 @@ def tts_chunk(text: str) -> bytes:
             r.raise_for_status()
             return r.content
         except Exception as e:
-            print(f"[TTS Stream] Deepgram error: {e}")
+            log.error(f"[TTS Stream] Deepgram error: {e}")
 
     if provider == "kugel" and KUGEL_API_KEY:
         wav = _kugel_tts(text[:2000], voice)
@@ -619,14 +639,14 @@ def tts_chunk(text: str) -> bytes:
                 return base64.b64decode(data["audioContent"])
             return r.content
         except Exception as e:
-            print(f"[TTS Stream] Inworld error: {e}")
+            log.error(f"[TTS Stream] Inworld error: {e}")
 
     if OPENAI_API_KEY:
         try:
             response = openai_client.audio.speech.create(model="tts-1", voice=voice or "nova", input=text[:2000])
             return response.content
         except Exception as e:
-            print(f"[TTS Stream] OpenAI error: {e}")
+            log.error(f"[TTS Stream] OpenAI error: {e}")
 
     return b""
 
@@ -753,7 +773,7 @@ def _stream_bedrock(messages, model_id, temperature, max_tokens):
                     yield text
 
     except Exception as e:
-        print(f"[Bedrock Stream] Streaming failed ({e}), falling back to non-streaming")
+        log.error(f"[Bedrock Stream] Streaming failed ({e}), falling back to non-streaming")
         full = _call_bedrock(messages, model_id, temperature, max_tokens)
         yield full
 
@@ -770,7 +790,7 @@ def call_cerebras(messages, temperature=0.5, max_tokens=1000):
             )
             return resp.choices[0].message.content.strip()
         except Exception as e:
-            print(f"[Cerebras] Failed, falling back: {e}")
+            log.error(f"[Cerebras] Failed, falling back: {e}")
     text, _usage = call_llm(messages, temperature=temperature, max_tokens=max_tokens)
     return text
 
@@ -878,11 +898,11 @@ JSON:"""
             raw = call_cerebras([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
             parsed = safe_json(raw)
             if parsed and parsed.get("candidate_name"):
-                print(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')}")
+                log.info(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')}")
                 return parsed
-            print(f"[Resume] Attempt {attempt+1}: empty result, retrying...")
+            log.info(f"[Resume] Attempt {attempt+1}: empty result, retrying...")
         except Exception as e:
-            print(f"[Resume] Attempt {attempt+1} failed: {e}")
+            log.error(f"[Resume] Attempt {attempt+1} failed: {e}")
     return {}
 
 
@@ -954,12 +974,12 @@ def _get_stt_prompt(domain: str) -> str:
             text = f.read().strip()
         if text:
             _STT_PROMPT_CACHE[domain] = text
-            print(f"[STT] Loaded domain prompt: {domain} ({len(text)} chars)")
+            log.info(f"[STT] Loaded domain prompt: {domain} ({len(text)} chars)")
             return text
     except FileNotFoundError:
-        print(f"[STT] No prompt file for domain '{domain}' — using generic")
+        log.info(f"[STT] No prompt file for domain '{domain}' — using generic")
     except Exception as e:
-        print(f"[STT] Failed to load prompt for '{domain}': {e}")
+        log.error(f"[STT] Failed to load prompt for '{domain}': {e}")
     _STT_PROMPT_CACHE[domain] = _OPENAI_STT_PROMPT
     return _OPENAI_STT_PROMPT
 
@@ -1003,12 +1023,12 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
             text = data.get("transcript", data.get("text", "")).strip()
             latency = round((time.time() - t0) * 1000)
             if _is_stt_hallucination(text):
-                print(f"[STT] Inworld/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
+                log.warning(f"[STT] Inworld/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
                 return "", latency
-            print(f"[STT] Inworld/{model} {latency}ms — {len(text)} chars")
+            log.info(f"[STT] Inworld/{model} {latency}ms — {len(text)} chars")
             return text, latency
         except Exception as e:
-            print(f"[STT] Inworld error: {e}, falling back to OpenAI")
+            log.error(f"[STT] Inworld error: {e}, falling back to OpenAI")
 
     # Deepgram STT with VLSI keyword boosting
     if provider == "deepgram" and DEEPGRAM_API_KEY:
@@ -1023,12 +1043,12 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
             text = alt.get("transcript", "").strip()
             latency = round((time.time() - t0) * 1000)
             if _is_stt_hallucination(text):
-                print(f"[STT] Deepgram/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
+                log.warning(f"[STT] Deepgram/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
                 return "", latency
-            print(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars")
+            log.info(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars")
             return text, latency
         except Exception as e:
-            print(f"[STT] Deepgram error: {e}, falling back to OpenAI")
+            log.error(f"[STT] Deepgram error: {e}, falling back to OpenAI")
 
     # OpenAI STT with VLSI domain prompt — domain-specific if provided, generic otherwise.
     stt_prompt = _get_stt_prompt(domain)
@@ -1044,12 +1064,12 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
         latency = round((time.time() - t0) * 1000)
         text = response.text.strip() if hasattr(response, "text") else str(response).strip()
         if _is_stt_hallucination(text):
-            print(f"[STT] OpenAI/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
+            log.warning(f"[STT] OpenAI/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
             return "", latency
-        print(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars (domain={domain or 'generic'})")
+        log.info(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars (domain={domain or 'generic'})")
         return text, latency
     except Exception as e:
-        print(f"[STT] Error: {e}")
+        log.error(f"[STT] Error: {e}")
         return "", round((time.time() - t0) * 1000)
     finally:
         if tmp_path:
@@ -1063,15 +1083,15 @@ async def ws_audio(ws: WebSocket):
     await ws.accept()
     sid = ws.query_params.get("session_id", "")
     await ws.send_json({"event": "connected", "vad": "browser"})
-    print(f"[WS] Audio stream connected (session={sid}, vad=browser)")
+    log.info(f"[WS] Audio stream connected (session={sid}, vad=browser)")
 
     try:
         while True:
             await ws.receive_bytes()
     except WebSocketDisconnect:
-        print(f"[WS] Audio stream disconnected (session={sid})")
+        log.info(f"[WS] Audio stream disconnected (session={sid})")
     except Exception as e:
-        print(f"[WS] Error: {e}")
+        log.error(f"[WS] Error: {e}")
 
 
 # ── TTS ──────────────────────────────────────────────────────────────────
@@ -1092,17 +1112,17 @@ def synthesize_speech(text: str) -> tuple[str, int]:
                 json={"text": text[:2000]}, timeout=15)
             r.raise_for_status()
             latency = round((time.time() - t0) * 1000)
-            print(f"[TTS] Deepgram {latency}ms — {len(text)} chars")
+            log.info(f"[TTS] Deepgram {latency}ms — {len(text)} chars")
             return base64.b64encode(r.content).decode(), latency
         except Exception as e:
-            print(f"[TTS] Deepgram error: {e}")
+            log.error(f"[TTS] Deepgram error: {e}")
 
     # Kugel
     if provider == "kugel" and KUGEL_API_KEY:
         wav = _kugel_tts(text[:2000], voice)
         latency = round((time.time() - t0) * 1000)
         if wav:
-            print(f"[TTS] Kugel {latency}ms — {len(text)} chars (voice={voice})")
+            log.info(f"[TTS] Kugel {latency}ms — {len(text)} chars (voice={voice})")
             return base64.b64encode(wav).decode(), latency
 
     # Inworld
@@ -1113,22 +1133,22 @@ def synthesize_speech(text: str) -> tuple[str, int]:
                 json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
             latency = round((time.time() - t0) * 1000)
-            print(f"[TTS] Inworld {latency}ms — {len(text)} chars")
+            log.info(f"[TTS] Inworld {latency}ms — {len(text)} chars")
             data = r.json() if "json" in r.headers.get("content-type", "") else None
             if data: return data.get("audioContent", base64.b64encode(r.content).decode()), latency
             return base64.b64encode(r.content).decode(), latency
         except Exception as e:
-            print(f"[TTS] Inworld error: {e}")
+            log.error(f"[TTS] Inworld error: {e}")
 
     # OpenAI TTS
     if OPENAI_API_KEY:
         try:
             response = openai_client.audio.speech.create(model="tts-1", voice=voice or "nova", input=text[:2000])
             latency = round((time.time() - t0) * 1000)
-            print(f"[TTS] OpenAI {latency}ms — {len(text)} chars")
+            log.info(f"[TTS] OpenAI {latency}ms — {len(text)} chars")
             return base64.b64encode(response.content).decode(), latency
         except Exception as e:
-            print(f"[TTS] OpenAI error: {e}")
+            log.error(f"[TTS] OpenAI error: {e}")
 
     return "", round((time.time() - t0) * 1000)
 
@@ -1149,10 +1169,10 @@ def _load_prompt(level: str, domain: str) -> str:
     try:
         with open(filepath, "r") as f:
             prompt = f.read()
-        print(f"[Prompt] Loaded {filename}")
+        log.info(f"[Prompt] Loaded {filename}")
         return prompt
     except FileNotFoundError:
-        print(f"[Prompt] {filename} not found, falling back to experienced_junior_physical_design.md")
+        log.warning(f"[Prompt] {filename} not found, falling back to experienced_junior_physical_design.md")
         fallback = os.path.join(_PROMPTS_DIR, "experienced_junior_physical_design.md")
         with open(fallback, "r") as f:
             return f.read()
@@ -1218,13 +1238,13 @@ def generate_expected_points(question: str, domain: str, level: str, session: di
             # Persist to DB so the points survive between requests
             if database.is_available():
                 database.save_active_session(session["id"], session)
-            print(f"[ExpectedPts] {ms}ms | {len(points)} points | ${usage['cost_usd']:.4f}")
+            log.info(f"[ExpectedPts] {ms}ms | {len(points)} points | ${usage['cost_usd']:.4f}")
         session.setdefault("obs_log", []).append(
             _obs_entry("LLM_expected_points", RUNTIME_CONFIG["qgen_model"], ms, "success",
                        input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
                        cost_usd=usage["cost_usd"]))
     except Exception as e:
-        print(f"[ExpectedPts] Failed: {e}")
+        log.error(f"[ExpectedPts] Failed: {e}")
 
 
 
@@ -1342,7 +1362,7 @@ def _should_end_interview(session) -> tuple[bool, str]:
 def send_abuse_email(session, answer: str):
     """Send email to admin reporting abusive candidate behavior."""
     if not SMTP_USER or not SMTP_PASS or not ADMIN_EMAIL:
-        print("[Guard] SMTP not configured — skipping abuse email")
+        log.info("[Guard] SMTP not configured — skipping abuse email")
         return
 
     resume = session.get("resume", {})
@@ -1389,9 +1409,9 @@ VLSI Interview Agent (Automated Alert)
             server.starttls()
             server.login(SMTP_USER, SMTP_PASS)
             server.sendmail(SMTP_USER, ADMIN_EMAIL, msg.as_string())
-        print(f"[Guard] Abuse email sent to {ADMIN_EMAIL} for candidate {candidate_name}")
+        log.info(f"[Guard] Abuse email sent to {ADMIN_EMAIL} for candidate {candidate_name}")
     except Exception as e:
-        print(f"[Guard] Failed to send abuse email: {e}")
+        log.error(f"[Guard] Failed to send abuse email: {e}")
 
 
 # ── AI Answer Detection ────────────────────────────────────────────────
@@ -1419,11 +1439,11 @@ def detect_ai_answer(answer: str, session: dict, turn_index: int):
                 if sap_score > 0.7:
                     result["is_ai"] = True
                     result["score"] = sap_score
-                    print(f"[AI Detect] Sapling: {sap_score:.2f} — AI detected (turn {turn_index})")
+                    log.info(f"[AI Detect] Sapling: {sap_score:.2f} — AI detected (turn {turn_index})")
                 else:
-                    print(f"[AI Detect] Sapling: {sap_score:.2f} — Human (turn {turn_index})")
+                    log.info(f"[AI Detect] Sapling: {sap_score:.2f} — Human (turn {turn_index})")
         except Exception as e:
-            print(f"[AI Detect] Sapling failed: {e}")
+            log.error(f"[AI Detect] Sapling failed: {e}")
 
     # Method 2: LLM-based detection (fallback or cross-check)
     if not SAPLING_API_KEY or (result["sapling"] and result["sapling"]["score"] > 0.4):
@@ -1467,14 +1487,14 @@ JSON:"""
                     if result["sapling"]["score"] > 0.5 and llm_is_ai:
                         result["is_ai"] = True
                         result["score"] = max(result["sapling"]["score"], llm_conf)
-                print(f"[AI Detect] LLM: is_ai={llm_is_ai} conf={llm_conf:.2f} (turn {turn_index}) | ${ai_usage['cost_usd']:.4f}")
+                log.info(f"[AI Detect] LLM: is_ai={llm_is_ai} conf={llm_conf:.2f} (turn {turn_index}) | ${ai_usage['cost_usd']:.4f}")
             # Track AI detection cost
             session.setdefault("obs_log", []).append(
                 _obs_entry("LLM_ai_detect", RUNTIME_CONFIG["qgen_model"], ai_ms, "success",
                            input_tokens=ai_usage["input_tokens"], output_tokens=ai_usage["output_tokens"],
                            cost_usd=ai_usage["cost_usd"]))
         except Exception as e:
-            print(f"[AI Detect] LLM detection failed: {e}")
+            log.error(f"[AI Detect] LLM detection failed: {e}")
 
     # Store result in conversation entry. This runs in a background thread, so persist
     # via a targeted jsonb_set (not a full-session writeback) — a full overwrite here
@@ -1488,7 +1508,7 @@ JSON:"""
             redis_cache.delete_session(session["id"])
 
     if result["is_ai"]:
-        print(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
+        log.warning(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
 
 
 def generate_question(session, candidate_answer: str) -> dict:
@@ -1523,7 +1543,7 @@ def generate_question(session, candidate_answer: str) -> dict:
     t0_llm = time.time()
     question, usage = call_llm(messages, temperature=0.7, max_tokens=200)
     llm_ms = round((time.time() - t0_llm) * 1000)
-    print(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {turn} | in={usage['input_tokens']} out={usage['output_tokens']} ${usage['cost_usd']:.4f}")
+    log.info(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {turn} | in={usage['input_tokens']} out={usage['output_tokens']} ${usage['cost_usd']:.4f}")
 
     # Clean markdown
     question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', question)
@@ -1565,7 +1585,7 @@ def generate_question(session, candidate_answer: str) -> dict:
     # Pause prompt ("Take your time") — don't count as a new question.
     is_pause_prompt = _is_pause_prompt(question)
     if is_pause_prompt:
-        print(f"[Submit] Pause prompt detected — not counting as a turn: \"{question}\"")
+        log.info(f"[Submit] Pause prompt detected — not counting as a turn: \"{question}\"")
     else:
         entry = {"question": question, "answer": None, "turn": session["turn"]}
         if is_followup:
@@ -1863,7 +1883,7 @@ def _enforce_followup_grouping(session, per_question: list) -> list:
         before = len(per_question)
         after = len(merged)
         if before != after:
-            print(f"[Eval] Enforced grouping: {before} entries → {after} groups (merged {before - after} follow-ups)")
+            log.info(f"[Eval] Enforced grouping: {before} entries → {after} groups (merged {before - after} follow-ups)")
         return merged
     return per_question
 
@@ -1897,7 +1917,7 @@ def evaluate_interview(session) -> dict:
             if database.is_available():
                 database.save_session_evaluation(sid, result)
                 redis_cache.delete_session(sid)
-            print(f"[Eval] Skipped {sid[:8]} — {answered}/{MIN_ANSWERS_FOR_EVAL} answered")
+            log.info(f"[Eval] Skipped {sid[:8]} — {answered}/{MIN_ANSWERS_FOR_EVAL} answered")
             return result
 
         resume = session.get("resume", {})
@@ -1914,13 +1934,13 @@ def evaluate_interview(session) -> dict:
 
         model = RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
         transcript = _build_eval_transcript(session)
-        print(f"[Eval] {sid[:8]} — transcript length: {len(transcript)} chars, answered: {answered}, level: {level}, model: {model}")
+        log.info(f"[Eval] {sid[:8]} — transcript length: {len(transcript)} chars, answered: {answered}, level: {level}, model: {model}")
         t0 = time.time()
         try:
             raw, usage = call_llm([{"role": "user", "content": prompt}],
                                   model_id=model, temperature=0.2, max_tokens=20000)
         except Exception as e:
-            print(f"[Eval] LLM call failed for {sid[:8]}: {e}")
+            log.error(f"[Eval] LLM call failed for {sid[:8]}: {e}")
             result = {"status": "error", "answered": answered, "error": str(e)}
             session["evaluation"] = result
             if database.is_available():
@@ -1929,7 +1949,7 @@ def evaluate_interview(session) -> dict:
             return result
         eval_ms = round((time.time() - t0) * 1000)
 
-        print(f"[Eval] {sid[:8]} — raw response length: {len(raw)} chars, first 300: {raw[:300]}")
+        log.info(f"[Eval] {sid[:8]} — raw response length: {len(raw)} chars, first 300: {raw[:300]}")
         parsed = safe_json(raw) or {}
         if parsed:
             parsed["per_question"] = _enforce_followup_grouping(session, parsed.get("per_question", []))
@@ -1946,7 +1966,7 @@ def evaluate_interview(session) -> dict:
         if not parsed:
             result["parse_error"] = True
             result["raw_response"] = raw[:2000]
-            print(f"[Eval] {sid[:8]} — PARSE FAILED! Raw response:\n{raw[:1000]}")
+            log.error(f"[Eval] {sid[:8]} — PARSE FAILED! Raw response:\n{raw[:1000]}")
 
         session["evaluation"] = result
 
@@ -1960,8 +1980,8 @@ def evaluate_interview(session) -> dict:
             database.append_session_obs(sid, obs)
             redis_cache.delete_session(sid)  # these jsonb_set writes bypassed the cache
 
-        print(f"[Eval] {sid[:8]} ({level}): score={result.get('overall_score', '?')} "
-              f"rec={result.get('recommendation', '?')} {eval_ms}ms ${usage['cost_usd']:.4f}")
+        log.info(f"[Eval] {sid[:8]} ({level}): score={result.get('overall_score', '?')} "
+                 f"rec={result.get('recommendation', '?')} {eval_ms}ms ${usage['cost_usd']:.4f}")
 
         # Send results to LMS if this was an LMS-launched session
         if session.get("lms_callback_url"):
@@ -1990,14 +2010,14 @@ def _eval_sweeper_loop():
                 continue
             pending = database.list_ended_sessions_needing_eval(EVAL_SWEEP_GRACE_SEC)
             if pending:
-                print(f"[EvalSweep] {len(pending)} ended session(s) need evaluation")
+                log.info(f"[EvalSweep] {len(pending)} ended session(s) need evaluation")
             for sess in pending:
                 try:
                     evaluate_interview(sess)
                 except Exception as e:
-                    print(f"[EvalSweep] {sess.get('id', '?')[:8]} failed: {e}")
+                    log.error(f"[EvalSweep] {sess.get('id', '?')[:8]} failed: {e}")
         except Exception as e:
-            print(f"[EvalSweep] loop error: {e}")
+            log.error(f"[EvalSweep] loop error: {e}")
 
 
 threading.Thread(target=_eval_sweeper_loop, daemon=True, name="eval-sweeper").start()
@@ -2027,7 +2047,7 @@ def _stale_session_sweeper():
                     stale = cur.fetchall()
             if not stale:
                 continue
-            print(f"[StaleSweep] Found {len(stale)} stale session(s) to end")
+            log.info(f"[StaleSweep] Found {len(stale)} stale session(s) to end")
             for sid, data in stale:
                 try:
                     if isinstance(data, str):
@@ -2037,14 +2057,14 @@ def _stale_session_sweeper():
                     data["phase"] = "ended"
                     data["end_reason"] = "stale_timeout"
                     database.save_active_session(sid, data)
-                    print(f"[StaleSweep] Ended {sid[:8]} ({name}, turn {turns}) — inactive > {STALE_SESSION_SEC}s")
+                    log.info(f"[StaleSweep] Ended {sid[:8]} ({name}, turn {turns}) — inactive > {STALE_SESSION_SEC}s")
                     # Trigger evaluation if enough turns
                     if turns >= MIN_ANSWERS_FOR_EVAL:
                         threading.Thread(target=evaluate_interview, args=(data,), daemon=True).start()
                 except Exception as e:
-                    print(f"[StaleSweep] Failed to end {sid[:8]}: {e}")
+                    log.error(f"[StaleSweep] Failed to end {sid[:8]}: {e}")
         except Exception as e:
-            print(f"[StaleSweep] loop error: {e}")
+            log.error(f"[StaleSweep] loop error: {e}")
 
 
 threading.Thread(target=_stale_session_sweeper, daemon=True, name="stale-sweeper").start()
@@ -2087,7 +2107,7 @@ def _get_resemblyzer_encoder():
     if _resemblyzer_encoder is None:
         from resemblyzer import VoiceEncoder
         _resemblyzer_encoder = VoiceEncoder()
-        print("[Speaker] Resemblyzer encoder loaded")
+        log.info("[Speaker] Resemblyzer encoder loaded")
     return _resemblyzer_encoder
 
 def _to_wav16k(audio_bytes):
@@ -2125,14 +2145,14 @@ def _compute_speaker_embedding(audio_bytes):
         # Skip short audio — Resemblyzer needs 3+ seconds for reliable embeddings
         duration_sec = len(np_audio) / 16000
         if duration_sec < SPEAKER_MIN_AUDIO_SEC:
-            print(f"[SpeakerVerify] Skipping short audio ({duration_sec:.1f}s < {SPEAKER_MIN_AUDIO_SEC}s)")
+            log.info(f"[SpeakerVerify] Skipping short audio ({duration_sec:.1f}s < {SPEAKER_MIN_AUDIO_SEC}s)")
             return None
         encoder = _get_resemblyzer_encoder()
         processed = preprocess_wav(np_audio)
         embedding = encoder.embed_utterance(processed)
         return embedding
     except Exception as e:
-        print(f"[SpeakerVerify] Embedding error: {e}")
+        log.error(f"[SpeakerVerify] Embedding error: {e}")
         return None
 
 
@@ -2168,30 +2188,30 @@ def _verify_speaker_background(audio_bytes, session, turn):
                     # Remove raw voice bytes to save DB space (we have the embedding now)
                     session.pop("user_voice_ref", None)
                     sessions[session["id"]] = session  # persist embedding to DB
-                    print(f"[SpeakerVerify] {sid} — Reference from LMS voice (256-dim)")
+                    log.info(f"[SpeakerVerify] {sid} — Reference from LMS voice (256-dim)")
                     # Verify first answer against lobby voice — use two-strike system
                     score = float(np.dot(ref_emb, current_emb) /
                                   (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
-                    print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
+                    log.info(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
                     if score < SPEAKER_VERIFY_THRESHOLD:
                         count = session.get("speaker_mismatch_count", 0) + 1
                         session["speaker_mismatch_count"] = count
                         session.setdefault("speaker_mismatches", []).append(
                             {"turn": turn, "score": round(score, 4), "ts": time.time()})
                         sessions[session["id"]] = session
-                        print(f"[SpeakerVerify] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f})")
+                        log.info(f"[SpeakerVerify] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f})")
                     return
             # No LMS voice — use first answer as reference
             session["speaker_ref_embedding"] = current_emb.tolist()  # list for JSON
             sessions[session["id"]] = session  # persist embedding to DB
-            print(f"[SpeakerVerify] {sid} — Reference from turn 1 (256-dim)")
+            log.info(f"[SpeakerVerify] {sid} — Reference from turn 1 (256-dim)")
             return
 
         # Subsequent turns: compare against reference (stored as list)
         ref_emb = np.array(session["speaker_ref_embedding"])
         score = float(np.dot(ref_emb, current_emb) /
                       (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
-        print(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
+        log.info(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
 
         if score < SPEAKER_VERIFY_THRESHOLD:
             count = session.get("speaker_mismatch_count", 0) + 1
@@ -2199,10 +2219,10 @@ def _verify_speaker_background(audio_bytes, session, turn):
             session.setdefault("speaker_mismatches", []).append(
                 {"turn": turn, "score": round(score, 4), "ts": time.time()})
             sessions[session["id"]] = session
-            print(f"[SpeakerVerify] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f})")
+            log.info(f"[SpeakerVerify] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f})")
 
     except Exception as e:
-        print(f"[SpeakerVerify] {sid} — Error: {e}")
+        log.error(f"[SpeakerVerify] {sid} — Error: {e}")
 
 
 def _should_run_speaker_check(session, turn):
@@ -2389,17 +2409,17 @@ async def lms_launch(
                 face = faces[0]
                 glasses_info = face.get("Eyeglasses", {})
                 face_wearing_glasses = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
-                print(f"[FaceID] LMS glasses detected: {face_wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
+                log.info(f"[FaceID] LMS glasses detected: {face_wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
             except HTTPException:
                 raise
             except Exception as e:
-                print(f"[FaceID] LMS face detection failed: {e}")
+                log.error(f"[FaceID] LMS face detection failed: {e}")
                 raise HTTPException(500, f"Face detection failed: {e}")
         # Save to DB for reuse across sessions
         if not database.save_face_reference(email, face_image_bytes, 0, wearing_glasses=face_wearing_glasses):
-            print(f"[FaceID] WARNING: failed to save face reference for {email}")
+            log.error(f"[FaceID] WARNING: failed to save face reference for {email}")
         else:
-            print(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
+            log.info(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
 
     sid = secrets.token_hex(8)
     session = {
@@ -2420,7 +2440,7 @@ async def lms_launch(
             session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
             session["face_liveness_confidence"] = face_conf
             session["face_ref_glasses"] = face_glasses
-            print(f"[FaceID] LMS: loaded face reference for {email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
+            log.info(f"[FaceID] LMS: loaded face reference for {email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
 
     sessions[sid] = session
 
@@ -2435,7 +2455,7 @@ async def lms_launch(
     scheme = request.headers.get("x-forwarded-proto", "https")
     launch_url = f"{scheme}://{host}/?lms=1&token={token}&session_id={sid}"
 
-    print(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain}")
+    log.info(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain}")
 
     # If request wants JSON (API call), return JSON; otherwise redirect to lobby
     accept = request.headers.get("accept", "")
@@ -2519,11 +2539,11 @@ def _lms_callback(session, retries=3):
                                       headers={"X-API-Key": LMS_API_KEY,
                                                "Content-Type": "application/json"},
                                       timeout=15)
-            print(f"[LMS] Callback to {url} — {resp.status_code}")
+            log.info(f"[LMS] Callback to {url} — {resp.status_code}")
             if resp.status_code < 500:
                 return
         except Exception as e:
-            print(f"[LMS] Callback attempt {attempt}/{retries} failed: {e}")
+            log.error(f"[LMS] Callback attempt {attempt}/{retries} failed: {e}")
         if attempt < retries:
             time.sleep(2 ** attempt)
 
@@ -2546,7 +2566,7 @@ def parse_resume_endpoint(file: UploadFile = File(...)):
                 tmp.write(content); tmp_path = tmp.name
             text = ""
             t0_pdf = time.time()
-            print(f"[Resume] PDF upload: {len(content)} bytes, file={file.filename}")
+            log.info(f"[Resume] PDF upload: {len(content)} bytes, file={file.filename}")
             # Try pdfplumber first (text-based PDFs)
             try:
                 import pdfplumber
@@ -2554,9 +2574,9 @@ def parse_resume_endpoint(file: UploadFile = File(...)):
                     for page in pdf.pages:
                         text += (page.extract_text() or "") + "\n"
                 if text.strip():
-                    print(f"[Resume] pdfplumber extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
+                    log.info(f"[Resume] pdfplumber extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
             except Exception as e:
-                print(f"[Resume] pdfplumber failed: {e}")
+                log.error(f"[Resume] pdfplumber failed: {e}")
             # Amazon Textract for scanned/image PDFs — send page-by-page as single-page PDFs
             if not text.strip():
                 try:
@@ -2575,14 +2595,14 @@ def parse_resume_endpoint(file: UploadFile = File(...)):
                             FeatureTypes=["LAYOUT"])
                         lines = [b["Text"] for b in resp.get("Blocks", []) if b["BlockType"] == "LINE"]
                         text += "\n".join(lines) + "\n"
-                        print(f"[Resume] Textract page {i+1}/{num_pages}: {len(lines)} lines ({len(pdf_bytes)//1024}KB)")
+                        log.info(f"[Resume] Textract page {i+1}/{num_pages}: {len(lines)} lines ({len(pdf_bytes)//1024}KB)")
                     doc.close()
                     if text.strip():
-                        print(f"[Resume] Textract extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
+                        log.info(f"[Resume] Textract extracted {len(text.strip())} chars ({round((time.time()-t0_pdf)*1000)}ms)")
                     else:
-                        print(f"[Resume] Textract returned 0 chars")
+                        log.info(f"[Resume] Textract returned 0 chars")
                 except Exception as e:
-                    print(f"[Resume] Textract failed: {e}")
+                    log.error(f"[Resume] Textract failed: {e}")
         except Exception as e:
             raise HTTPException(400, f"PDF error: {e}")
         finally:
@@ -2646,7 +2666,7 @@ async def create_session_endpoint(
         if len(voice_bytes) > 1000:
             import base64
             session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
-            print(f"[Voice] Stored reference voice for session {sid} ({len(voice_bytes)} bytes)")
+            log.info(f"[Voice] Stored reference voice for session {sid} ({len(voice_bytes)} bytes)")
 
     # Load face reference from DB if candidate already has one (by email)
     candidate_email = resume.get("email", "")
@@ -2656,7 +2676,7 @@ async def create_session_endpoint(
             session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
             session["face_liveness_confidence"] = face_conf
             session["face_ref_glasses"] = face_glasses
-            print(f"[FaceID] Loaded existing face reference for {candidate_email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
+            log.info(f"[FaceID] Loaded existing face reference for {candidate_email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
 
     sessions[sid] = session
     return {"session_id": sid, "resume": resume}
@@ -2761,7 +2781,7 @@ def submit_answer(data: dict):
 
     total_ms = round((time.time() - t0_total) * 1000)
     llm_ms = result.get("llm_ms", 0)
-    print(f"[Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms + TTS: {tts_ms}ms)")
+    log.info(f"[Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms + TTS: {tts_ms}ms)")
 
     return {
         "question": result["question"], "question_type": "interview",
@@ -2856,10 +2876,10 @@ def stream_answer(data: dict):
                         total_tts_chars += len(sentence)
                         if audio_bytes:
                             yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
-                        print(f"[Stream] Sentence {sentence_count}: TTS {tts_ms}ms — \"{sentence[:50]}...\"")
+                        log.info(f"[Stream] Sentence {sentence_count}: TTS {tts_ms}ms — \"{sentence[:50]}...\"")
         except Exception as e:
             stream_error = True
-            print(f"[Stream] LLM streaming error: {e}")
+            log.error(f"[Stream] LLM streaming error: {e}")
             session.setdefault("obs_log", []).append(
                 _obs_entry("LLM_question", qgen_model, round((time.time() - t0_llm) * 1000), "error", error=str(e)))
 
@@ -2871,7 +2891,7 @@ def stream_answer(data: dict):
             audio_bytes = tts_chunk(fallback)
             if audio_bytes:
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': 0})}\n\n"
-            print(f"[Stream] Empty LLM response — sent fallback (error={stream_error})")
+            log.error(f"[Stream] Empty LLM response — sent fallback (error={stream_error})")
 
         # Flush remaining buffer
         if sentence_buffer.strip():
@@ -2912,7 +2932,7 @@ def stream_answer(data: dict):
         # don't append to history. The candidate's next answer attaches to the ORIGINAL question.
         is_pause_prompt = _is_pause_prompt(question)
         if is_pause_prompt:
-            print(f"[Stream] Pause prompt detected — not counting as a turn: \"{question}\"")
+            log.info(f"[Stream] Pause prompt detected — not counting as a turn: \"{question}\"")
         else:
             session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
             session["turn"] += 1
@@ -2940,7 +2960,7 @@ def stream_answer(data: dict):
             _evaluate_async(session)
 
         total_ms = round((time.time() - t0) * 1000)
-        print(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks, error={stream_error})")
+        log.error(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks, error={stream_error})")
 
         # Final done event
         yield f"data: {json.dumps({'type': 'done', 'question': question, 'turn': session['turn'], 'phase': session['phase'], 'should_end': is_end, 'pause_prompt': is_pause_prompt, 'timing': {'llm_ms': llm_ms, 'total_ms': total_ms}})}\n\n"
@@ -3156,11 +3176,11 @@ def _load_gaze_bundle():
         _GAZE_BUNDLE = bundle
         labels = bundle.get("label_names") or _GAZE_DEFAULT_LBL
         n_feat = len(bundle.get("feature_columns", []) or [])
-        print(f"[Gaze] Loaded {os.path.basename(GAZE_MODEL_PATH)} — "
-              f"model={bundle.get('name', '?')}, features={n_feat}, classes={labels}")
+        log.info(f"[Gaze] Loaded {os.path.basename(GAZE_MODEL_PATH)} — "
+                 f"model={bundle.get('name', '?')}, features={n_feat}, classes={labels}")
         return bundle
     except Exception as e:
-        print(f"[Gaze] Failed to load model from {GAZE_MODEL_PATH}: {e}")
+        log.error(f"[Gaze] Failed to load model from {GAZE_MODEL_PATH}: {e}")
         return None
 
 @app.post("/api/anticheat-event")
@@ -3280,17 +3300,17 @@ def face_register(data: dict):
         face = faces[0]
         glasses_info = face.get("Eyeglasses", {})
         wearing_glasses = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
-        print(f"[FaceRegister] Glasses detected: {wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
+        log.info(f"[FaceRegister] Glasses detected: {wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
     except Exception as e:
-        print(f"[FaceRegister] DetectFaces failed: {e}")
+        log.error(f"[FaceRegister] DetectFaces failed: {e}")
         raise HTTPException(500, f"Face detection failed: {e}")
     # Persist in DB by email (reusable across sessions)
     if email:
         img_bytes = base64.b64decode(image_b64)
         if not database.save_face_reference(email, img_bytes, 0, wearing_glasses=wearing_glasses):
-            print(f"[FaceRegister] WARNING: failed to save face reference for {email}")
+            log.error(f"[FaceRegister] WARNING: failed to save face reference for {email}")
             raise HTTPException(500, "Failed to save face reference")
-        print(f"[FaceRegister] Reference face persisted for {email} ({len(img_bytes)} bytes, glasses={wearing_glasses})")
+        log.info(f"[FaceRegister] Reference face persisted for {email} ({len(img_bytes)} bytes, glasses={wearing_glasses})")
     return {"ok": True, "face_registered": True, "wearing_glasses": wearing_glasses}
 
 
@@ -3315,7 +3335,7 @@ def face_detect_glasses(data: dict):
         wearing = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
         return {"ok": True, "wearing_glasses": wearing, "confidence": round(glasses_info.get("Confidence", 0), 1)}
     except Exception as e:
-        print(f"[FaceDetectGlasses] Error: {e}")
+        log.error(f"[FaceDetectGlasses] Error: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -3369,7 +3389,7 @@ def face_compare(data: dict):
                 elif not ref_glasses and live_wearing:
                     glasses_mismatch = "registered_without_glasses"
         except Exception as ge:
-            print(f"[FaceCompare] Glasses detection on live frame failed: {ge}")
+            log.error(f"[FaceCompare] Glasses detection on live frame failed: {ge}")
 
         # Log anticheat event
         session.setdefault("anticheat_log", []).append({
@@ -3381,7 +3401,7 @@ def face_compare(data: dict):
         sessions[sid] = session
 
         if not matched:
-            print(f"[FaceCompare] Session {sid}: MISMATCH — similarity={similarity:.1f}%, glasses_mismatch={glasses_mismatch}")
+            log.info(f"[FaceCompare] Session {sid}: MISMATCH — similarity={similarity:.1f}%, glasses_mismatch={glasses_mismatch}")
 
         result = {
             "ok": True,
@@ -3404,7 +3424,7 @@ def face_compare(data: dict):
         sessions[sid] = session
         return {"ok": True, "matched": False, "similarity": 0, "error": "no_face_detected"}
     except Exception as e:
-        print(f"[FaceCompare] Error: {e}")
+        log.error(f"[FaceCompare] Error: {e}")
         raise HTTPException(500, f"Face comparison failed: {e}")
 
 
@@ -3529,7 +3549,7 @@ async def set_stt_config(data: dict, _=Depends(require_admin)):
     if "model" in data:
         RUNTIME_CONFIG["stt_model"] = data["model"]
     _persist_runtime_config()
-    print(f"[STT Config] Changed to {RUNTIME_CONFIG['stt_provider']}/{RUNTIME_CONFIG['stt_model']}")
+    log.info(f"[STT Config] Changed to {RUNTIME_CONFIG['stt_provider']}/{RUNTIME_CONFIG['stt_model']}")
     return {"status": "success", "provider": RUNTIME_CONFIG["stt_provider"], "model": RUNTIME_CONFIG["stt_model"]}
 
 @app.post("/api/admin/stt-test")
@@ -3571,7 +3591,7 @@ async def get_voice_verification_config(_=Depends(require_admin)):
 async def set_voice_verification_config(data: dict, _=Depends(require_admin)):
     RUNTIME_CONFIG["voice_verification_enabled"] = bool(data.get("enabled", True))
     _persist_runtime_config()
-    print(f"[VoiceVerify] {'Enabled' if RUNTIME_CONFIG['voice_verification_enabled'] else 'Disabled'}")
+    log.info(f"[VoiceVerify] {'Enabled' if RUNTIME_CONFIG['voice_verification_enabled'] else 'Disabled'}")
     return {"status": "success", "enabled": RUNTIME_CONFIG["voice_verification_enabled"]}
 
 @app.post("/api/admin/set-interview-voice")
@@ -3957,7 +3977,7 @@ async def create_share_link(data: dict, request: Request, _=Depends(require_admi
     host = request.headers.get("host", request.base_url.hostname)
     scheme = request.headers.get("x-forwarded-proto", "https")
     url = f"{scheme}://{host}/review/{token}"
-    print(f"[Share] Created share link for session {sid[:8]} (expires in {expiry_hours}h)")
+    log.info(f"[Share] Created share link for session {sid[:8]} (expires in {expiry_hours}h)")
     return {"url": url, "token": token, "expires_hours": expiry_hours}
 
 
@@ -4206,10 +4226,10 @@ def trigger_cognition_sweep(_=Depends(require_admin)):
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"  LLM: {RUNTIME_CONFIG['qgen_model']}")
-    print(f"  TTS: {RUNTIME_CONFIG['tts_provider']} / {RUNTIME_CONFIG['tts_voice']}")
-    print(f"  STT: gpt-4o-mini-transcribe")
-    print(f"  Bedrock: {'ready' if bedrock_client else 'not configured'}")
-    print(f"  Grok: {'ready' if xai_client else 'not configured'}")
-    print(f"  Redis cache: {'ready' if redis_cache.is_available() else 'not configured'}")
+    log.info(f"  LLM: {RUNTIME_CONFIG['qgen_model']}")
+    log.info(f"  TTS: {RUNTIME_CONFIG['tts_provider']} / {RUNTIME_CONFIG['tts_voice']}")
+    log.info(f"  STT: gpt-4o-mini-transcribe")
+    log.info(f"  Bedrock: {'ready' if bedrock_client else 'not configured'}")
+    log.info(f"  Grok: {'ready' if xai_client else 'not configured'}")
+    log.info(f"  Redis cache: {'ready' if redis_cache.is_available() else 'not configured'}")
     uvicorn.run("main:app", host="0.0.0.0", port=8001, workers=4)
