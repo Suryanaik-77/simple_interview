@@ -9,12 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "$EC2_SSH_KEY" > /tmp/key.pem
+          chmod 600 /tmp/key.pem
+
+          ssh -o StrictHostKeyChecking=no -i /tmp/key.pem ubuntu@$EC2_HOST << 'ENDSSH'
             cd /home/ubuntu/simple_interview
             git pull origin main
 
@@ -24,7 +26,6 @@ jobs:
             # Restart the app
             pkill -f "python main.py" || true
             sleep 2
-            cd /home/ubuntu/simple_interview
             nohup /home/ubuntu/venv311/bin/python main.py > app.log 2>&1 &
 
             # Wait and verify
@@ -32,7 +33,10 @@ jobs:
             if pgrep -f "python main.py" > /dev/null; then
               echo "App restarted successfully"
             else
-              echo "App failed to start! Check app.log"
+              echo "App failed to start!"
               tail -20 app.log
               exit 1
             fi
+          ENDSSH
+
+          rm -f /tmp/key.pem
