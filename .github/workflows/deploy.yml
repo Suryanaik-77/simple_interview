@@ -1,0 +1,38 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/simple_interview
+            git pull origin main
+
+            # Install any new dependencies
+            /home/ubuntu/venv311/bin/pip install -r requirements.txt -q 2>/dev/null || true
+
+            # Restart the app
+            pkill -f "python main.py" || true
+            sleep 2
+            cd /home/ubuntu/simple_interview
+            nohup /home/ubuntu/venv311/bin/python main.py > app.log 2>&1 &
+
+            # Wait and verify
+            sleep 5
+            if pgrep -f "python main.py" > /dev/null; then
+              echo "App restarted successfully"
+            else
+              echo "App failed to start! Check app.log"
+              tail -20 app.log
+              exit 1
+            fi
