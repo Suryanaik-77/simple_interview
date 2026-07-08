@@ -11,3 +11,4 @@ __pycache__/
 
 # Models (large binaries)
 models/spkrec-ecapa/
+# CI/CD test - 1783502521
