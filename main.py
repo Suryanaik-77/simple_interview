@@ -630,9 +630,10 @@ def tts_chunk(text: str) -> bytes:
 
     if provider == "inworld" and INWORLD_API_KEY:
         try:
+            inworld_vid = voice.split("__")[0] if "__" in voice else voice
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
-                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
+                json={"text": text[:2000], "voiceId": inworld_vid or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
             data = r.json() if "json" in r.headers.get("content-type", "") else None
             if data and data.get("audioContent"):
@@ -808,7 +809,7 @@ def safe_json(text: str):
 
 
 def _is_pause_prompt(text: str) -> bool:
-    """True if the LLM output is a 'Take your time' style pause prompt.
+    """True if the LLM output is a 'Take your time' / 'Go ahead' style pause prompt.
     These don't count as new questions — the candidate's next answer must attach
     to the ORIGINAL question, not to this prompt."""
     if not text:
@@ -816,12 +817,31 @@ def _is_pause_prompt(text: str) -> bool:
     t = text.strip().lower().strip("\"'").rstrip(".!?,").strip()
     if not t:
         return False
-    if t in {"take your time", "please take your time", "ok take your time",
-             "alright take your time", "sure take your time", "no rush",
-             "take a moment", "please take a moment"}:
+    _PAUSE_EXACT = {
+        "take your time", "please take your time", "ok take your time",
+        "alright take your time", "sure take your time", "no rush",
+        "take a moment", "please take a moment",
+        "go ahead", "go ahead finish that thought",
+        "go ahead complete your thought", "go ahead complete your thoughts",
+        "please go ahead", "sure go ahead",
+        "finish that thought", "complete your thought", "complete your thoughts",
+        "go on", "please continue", "continue",
+        "i'm listening", "im listening",
+        "whenever you're ready", "whenever you are ready",
+        "no worries take your time", "no worries",
+    }
+    if t in _PAUSE_EXACT:
         return True
-    # Short utterance that's effectively just a pause cue
-    return len(t) <= 50 and "take your time" in t
+    if len(t) > 80:
+        return False
+    _PAUSE_FRAGMENTS = ("take your time", "finish that thought", "complete your thought",
+                        "complete your thoughts", "whenever you're ready",
+                        "whenever you are ready", "i'm listening", "im listening")
+    if any(f in t for f in _PAUSE_FRAGMENTS):
+        return True
+    # "go ahead" only counts as pause if the utterance is short (not a real question
+    # like "Go ahead and explain clock tree synthesis")
+    return len(t) <= 50 and "go ahead" in t
 
 
 # ── Resume Parsing ───────────────────────────────────────────────────────
@@ -1128,9 +1148,10 @@ def synthesize_speech(text: str) -> tuple[str, int]:
     # Inworld
     if provider == "inworld" and INWORLD_API_KEY:
         try:
+            inworld_vid = voice.split("__")[0] if "__" in voice else voice
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
-                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
+                json={"text": text[:2000], "voiceId": inworld_vid or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
             latency = round((time.time() - t0) * 1000)
             log.info(f"[TTS] Inworld {latency}ms — {len(text)} chars")
@@ -1533,12 +1554,15 @@ JSON:"""
 def generate_question(session, candidate_answer: str) -> dict:
     """Send conversation + answer to LLM, get next question. LLM handles all intelligence."""
 
-    # Add candidate's answer to history
+    # Add candidate's answer to history.
+    # If the last LLM response was a pause prompt, append to existing answer.
     if session["conversation"]:
-        session["conversation"][-1]["answer"] = candidate_answer
-        # Run AI detection in background (non-blocking)
+        if session.pop("_last_was_pause", False) and session["conversation"][-1].get("answer"):
+            session["conversation"][-1]["answer"] += " " + candidate_answer
+        else:
+            session["conversation"][-1]["answer"] = candidate_answer
         turn_idx = len(session["conversation"]) - 1
-        threading.Thread(target=detect_ai_answer, args=(candidate_answer, session, turn_idx), daemon=True).start()
+        threading.Thread(target=detect_ai_answer, args=(session["conversation"][-1]["answer"], session, turn_idx), daemon=True).start()
 
     # Check auto-end
     should_end, end_msg = _should_end_interview(session)
@@ -1601,11 +1625,13 @@ def generate_question(session, candidate_answer: str) -> dict:
     if is_followup:
         question = question.replace("[FOLLOWUP]", "").strip()
 
-    # Pause prompt ("Take your time") — don't count as a new question.
+    # Pause prompt ("Take your time", "Go ahead") — don't count as a new question.
     is_pause_prompt = _is_pause_prompt(question)
     if is_pause_prompt:
         log.info(f"[Submit] Pause prompt detected — not counting as a turn: \"{question}\"")
+        session["_last_was_pause"] = True
     else:
+        session.pop("_last_was_pause", None)
         entry = {"question": question, "answer": None, "turn": session["turn"]}
         if is_followup:
             entry["is_followup"] = True
@@ -2807,6 +2833,7 @@ def submit_answer(data: dict):
         "turn": session["turn"], "phase": session["phase"],
         "audio": audio, "difficulty": "basic",
         "should_end": result["should_end"],
+        "pause_prompt": result.get("pause_prompt", False),
         "timing": {"llm_ms": llm_ms, "tts_ms": tts_ms, "total_ms": total_ms},
     }
 
@@ -2833,11 +2860,16 @@ def stream_answer(data: dict):
     def event_stream():
         t0 = time.time()
 
-        # Add candidate's answer to history
+        # Add candidate's answer to history.
+        # If the last LLM response was a pause prompt ("go ahead, finish that thought"),
+        # append to the existing answer instead of replacing it.
         if session["conversation"]:
-            session["conversation"][-1]["answer"] = answer
+            if session.pop("_last_was_pause", False) and session["conversation"][-1].get("answer"):
+                session["conversation"][-1]["answer"] += " " + answer
+            else:
+                session["conversation"][-1]["answer"] = answer
             turn_idx = len(session["conversation"]) - 1
-            threading.Thread(target=detect_ai_answer, args=(answer, session, turn_idx), daemon=True).start()
+            threading.Thread(target=detect_ai_answer, args=(session["conversation"][-1]["answer"], session, turn_idx), daemon=True).start()
 
         # Check auto-end
         should_end, end_msg = _should_end_interview(session)
@@ -2947,12 +2979,15 @@ def stream_answer(data: dict):
             session["phase"] = "ended"
             is_end = True
 
-        # Pause prompts (e.g. "Take your time") are NOT new questions. Don't bump turn,
-        # don't append to history. The candidate's next answer attaches to the ORIGINAL question.
+        # Pause prompts (e.g. "Take your time", "Go ahead, finish that thought") are
+        # NOT new questions. Don't bump turn, don't append to history. The candidate's
+        # next answer attaches to the ORIGINAL question.
         is_pause_prompt = _is_pause_prompt(question)
         if is_pause_prompt:
             log.info(f"[Stream] Pause prompt detected — not counting as a turn: \"{question}\"")
+            session["_last_was_pause"] = True
         else:
+            session.pop("_last_was_pause", None)
             session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
             session["turn"] += 1
 

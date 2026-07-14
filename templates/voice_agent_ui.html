@@ -2058,7 +2058,10 @@
             const ad = await ar.json();
             if (ad.should_end) { endSession(); return; }
             displayQuestion(ad);
-            await playAudio(ad.question, ad.audio, ad.phase);
+            // For pause prompts, pass the original question text so the UI
+            // never shows the nudge phrase ("go ahead", "take your time").
+            const displayText = ad.pause_prompt ? (_lastRealQuestionText || ad.question) : ad.question;
+            await playAudio(displayText, ad.audio, ad.phase);
             return;
         }
 
@@ -2161,7 +2164,14 @@
                             document.getElementById('live-badge').classList.add('active');
                         }
                         _wasPausePrompt = !!evt.pause_prompt;
-                        // For pause prompts ("Take your time") the server didn't bump turn
+                        // Pause prompts ("Take your time", "Go ahead") are not real
+                        // questions — immediately restore the original question text
+                        // so the candidate never sees the nudge in the question area.
+                        if (_wasPausePrompt) {
+                            document.getElementById('question-text').textContent =
+                                _lastRealQuestionText || streamText;
+                        }
+                        // For pause prompts the server didn't bump turn
                         // and didn't store a new question. Skip the counter update too.
                         if (!_wasPausePrompt) {
                             qCount = evt.turn || qCount;
