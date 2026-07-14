@@ -1279,6 +1279,11 @@ def build_interview_prompt(session):
     else:
         candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Tools: {tools} | Projects: {projects_str} | Skills: {skills}"
 
+    # Append raw resume text so interviewer can reference actual project details
+    resume_text = resume.get("resume_text", "")
+    if resume_text:
+        candidate_info += f"\n\nFULL RESUME:\n{resume_text[:2000]}"
+
     # Check for returning candidate
     returning_block = ""
     email = resume.get("email", "")
