@@ -832,7 +832,7 @@ def parse_resume(resume_text: str) -> dict:
     today_str = datetime.now().strftime("%B %Y")
     prompt = f"""Extract from this resume. Return ONLY valid JSON:
 {{"candidate_name":"","email":"","phone":"","level":"fresh_graduate|trained_fresher|experienced_junior|experienced_senior",
-"years_experience":0,"skills":[],"tools":[],"key_projects":[],"domain":"","education":""}}
+"years_experience":0,"skills":[],"tools":[],"key_projects":[{{"name":"project name","description":"1-2 sentence summary of what was done, role, node, challenges"}}],"domain":"","education":""}}
 
 Today's date: {today_str}
 
@@ -886,7 +886,7 @@ Rules:
 
 - skills: VLSI/EDA specific only
 - tools: EDA tool names (ICC2, PrimeTime, Calibre, Virtuoso, VCS, etc.)
-- key_projects: max 5
+- key_projects: list of objects with "name" and "description" (1-2 sentence summary including role, technology node, key challenges). Extract ALL projects.
 - domain: physical_design or analog_layout or design_verification
 
 RESUME:
@@ -895,7 +895,7 @@ RESUME:
 JSON:"""
     for attempt in range(3):
         try:
-            raw = call_cerebras([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
+            raw = call_cerebras([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=800)
             parsed = safe_json(raw)
             if parsed and parsed.get("candidate_name"):
                 log.info(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')}")
@@ -1257,13 +1257,27 @@ def build_interview_prompt(session):
     level = resume.get("level", "trained_fresher")
     domain = resume.get("domain", "physical_design")
     years = resume.get("years_experience", 0)
-    tools = ", ".join(str(t) for t in resume.get("tools", [])[:5]) or "not specified"
-    projects = ", ".join(str(p) for p in resume.get("key_projects", [])[:3]) or "not specified"
-    skills = ", ".join(str(s) for s in resume.get("skills", [])[:8]) or "not specified"
+    tools = ", ".join(str(t) for t in resume.get("tools", [])) or "not specified"
+    skills = ", ".join(str(s) for s in resume.get("skills", [])) or "not specified"
+
+    # Format projects with descriptions if available
+    raw_projects = resume.get("key_projects", [])
+    if raw_projects and isinstance(raw_projects[0], dict):
+        proj_lines = []
+        for p in raw_projects:
+            pname = p.get("name", "")
+            pdesc = p.get("description", "")
+            proj_lines.append(f"  - {pname}: {pdesc}" if pdesc else f"  - {pname}")
+        projects_str = "\n".join(proj_lines)
+    else:
+        projects_str = ", ".join(str(p) for p in raw_projects) if raw_projects else "not specified"
 
     # Load self-contained prompt for this level + domain
     base_prompt = get_interview_prompt(level, domain)
-    candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Tools: {tools} | Projects: {projects} | Skills: {skills}"
+    if "\n" in projects_str:
+        candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Tools: {tools} | Skills: {skills}\nProjects:\n{projects_str}"
+    else:
+        candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Tools: {tools} | Projects: {projects_str} | Skills: {skills}"
 
     # Check for returning candidate
     returning_block = ""
@@ -1291,7 +1305,7 @@ def build_interview_prompt(session):
                         continue
                     prev_questions.append(q)
                 for p in ps.get("projects", []):
-                    prev_projects.add(str(p))
+                    prev_projects.add(p.get("name", str(p)) if isinstance(p, dict) else str(p))
 
             projects_note = ""
             if prev_projects:
