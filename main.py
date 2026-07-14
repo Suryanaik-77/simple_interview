@@ -631,7 +631,7 @@ def tts_chunk(text: str) -> bytes:
     if provider == "inworld" and INWORLD_API_KEY:
         try:
             inworld_vid = voice.split("__")[0] if "__" in voice else voice
-            r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
+            r = http_requests.post("https://api.inworld.ai/v1/tts:synthesize",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
                 json={"text": text[:2000], "voiceId": inworld_vid or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
@@ -642,9 +642,11 @@ def tts_chunk(text: str) -> bytes:
         except Exception as e:
             log.error(f"[TTS Stream] Inworld error: {e}")
 
+    _OPENAI_VOICES = {"nova", "shimmer", "echo", "onyx", "fable", "alloy", "ash", "sage", "coral"}
     if OPENAI_API_KEY:
         try:
-            response = openai_client.audio.speech.create(model="tts-1", voice=voice or "nova", input=text[:2000])
+            oai_voice = voice if voice in _OPENAI_VOICES else "nova"
+            response = openai_client.audio.speech.create(model="tts-1", voice=oai_voice, input=text[:2000])
             return response.content
         except Exception as e:
             log.error(f"[TTS Stream] OpenAI error: {e}")
@@ -1149,7 +1151,7 @@ def synthesize_speech(text: str) -> tuple[str, int]:
     if provider == "inworld" and INWORLD_API_KEY:
         try:
             inworld_vid = voice.split("__")[0] if "__" in voice else voice
-            r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
+            r = http_requests.post("https://api.inworld.ai/v1/tts:synthesize",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
                 json={"text": text[:2000], "voiceId": inworld_vid or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
@@ -1161,10 +1163,12 @@ def synthesize_speech(text: str) -> tuple[str, int]:
         except Exception as e:
             log.error(f"[TTS] Inworld error: {e}")
 
-    # OpenAI TTS
+    # OpenAI TTS (fallback — use valid OpenAI voice)
+    _OPENAI_VOICES = {"nova", "shimmer", "echo", "onyx", "fable", "alloy", "ash", "sage", "coral"}
     if OPENAI_API_KEY:
         try:
-            response = openai_client.audio.speech.create(model="tts-1", voice=voice or "nova", input=text[:2000])
+            oai_voice = voice if voice in _OPENAI_VOICES else "nova"
+            response = openai_client.audio.speech.create(model="tts-1", voice=oai_voice, input=text[:2000])
             latency = round((time.time() - t0) * 1000)
             log.info(f"[TTS] OpenAI {latency}ms — {len(text)} chars")
             return base64.b64encode(response.content).decode(), latency
