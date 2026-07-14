@@ -1389,8 +1389,6 @@ def _get_topics_covered(session) -> list[str]:
 SESSION_MAX_DURATION_SEC = int(os.getenv("SESSION_MAX_DURATION_SEC", "3600"))  # 1 hour
 
 def _should_end_interview(session) -> tuple[bool, str]:
-    if session.get("turn", 0) >= 25:
-        return True, "That's all from my side. Thank you for your time."
     started = session.get("started_at", 0)
     if started and (time.time() - started) > SESSION_MAX_DURATION_SEC:
         return True, "We've run out of time. Thank you for your time."
@@ -1636,7 +1634,8 @@ def generate_question(session, candidate_answer: str) -> dict:
         if is_followup:
             entry["is_followup"] = True
         session["conversation"].append(entry)
-        session["turn"] += 1
+        if not is_followup:
+            session["turn"] += 1
 
     # Store LLM timing + cost
     session.setdefault("obs_log", []).append(obs)
@@ -1812,9 +1811,10 @@ def _fill_eval_prompt(template: str, **kw) -> str:
 
 
 def _answered_count(session) -> int:
-    """How many questions the candidate actually answered (non-empty answer)."""
+    """How many main questions the candidate actually answered (non-empty answer).
+    Follow-ups are part of the parent question, not separate questions."""
     return sum(1 for e in session.get("conversation", [])
-               if (e.get("answer") or "").strip())
+               if (e.get("answer") or "").strip() and not e.get("is_followup"))
 
 
 def _build_eval_transcript(session, max_chars: int = 25000) -> str:
@@ -2964,6 +2964,11 @@ def stream_answer(data: dict):
         question = re.sub(r'`([^`]+)`', r'\1', question)
         question = re.sub(r'#{1,3}\s*', '', question).strip()
 
+        # Detect follow-up tag
+        is_followup = "[FOLLOWUP]" in question
+        if is_followup:
+            question = question.replace("[FOLLOWUP]", "").strip()
+
         # Check behavior tags
         is_end = False
         if "[PERSONAL]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
@@ -2988,8 +2993,12 @@ def stream_answer(data: dict):
             session["_last_was_pause"] = True
         else:
             session.pop("_last_was_pause", None)
-            session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
-            session["turn"] += 1
+            entry = {"question": question, "answer": None, "turn": session["turn"]}
+            if is_followup:
+                entry["is_followup"] = True
+            session["conversation"].append(entry)
+            if not is_followup:
+                session["turn"] += 1
 
         # Track LLM cost
         tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
