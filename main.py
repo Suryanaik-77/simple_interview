@@ -427,10 +427,18 @@ def _estimate_message_tokens(messages: list, model: str = "") -> int:
     return total
 
 
-def _calc_llm_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Calculate LLM cost in USD."""
+def _calc_llm_cost(model: str, input_tokens: int, output_tokens: int,
+                   cache_read_tokens: int = 0, cache_creation_tokens: int = 0) -> float:
+    """Calculate LLM cost in USD with prompt cache support.
+    Cache reads are 90% cheaper, cache writes are 25% more expensive (Bedrock Claude)."""
     pricing = _LLM_PRICING.get(model, (0.15, 0.60))  # default to gpt-4o-mini
-    return (input_tokens * pricing[0] + output_tokens * pricing[1]) / 1_000_000
+    in_price, out_price = pricing
+    non_cached_input = input_tokens - cache_read_tokens - cache_creation_tokens
+    cost = (non_cached_input * in_price
+            + cache_read_tokens * in_price * 0.1
+            + cache_creation_tokens * in_price * 1.25
+            + output_tokens * out_price) / 1_000_000
+    return cost
 
 
 def _get_audio_duration_ms(audio_bytes: bytes, ext: str = "webm") -> int:
@@ -510,9 +518,14 @@ def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
 
     # Bedrock (Claude, Llama, Nova, etc.)
     if bedrock_client and (model.startswith("us.") or "anthropic" in model or "amazon" in model or "meta" in model):
-        text = _call_bedrock(messages, model, temperature, max_tokens)
-        out_tok = _estimate_tokens(text, model)
-        return text, {"input_tokens": input_est, "output_tokens": out_tok, "cost_usd": _calc_llm_cost(model, input_est, out_tok)}
+        text, usage = _call_bedrock(messages, model, temperature, max_tokens)
+        in_tok = usage.get("input_tokens") or input_est
+        out_tok = usage.get("output_tokens") or _estimate_tokens(text, model)
+        cr = usage.get("cache_read_input_tokens", 0)
+        cc = usage.get("cache_creation_input_tokens", 0)
+        return text, {"input_tokens": in_tok, "output_tokens": out_tok,
+                       "cache_read_input_tokens": cr, "cache_creation_input_tokens": cc,
+                       "cost_usd": _calc_llm_cost(model, in_tok, out_tok, cr, cc)}
 
     # OpenAI (default)
     resp = openai_client.chat.completions.create(
@@ -689,6 +702,17 @@ def _build_bedrock_body(messages, model_id, temperature, max_tokens):
         for i, m in enumerate(merged):
             if isinstance(m.get("content"), str):
                 merged[i] = {"role": m["role"], "content": [{"type": "text", "text": m["content"]}]}
+        # Cache the last user turn so growing conversation history is cached
+        if len(merged) >= 2:
+            last_user_idx = None
+            for i in range(len(merged) - 1, -1, -1):
+                if merged[i]["role"] == "user":
+                    last_user_idx = i
+                    break
+            if last_user_idx is not None:
+                content = merged[last_user_idx]["content"]
+                if isinstance(content, list) and content:
+                    content[-1]["cache_control"] = {"type": "ephemeral"}
         body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": max_tokens, "temperature": temperature, "messages": merged}
         if top_system.strip():
             body["system"] = [{"type": "text", "text": top_system.strip(), "cache_control": {"type": "ephemeral"}}]
@@ -720,17 +744,29 @@ def _parse_bedrock_response(result_body, model_type):
 
 
 def _call_bedrock(messages, model_id, temperature, max_tokens):
-    """Call AWS Bedrock models (non-streaming)."""
+    """Call AWS Bedrock models (non-streaming). Returns (text, usage_dict)."""
     body, model_type = _build_bedrock_body(messages, model_id, temperature, max_tokens)
     resp = bedrock_client.invoke_model(modelId=model_id, contentType="application/json", accept="application/json", body=json.dumps(body))
     result_body = json.loads(resp["body"].read())
-    return _parse_bedrock_response(result_body, model_type)
+    text = _parse_bedrock_response(result_body, model_type)
+    usage = result_body.get("usage", {})
+    return text, {
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+    }
 
+
+_last_stream_bedrock_usage = {}
 
 def _stream_bedrock(messages, model_id, temperature, max_tokens):
     """Stream tokens from AWS Bedrock. Yields text chunks.
     Supports Claude (content_block_delta), Nova (contentBlockDelta),
-    and Llama (generation token). Falls back to non-streaming for unknown models."""
+    and Llama (generation token). Falls back to non-streaming for unknown models.
+    After iteration, usage is available in _last_stream_bedrock_usage."""
+    global _last_stream_bedrock_usage
+    _last_stream_bedrock_usage = {}
     body, model_type = _build_bedrock_body(messages, model_id, temperature, max_tokens)
 
     try:
@@ -739,8 +775,8 @@ def _stream_bedrock(messages, model_id, temperature, max_tokens):
             body=json.dumps(body))
         stream = resp.get("body")
         if not stream:
-            # No stream body — fall back to non-streaming
-            full = _call_bedrock(messages, model_id, temperature, max_tokens)
+            full, usage = _call_bedrock(messages, model_id, temperature, max_tokens)
+            _last_stream_bedrock_usage = usage
             yield full
             return
 
@@ -751,24 +787,30 @@ def _stream_bedrock(messages, model_id, temperature, max_tokens):
             payload = json.loads(chunk["bytes"])
 
             if model_type == "claude":
-                # Claude streams: contentBlockDelta with delta.text
                 if payload.get("type") == "content_block_delta":
                     text = payload.get("delta", {}).get("text", "")
                     if text:
                         yield text
+                elif payload.get("type") == "message_delta":
+                    usage = payload.get("usage", {})
+                    _last_stream_bedrock_usage["output_tokens"] = usage.get("output_tokens", 0)
+                elif payload.get("type") == "message_start":
+                    usage = payload.get("message", {}).get("usage", {})
+                    _last_stream_bedrock_usage.update({
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+                        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+                    })
             elif model_type == "nova":
-                # Nova streams: contentBlockDelta with delta.text
                 delta = payload.get("contentBlockDelta", {}).get("delta", {})
                 text = delta.get("text", "")
                 if text:
                     yield text
             elif model_type == "llama":
-                # Llama streams: generation token
                 text = payload.get("generation", "")
                 if text:
                     yield text
             else:
-                # Unknown model — try common patterns
                 text = (payload.get("delta", {}).get("text", "") or
                         payload.get("generation", "") or
                         payload.get("outputText", ""))
@@ -777,7 +819,8 @@ def _stream_bedrock(messages, model_id, temperature, max_tokens):
 
     except Exception as e:
         log.error(f"[Bedrock Stream] Streaming failed ({e}), falling back to non-streaming")
-        full = _call_bedrock(messages, model_id, temperature, max_tokens)
+        full, usage = _call_bedrock(messages, model_id, temperature, max_tokens)
+        _last_stream_bedrock_usage = usage
         yield full
 
 
@@ -1597,7 +1640,9 @@ def generate_question(session, candidate_answer: str) -> dict:
 
     obs = _obs_entry("LLM_question", RUNTIME_CONFIG["qgen_model"], llm_ms, "success",
                      input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
-                     cost_usd=usage["cost_usd"])
+                     cost_usd=usage["cost_usd"],
+                     cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+                     cache_write_tokens=usage.get("cache_creation_input_tokens", 0))
 
     # Check behavior tags from LLM
     if "[PERSONAL]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
@@ -1714,7 +1759,9 @@ Rules:
         session.setdefault("obs_log", []).append(
             _obs_entry("LLM_greeting", RUNTIME_CONFIG["qgen_model"], greet_ms, "success",
                        input_tokens=greet_usage["input_tokens"], output_tokens=greet_usage["output_tokens"],
-                       cost_usd=greet_usage["cost_usd"]))
+                       cost_usd=greet_usage["cost_usd"],
+                       cache_read_tokens=greet_usage.get("cache_read_input_tokens", 0),
+                       cache_write_tokens=greet_usage.get("cache_creation_input_tokens", 0)))
     except:
         name = (resume.get("candidate_name", "") or "").split()[0] if resume.get("candidate_name") else ""
         greeting = f"Good {time_of_day}{' ' + name if name else ''}, I'm Ranjitha. Tell me about yourself."
@@ -2021,7 +2068,9 @@ def evaluate_interview(session) -> dict:
 
         obs = _obs_entry("LLM_evaluation", model, eval_ms, "success" if parsed else "failure",
                          input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
-                         cost_usd=usage["cost_usd"])
+                         cost_usd=usage["cost_usd"],
+                         cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+                         cache_write_tokens=usage.get("cache_creation_input_tokens", 0))
         session.setdefault("obs_log", []).append(obs)
 
         if database.is_available():
@@ -2974,8 +3023,13 @@ def stream_answer(data: dict):
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
 
         llm_ms = round((time.time() - t0_llm) * 1000)
-        output_tokens_est = _estimate_tokens(full_text, qgen_model)
-        llm_cost = _calc_llm_cost(qgen_model, input_tokens_est, output_tokens_est)
+        # Use actual Bedrock usage if available (includes cache info), else estimate
+        _bu = _last_stream_bedrock_usage if _last_stream_bedrock_usage else {}
+        input_tokens_est = _bu.get("input_tokens") or input_tokens_est
+        output_tokens_est = _bu.get("output_tokens") or _estimate_tokens(full_text, qgen_model)
+        _cache_read = _bu.get("cache_read_input_tokens", 0)
+        _cache_create = _bu.get("cache_creation_input_tokens", 0)
+        llm_cost = _calc_llm_cost(qgen_model, input_tokens_est, output_tokens_est, _cache_read, _cache_create)
 
         # Clean the full text
         question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', full_text)
@@ -3024,7 +3078,8 @@ def stream_answer(data: dict):
         if not stream_error:
             session.setdefault("obs_log", []).append(
                 _obs_entry("LLM_question", qgen_model, llm_ms, "success",
-                           input_tokens=input_tokens_est, output_tokens=output_tokens_est, cost_usd=llm_cost))
+                           input_tokens=input_tokens_est, output_tokens=output_tokens_est, cost_usd=llm_cost,
+                           cache_read_tokens=_cache_read, cache_write_tokens=_cache_create))
         # Track TTS cost
         session.setdefault("obs_log", []).append(
             _obs_entry("TTS", tts_provider, total_tts_ms, "success",
