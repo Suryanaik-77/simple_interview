@@ -631,7 +631,7 @@ def tts_chunk(text: str) -> bytes:
     if provider == "inworld" and INWORLD_API_KEY:
         try:
             inworld_vid = voice.split("__")[0] if "__" in voice else voice
-            r = http_requests.post("https://api.inworld.ai/v1/tts:synthesize",
+            r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
                 json={"text": text[:2000], "voiceId": inworld_vid or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
@@ -1151,7 +1151,7 @@ def synthesize_speech(text: str) -> tuple[str, int]:
     if provider == "inworld" and INWORLD_API_KEY:
         try:
             inworld_vid = voice.split("__")[0] if "__" in voice else voice
-            r = http_requests.post("https://api.inworld.ai/v1/tts:synthesize",
+            r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
                 json={"text": text[:2000], "voiceId": inworld_vid or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
@@ -2908,22 +2908,32 @@ def stream_answer(data: dict):
         qgen_model = RUNTIME_CONFIG["qgen_model"]
         input_tokens_est = _estimate_message_tokens(messages, qgen_model)
         stream_error = False
+        _VOICE_ONLY_PATTERNS = ["please answer in english", "answer in english", "speak in english",
+                                "please speak in english", "please respond in english"]
+
+        def _is_voice_only(text):
+            return any(p in text.lower().strip().rstrip('.!') for p in _VOICE_ONLY_PATTERNS)
 
         try:
+            token_hold = []
             for token in stream_llm(messages, temperature=0.7, max_tokens=200):
                 full_text += token
                 sentence_buffer += token
-
-                # Send text token to frontend immediately (for typewriter)
-                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                token_hold.append(token)
 
                 # Check for sentence boundary
                 if re.search(r'[.?!]\s*$', sentence_buffer) or len(sentence_buffer) > 150:
                     sentence = sentence_buffer.strip()
                     sentence_buffer = ""
                     if sentence:
+                        voice_only = _is_voice_only(sentence)
+                        if not voice_only:
+                            for t in token_hold:
+                                yield f"data: {json.dumps({'type': 'token', 'content': t})}\n\n"
+                        else:
+                            log.info(f"[Stream] Voice-only (hidden from UI): \"{sentence[:60]}\"")
+                        token_hold = []
                         sentence_count += 1
-                        # Generate TTS for this sentence
                         t0_tts = time.time()
                         audio_bytes = tts_chunk(sentence)
                         tts_ms = round((time.time() - t0_tts) * 1000)
@@ -2951,6 +2961,10 @@ def stream_answer(data: dict):
         # Flush remaining buffer
         if sentence_buffer.strip():
             sentence = sentence_buffer.strip()
+            if not _is_voice_only(sentence):
+                for t in token_hold:
+                    yield f"data: {json.dumps({'type': 'token', 'content': t})}\n\n"
+            token_hold = []
             t0_tts = time.time()
             audio_bytes = tts_chunk(sentence)
             tts_ms = round((time.time() - t0_tts) * 1000)
