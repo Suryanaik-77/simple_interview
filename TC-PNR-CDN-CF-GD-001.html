@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testcase 1: Chip Finish Output Generation (Guided) &#8212; Lab 15</title>
+    <link rel="stylesheet" href="../common/styles.css">
+
+    <style>
+        .btn-check-answer {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 9px 24px;
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, opacity 0.2s;
+            letter-spacing: 0.02em;
+        }
+        .btn-check-answer:hover:not(:disabled) { background: #1d4ed8; }
+        .btn-check-answer:disabled { opacity: 0.45; cursor: not-allowed; }
+        .quiz-options li.selected {
+            background: #eff6ff;
+            border-left: 4px solid #2563eb;
+            color: #1e3a8a;
+        }
+    </style>
+</head>
+<body>
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Testcase 1: tile Design &#8212; Chip Finish Output Generation</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#128205; <a href="../PNR-CDN-CF.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 1</span>
+                </div>
+                <div class="meta-item"><span>&#127919; Type: Guided</span></div>
+                <div class="meta-item"><span>&#9201; Estimated Time: 60&#8211;90 minutes</span></div>
+                <div class="meta-item"><span>&#11088; Difficulty: Beginner</span></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Overview</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                <p>In this testcase you will run the chip finish stage for the <strong>tile</strong> design. Starting from a completed post-route database, you will walk through every command in <code>scripts/chip_finish.tcl</code> and understand exactly what each output file contains, which downstream tool consumes it, and why it must be generated before tape-out.</p>
+                <p style="margin-top: 15px;">By the end you will have generated all nine deliverables that a production tape-out requires: three Verilog netlists, two DEF files, a LEF abstract, two GDS files, and an hcell hierarchy list.</p>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128203; What You Will Generate</h2>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em;">
+                <thead>
+                    <tr style="background: #FA9600; color: #fff;">
+                        <th style="padding: 8px 12px; text-align: left;">Step</th>
+                        <th style="padding: 8px 12px; text-align: left;">Output File</th>
+                        <th style="padding: 8px 12px; text-align: left;">Downstream Use</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background: #fff;">
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">1</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;"><code>tile.vg</code></td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">LEC / Formality equivalence check</td>
+                    </tr>
+                    <tr style="background: #f9f9f9;">
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">2</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;"><code>tile.pg.vg</code></td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">LVS (power/ground port connectivity)</td>
+                    </tr>
+                    <tr style="background: #fff;">
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">3</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;"><code>tile.fill.pg.vg</code></td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">LVS with filler and decap cells included</td>
+                    </tr>
+                    <tr style="background: #f9f9f9;">
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">4</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;"><code>tile.def</code></td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">Parasitic extraction, SoC integration</td>
+                    </tr>
+                    <tr style="background: #fff;">
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">5</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;"><code>tile.IR.def</code></td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">IR drop / EM analysis (Voltus, Redhawk)</td>
+                    </tr>
+                    <tr style="background: #f9f9f9;">
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">6</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;"><code>tile_abstract.lef</code></td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">Chip-level PnR (hierarchical integration)</td>
+                    </tr>
+                    <tr style="background: #fff;">
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">7</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;"><code>tile.pnr.gds.gz</code></td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">DRC (standalone block check)</td>
+                    </tr>
+                    <tr style="background: #f9f9f9;">
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">8</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;"><code>hcell.list</code></td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">LVS hierarchical cell name mapping</td>
+                    </tr>
+                    <tr style="background: #fff;">
+                        <td style="padding: 8px 12px;">9</td>
+                        <td style="padding: 8px 12px;"><code>tile.merged.gds.gz</code></td>
+                        <td style="padding: 8px 12px;">Full tape-out GDS (PnR + PDK std cell GDS merged)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128736; Step-by-Step Walkthrough</h2>
+
+            <ul class="step-list">
+
+                <!-- STEP 1: Environment setup and read_db -->
+                <li>
+                    <h3>Set Environment Variables and Read the Post-Route Database</h3>
+                    <p>The chip finish script begins by reading environment variables that locate the previous stage outputs and the current stage output directory. These variables are set by the job scheduler before Innovus starts.</p>
+                    <pre class="code-block">set design_name $env(BLOCK_NAME)
+set tool_scripts $env(TOOL_SCRIPTS)
+set prev_stage_dir $env(POSTROUTE_DIR)
+set cur_stage_dir $env(CHIP_FINISH_DIR)
+
+set stage chip_finish
+
+read_db ${prev_stage_dir}/outputs/postroute.db</pre>
+                    <p style="margin-top: 10px;"><strong>Why environment variables?</strong> Using <code>$env(...)</code> instead of hard-coded paths means the same <code>chip_finish.tcl</code> script works for any block and any run directory. The three key variables are:</p>
+                    <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.8;">
+                        <li><code>BLOCK_NAME</code> &mdash; the design name (<code>tile</code> in this lab). Used to name every output file.</li>
+                        <li><code>POSTROUTE_DIR</code> &mdash; path to the routing stage outputs. <code>read_db</code> loads the completed post-route database from there.</li>
+                        <li><code>CHIP_FINISH_DIR</code> &mdash; path to this stage's working directory. All output files go into <code>${cur_stage_dir}/outputs/</code>.</li>
+                    </ul>
+                    <p style="margin-top: 10px;"><code>read_db</code> restores the complete Innovus design state (placement, routing, timing, PG) so that all subsequent write commands have a fully resolved database to export from.</p>
+                    <pre class="code-block">cd ~/pd/labs/lab-15-chip-finish/testcase1
+make all</pre>
+                </li>
+
+                <!-- STEP 2: write_netlist basic .vg -->
+                <li>
+                    <h3>Write the Logic Netlist for LEC &mdash; <code>tile.vg</code></h3>
+                    <pre class="code-block">write_netlist -exclude_leaf_cells \
+    ${OUTDIR}/[get_db [current_design] .name].vg</pre>
+                    <p style="margin-top: 10px;"><strong>What it produces:</strong> A Verilog gate-level netlist that contains every standard cell instance and their signal connections. The <code>-exclude_leaf_cells</code> flag prevents leaf-level primitives (individual transistor models) from being flattened into the netlist, keeping it at the logical gate level.</p>
+                    <p style="margin-top: 10px;"><strong>Why it is needed:</strong> The Logical Equivalence Checker (LEC / Formality) compares this post-route netlist against the synthesis gate-level netlist to confirm that routing, CTS buffer insertion, and hold-fixing did not change the design's logical function. Every ECO change made after synthesis must be verified before tape-out.</p>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Note:</strong> <code>[get_db [current_design] .name]</code> evaluates to the design name at runtime. For the tile design it resolves to <code>tile</code>, so the file is written as <code>tile.vg</code>.
+                    </div>
+                </li>
+
+                <!-- STEP 3: write_netlist .pg.vg -->
+                <li>
+                    <h3>Write the PG-Annotated Netlist for LVS &mdash; <code>tile.pg.vg</code></h3>
+                    <pre class="code-block">write_netlist -include_pg_ports -exclude_leaf_cells \
+    ${OUTDIR}/[get_db [current_design] .name].pg.vg</pre>
+                    <p style="margin-top: 10px;"><strong>What it produces:</strong> The same gate-level netlist as <code>.vg</code>, but with the <code>-include_pg_ports</code> flag added. This causes Innovus to include VDD and VSS port connections on every cell instance.</p>
+                    <p style="margin-top: 10px;"><strong>Why it is needed:</strong> Layout Versus Schematic (LVS) verification compares the physical GDS layout against a schematic netlist. LVS requires power and ground connections to be explicitly present in the netlist &mdash; if a cell's VDD/VSS ports are absent, LVS reports a mismatch. The <code>.pg.vg</code> file is the schematic reference used during LVS of the logic hierarchy.</p>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Difference from <code>.vg</code>:</strong> The <code>.vg</code> file has only signal ports (suitable for LEC); the <code>.pg.vg</code> file adds power pins (required for LVS). Both exclude filler and decap cells.
+                    </div>
+                </li>
+
+                <!-- STEP 4: write_netlist .fill.pg.vg -->
+                <li>
+                    <h3>Write the Full Physical Netlist for LVS &mdash; <code>tile.fill.pg.vg</code></h3>
+                    <pre class="code-block">write_netlist -include_phys_insts -include_pg_ports -exclude_leaf_cells \
+    ${OUTDIR}/[get_db [current_design] .name].fill.pg.vg</pre>
+                    <p style="margin-top: 10px;"><strong>What it produces:</strong> The most complete netlist variant. The additional <code>-include_phys_insts</code> flag includes physical-only instances that have no logical function: filler cells (FILL*), decoupling capacitors (DCAP*), and spare cells. These cells exist in the GDS layout and must be present in the LVS schematic or LVS will report spurious device mismatches.</p>
+                    <p style="margin-top: 10px;"><strong>Why it is needed:</strong> When running full-chip LVS that includes the physical well-fill and decap cells, the extracted layout contains all physical instances. If the schematic netlist omits them, LVS flags every filler cell as an unmatched device. The <code>.fill.pg.vg</code> file is used for LVS runs that verify the complete physical implementation including all inserted physical cells.</p>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Netlist hierarchy summary:</strong>
+                        <ul style="margin-left: 20px; margin-top: 6px; line-height: 1.8;">
+                            <li><code>.vg</code> &mdash; Logic only, no PG, no fill. For LEC.</li>
+                            <li><code>.pg.vg</code> &mdash; Logic + PG ports, no fill. For LVS of logic cells.</li>
+                            <li><code>.fill.pg.vg</code> &mdash; Logic + PG ports + filler/decap/spare. For full-physical LVS.</li>
+                        </ul>
+                    </div>
+                </li>
+
+                <!-- STEP 5: write_def standard -->
+                <li>
+                    <h3>Write the Design Exchange Format File &mdash; <code>tile.def</code></h3>
+                    <pre class="code-block">write_def ${OUTDIR}/[get_db [current_design] .name].def</pre>
+                    <p style="margin-top: 10px;"><strong>What it produces:</strong> A DEF (Design Exchange Format) file that encodes the full physical database: die area, row definitions, all cell placements (coordinates and orientations), and all routing wire segments. DEF is a text-based ASCII format that other EDA tools can read without needing the proprietary Innovus database.</p>
+                    <p style="margin-top: 10px;"><strong>Why it is needed:</strong></p>
+                    <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.8;">
+                        <li><strong>Parasitic extraction:</strong> Calibre xRC or StarRC reads this DEF to extract post-route RC parasitics for signoff timing (PrimeTime).</li>
+                        <li><strong>SoC integration:</strong> When the tile block is instantiated in a top-level chip, the integration tool reads this DEF to understand the block's physical footprint and pin locations.</li>
+                        <li><strong>Physical verification setup:</strong> Calibre DRC and LVS can use the DEF plus the LEF to reconstruct the design hierarchy for rule checking.</li>
+                    </ul>
+                </li>
+
+                <!-- STEP 6: write_def -routing IR.def -->
+                <li>
+                    <h3>Write the Routing DEF for IR Drop Analysis &mdash; <code>tile.IR.def</code></h3>
+                    <pre class="code-block">write_def -routing ${OUTDIR}/[get_db [current_design] .name].IR.def</pre>
+                    <p style="margin-top: 10px;"><strong>What it produces:</strong> A second DEF file with the <code>-routing</code> flag. This variant includes complete routing wire geometry with resistance and current-carrying information needed specifically for power integrity analysis.</p>
+                    <p style="margin-top: 10px;"><strong>Why it differs from <code>tile.def</code>:</strong> The standard <code>write_def</code> may omit or simplify some routing details that are unnecessary for placement or parasitic extraction workflows. The <code>-routing</code> variant preserves the full detail of every power mesh wire segment, including all metal layers and vias. Power integrity tools (Cadence Voltus, Ansys Redhawk) need this level of detail to model the resistance of the power delivery network accurately and compute voltage drop (IR drop) and electromigration (EM) margins.</p>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Why IR drop matters at N28:</strong> At 28 nm, supply voltages are lower (typically 0.9 V nominal) and current densities are higher. A 50 mV IR drop is over 5% of the supply, which can cause functional failures in flip-flops near the power rails. Identifying and fixing IR drop hotspots before tape-out is mandatory.
+                    </div>
+                </li>
+
+                <!-- STEP 7: write_lef_abstract -->
+                <li>
+                    <h3>Write the LEF Abstract for SoC Integration &mdash; <code>tile_abstract.lef</code></h3>
+                    <pre class="code-block">write_lef_abstract \
+    ${OUTDIR}/[get_db [current_design] .name]_abstract.lef</pre>
+                    <p style="margin-top: 10px;"><strong>What it produces:</strong> A LEF (Library Exchange Format) abstract view of the tile block. The abstract contains:</p>
+                    <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.8;">
+                        <li>The block's bounding box (die area / core area)</li>
+                        <li>All pin shapes and metal layer assignments (boundary pins accessible from outside)</li>
+                        <li>Routing blockages (areas where the top-level router must not route over)</li>
+                        <li>No internal cell placement or routing detail</li>
+                    </ul>
+                    <p style="margin-top: 10px;"><strong>Why it is needed:</strong> When the tile block is integrated at the chip level (e.g., in iguana_soc), the top-level PnR tool needs to know the block's physical footprint and pin locations without loading the entire post-route database. The LEF abstract provides exactly this compact representation. The top-level placer uses it to place the tile macro, and the top-level router uses the routing blockages to avoid routing over internal tile wires.</p>
+                </li>
+
+                <!-- STEP 8: write_stream PNR GDS -->
+                <li>
+                    <h3>Write the PnR-Only GDS &mdash; <code>tile.pnr.gds.gz</code></h3>
+                    <pre class="code-block">write_stream \
+    ${OUTDIR}/[get_db [current_design] .name].pnr.gds.gz \
+    -map_file /proj1/dataIn/Rock_R2G/TSMC_28nm_collaterals/PDK/apr/\
+PRTF_EDI_28nm_Cad_V19_1a/PR_tech/Cadence/GdsOutMap/gdsout_4X2Y2R.map \
+    -unit 1000</pre>
+                    <p style="margin-top: 10px;"><strong>What it produces:</strong> A GDS II stream file containing only the PnR-generated geometry: wires on all routing layers, vias, and cell placement references. It does <em>not</em> contain the internal geometry of each standard cell (those are referenced by cell name only, as SREF records in GDS).</p>
+                    <p style="margin-top: 10px;"><strong>Key parameters:</strong></p>
+                    <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.8;">
+                        <li><code>-map_file gdsout_4X2Y2R.map</code> &mdash; Maps Innovus internal layer names to the TSMC N28 PDK GDS layer numbers. Without this map, the layer numbers in the output would not match what Calibre DRC expects.</li>
+                        <li><code>-unit 1000</code> &mdash; Sets the database unit to 1000 units per micron (1 nm resolution), matching the TSMC N28 GDS convention.</li>
+                    </ul>
+                    <p style="margin-top: 10px;"><strong>Why it is needed:</strong> This PnR-only GDS is used for standalone DRC runs on the tile block. Calibre reads this GDS together with the PDK standard cell GDS files to reconstruct the full physical view. Running DRC at the block level (before chip-level integration) catches violations early when they are cheaper to fix.</p>
+                </li>
+
+                <!-- STEP 9: hcell.list -->
+                <li>
+                    <h3>Generate the Hierarchical Cell List &mdash; <code>hcell.list</code></h3>
+                    <pre class="code-block">if {[file exists ${OUTDIR}/hcell.list]} {
+    [file delete ${OUTDIR}/hcell.list]
+}
+foreach cl [lsort -unique [get_db insts .base_cell.name]] {
+    puts "$cl $cl" >> ${OUTDIR}/hcell.list
+}</pre>
+                    <p style="margin-top: 10px;"><strong>What it produces:</strong> A plain text file where each line contains two fields separated by a space: the GDS cell name and the LVS schematic cell name. For standard cells in this flow the two names are the same (e.g., <code>NAND2D1BWP40P140HVT NAND2D1BWP40P140HVT</code>).</p>
+                    <p style="margin-top: 10px;"><strong>Why it is needed:</strong> Calibre LVS uses the hcell list to identify which GDS cells should be treated as hierarchical black boxes (matched by name) rather than expanded and verified transistor-by-transistor. Without hcell entries for standard cells, LVS would try to flatten every cell down to transistors and match them individually &mdash; an operation that would take orders of magnitude longer and produce meaningless mismatches against the gate-level schematic.</p>
+                    <p style="margin-top: 10px;"><strong>Script logic:</strong> The <code>if {[file exists ...]} {file delete ...}</code> guard ensures a stale list from a previous run is removed before writing. <code>get_db insts .base_cell.name</code> collects all unique cell types instantiated in the design; <code>lsort -unique</code> deduplicates and sorts them alphabetically.</p>
+                </li>
+
+                <!-- STEP 10: write_stream merged GDS -->
+                <li>
+                    <h3>Write the Merged GDS for Tape-Out &mdash; <code>tile.merged.gds.gz</code></h3>
+                    <pre class="code-block">write_stream \
+    ${OUTDIR}/[get_db [current_design] .name].merged.gds.gz \
+    -merge {
+        /proj1/pd/pdk/TSMC28HPHP/logic/tcbn28hpcplusbwp40p140lvt_180b/.../\
+tcbn28hpcplusbwp40p140lvt.gds
+        /proj1/pd/pdk/TSMC28HPHP/logic/tcbn28hpcplusbwp40p140_180b/.../\
+tcbn28hpcplusbwp40p140.gds
+        /proj1/pd/pdk/TSMC28HPHP/logic/tcbn28hpcplusbwp40p140hvt_180a/.../\
+tcbn28hpcplusbwp40p140hvt.gds
+    } \
+    -map_file .../gdsout_4X2Y2R.map \
+    -unit 1000</pre>
+                    <p style="margin-top: 10px;"><strong>What it produces:</strong> A complete, fully self-contained GDS II file. The <code>-merge</code> flag instructs Innovus to combine the PnR routing geometry with the GDS files from the TSMC N28 PDK for all three threshold voltage standard cell libraries:</p>
+                    <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.8;">
+                        <li><code>tcbn28hpcplusbwp40p140lvt.gds</code> &mdash; LVT (Low-VT) standard cell GDS</li>
+                        <li><code>tcbn28hpcplusbwp40p140.gds</code> &mdash; SVT (Standard-VT) standard cell GDS</li>
+                        <li><code>tcbn28hpcplusbwp40p140hvt.gds</code> &mdash; HVT (High-VT) standard cell GDS</li>
+                    </ul>
+                    <p style="margin-top: 10px;"><strong>Why it is needed:</strong> The PnR-only GDS references standard cells by name (SREF) but does not contain their physical transistor-level geometry. Before sending a design to the foundry for fabrication, every cell reference must be resolved into actual mask geometry. The merged GDS is the tape-out deliverable that contains every polygon on every layer for the complete chip. The foundry uses this file to manufacture the photomasks.</p>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Why three separate PDK GDS files?</strong> TSMC distributes separate GDS libraries for LVT, SVT, and HVT cells because each threshold variant uses different implant layers and well doping profiles. All three may be instantiated in a single block (e.g., HVT for low-leakage paths, LVT for timing-critical paths), so all three must be merged into the final tape-out GDS.
+                    </div>
+                </li>
+
+            </ul>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#10003; Success Criteria</h2>
+            <div class="validation-box">
+                <h4>Chip finish must produce all of the following:</h4>
+                <ul style="margin-left: 20px; margin-top: 10px; line-height: 2;">
+                    <li><code>outputs/tile.vg</code> exists and is non-empty</li>
+                    <li><code>outputs/tile.pg.vg</code> exists and is non-empty</li>
+                    <li><code>outputs/tile.fill.pg.vg</code> exists and is non-empty</li>
+                    <li><code>outputs/tile.def</code> exists and is non-empty</li>
+                    <li><code>outputs/tile.IR.def</code> exists and is non-empty</li>
+                    <li><code>outputs/tile_abstract.lef</code> exists and is non-empty</li>
+                    <li><code>outputs/tile.pnr.gds.gz</code> exists and is non-empty</li>
+                    <li><code>outputs/hcell.list</code> exists and contains cell entries</li>
+                    <li><code>outputs/tile.merged.gds.gz</code> exists and is non-empty</li>
+                    <li>No ERROR messages in <code>logs/chip_finish.log</code></li>
+                    <li><code>make verify</code> reports PASS</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#129514; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <pre class="code-block">make verify</pre>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <p style="margin-bottom: 16px; color: #555;">Select the best answer. Wrong choices clear automatically so you can keep trying. The explanation appears once you find the correct answer — scroll to dismiss it.</p>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. SPEF (Standard Parasitic Exchange Format) is one of the key PnR outputs. What specific data does it contain and which downstream tool consumes it?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">SPEF contains the gate-level netlist with power and ground connections — consumed by LVS tools for layout-versus-schematic verification</li>
+                        <li onclick="selectOption(this)">SPEF contains the physical placement coordinates of every cell — consumed by the floorplan tool when re-initializing a design</li>
+                        <li onclick="selectOption(this)" data-correct="true">SPEF contains extracted parasitic resistance (R) and capacitance (C) values for every signal net in the routed design. It is consumed by static timing analysis (STA) tools like PrimeTime or Tempus for accurate sign-off timing, and by power analysis tools like Voltus for accurate dynamic power calculations</li>
+                        <li onclick="selectOption(this)">SPEF contains the scan chain connectivity — consumed by DFT tools for scan test pattern generation after routing is complete</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> SPEF (IEEE 1481 standard) captures the parasitic RC network of every net after routing. For each net, it describes the wire resistance sections (R entries) and node capacitances (C entries) extracted from the actual routed wire geometry. STA tools like PrimeTime load the netlist + SPEF to compute accurate delay values using the real wire RC rather than PnR tool estimates. Power analysis tools use SPEF capacitance values combined with switching activity to compute accurate dynamic power. Without SPEF, sign-off timing would use inaccurate estimates and might miss real timing violations in silicon.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. GDS (GDSII or OASIS) is another critical PnR output. What is the GDS file used for and who receives it?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">GDS is a text file containing the SDC constraints — provided to the timing verification team for sign-off analysis</li>
+                        <li onclick="selectOption(this)">GDS contains the logical netlist in a hierarchical binary format — used by the synthesis tool to check equivalence after ECO changes</li>
+                        <li onclick="selectOption(this)" data-correct="true">GDS is the mask layout database containing the complete geometric description of every polygon on every layer. It is sent to the semiconductor foundry for photomask generation and wafer fabrication — it is the final physical deliverable that defines what gets manufactured in silicon</li>
+                        <li onclick="selectOption(this)">GDS contains the power grid topology — used by the power integrity team to run IR drop and electromigration analysis</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> GDSII (or its modern successor OASIS) is the universal semiconductor mask layout format. It contains hierarchical descriptions of all polygons on all metal, via, diffusion, and implant layers — essentially everything the foundry needs to create photomasks for each manufacturing step. The GDS file is the tape-out deliverable that physically defines the chip. It is merged with standard cell and PDK GDS libraries before submission, and must pass Calibre DRC and LVS sign-off before being released to the foundry.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. Dummy metal fill is added after routing as part of chip finishing. What is its primary purpose?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">Dummy fill reduces overall wire resistance by adding parallel metal paths alongside routed signals</li>
+                        <li onclick="selectOption(this)">Dummy fill provides additional routing tracks for ECO changes that may be needed after sign-off</li>
+                        <li onclick="selectOption(this)" data-correct="true">Dummy fill maintains metal density uniformity across all layers to satisfy foundry CMP (Chemical Mechanical Planarization) requirements. Without fill, regions with sparse routing have low metal density, causing uneven polishing that creates thickness variations, which in turn cause resistance and capacitance variations across the chip</li>
+                        <li onclick="selectOption(this)">Dummy fill improves chip performance by reducing crosstalk between adjacent signal wires that are too far apart</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> CMP (Chemical Mechanical Planarization) is used after each metal layer deposition to planarize the wafer surface. CMP removal rate depends on local metal density — high-density areas polish faster than low-density areas, creating surface height variations (dishing in metal-dense areas, erosion in sparse areas). These height variations affect subsequent layer thickness, changing wire cross-sections and thus resistance and capacitance. Foundries specify minimum (typically 20–30%) and maximum (typically 70–80%) metal density rules for each layer. Dummy fill is inserted in sparse areas to bring density up to minimum, and routing blockages prevent exceeding maximum. Dummy fill polygons are electrically floating (connected to neither VDD nor VSS) and do not affect circuit function.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. What are the two main types of ECO (Engineering Change Order) in physical design, and what triggers each?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">Metal ECO and cell ECO — metal ECO changes wire routing, cell ECO changes cell placement. Both are triggered by timing violations</li>
+                        <li onclick="selectOption(this)">Pre-tape ECO and post-tape ECO — pre-tape changes are done in the PnR tool, post-tape changes are done at the mask level by the foundry</li>
+                        <li onclick="selectOption(this)" data-correct="true">Functional ECO (logic changes required due to RTL bugs, DFT changes, or specification updates discovered after routing) and Timing ECO (sign-off violations like setup, hold, transition, or noise violations that the PnR tool did not fix). Functional ECOs change the netlist; timing ECOs only add/resize/move cells to improve timing</li>
+                        <li onclick="selectOption(this)">Hard ECO and soft ECO — hard ECOs require full re-routing of the chip, soft ECOs can be implemented using spare cells only</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The two ECO categories have different causes and methods: Functional ECOs are driven by logic changes — RTL bugs found in simulation after routing, DFT (scan chain) modifications, or changed specification requirements. They require netlist changes (adding/removing logic gates) implemented using spare cells or partial re-routing. Timing ECOs are driven by sign-off analysis revealing violations that the PnR tool missed due to simplified models — adding buffers, upsizing drivers, adjusting placement of critical cells. Both types are normal parts of the production flow before tape-out. Prerequisites for ECO include setup WNS &lt;50 ps, moderate hold violations, and sufficient whitespace for buffer insertion.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#127881; What You Learned</h2>
+            <div class="section-content">
+                <p>In this testcase you traced every command in the chip finish TCL script and connected each output file to its downstream consumer and physical meaning:</p>
+                <ul style="margin-left: 20px; margin-top: 10px; line-height: 2;">
+                    <li>Three netlist variants serve three different verification tools (LEC, LVS logic, LVS physical)</li>
+                    <li>Two DEF files serve two different analysis flows (parasitic extraction vs. power integrity)</li>
+                    <li>The LEF abstract enables hierarchical SoC integration without exposing internal block detail</li>
+                    <li>Two GDS files serve block-level DRC and final tape-out, which have different requirements</li>
+                    <li>The hcell list is the bridge that allows Calibre LVS to match GDS hierarchy to schematic hierarchy</li>
+                </ul>
+                <p style="margin-top: 15px;">Proceed to Testcase 2 to apply this knowledge independently to the <strong>iguana_soc</strong> design.</p>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../PNR-CDN-CF.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+                <a href="../TC-PNR-CDN-CF-CH-001/TC-PNR-CDN-CF-CH-001.html" class="btn btn-next">Continue to Testcase 2 &#8594;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = '15';
+        const TESTCASE_NUM = '1';
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+                function selectOption(option) {
+            var qc = option.closest('.quiz-question');
+            if (qc.dataset.answered === 'true') return;
+            qc.querySelectorAll('.quiz-options li').forEach(function(o) {
+                o.classList.remove('selected');
+                o.classList.remove('wrong-answer');
+            });
+            option.classList.add('selected');
+            var fb = qc.querySelector('.feedback');
+            if (fb) { fb.textContent = ''; fb.className = 'feedback'; fb.style.display = 'none'; }
+        }
+
+        function submitAnswer(button) {
+            var qc = button.closest('.quiz-question');
+            var sel = qc.querySelector('.quiz-options li.selected');
+            var fb = qc.querySelector('.feedback');
+            var ans = qc.querySelector('.answer');
+            if (!sel) {
+                fb.textContent = 'Please select an answer first.';
+                fb.className = 'feedback incorrect';
+                fb.style.display = 'block';
+                return;
+            }
+            var ok = sel.dataset.correct === 'true';
+            if (ok) {
+                sel.classList.remove('selected');
+                sel.classList.add('correct-answer');
+                fb.textContent = '\u2705 Correct!';
+                fb.className = 'feedback correct';
+                fb.style.display = 'block';
+                if (ans) ans.style.display = 'block';
+                qc.querySelectorAll('.quiz-options li').forEach(function(o) { o.style.pointerEvents = 'none'; });
+                button.disabled = true;
+                qc.dataset.answered = 'true';
+            } else {
+                sel.classList.remove('selected');
+                sel.classList.add('wrong-answer');
+                sel.style.pointerEvents = 'none';
+                fb.textContent = '\u274C Incorrect. Try again!';
+                fb.className = 'feedback incorrect';
+                fb.style.display = 'block';
+            }
+        }
+
+        (function() {
+            var lastY = window.scrollY;
+            window.addEventListener('scroll', function() {
+                var currentY = window.scrollY;
+                if (Math.abs(currentY - lastY) > 5) {
+                    document.querySelectorAll('.answer[data-answered-question="true"]').forEach(function(a) {
+                        a.style.display = 'none';
+                    });
+                }
+                lastY = currentY;
+            }, { passive: true });
+        }());
+    </script>
+</body>
+</html>

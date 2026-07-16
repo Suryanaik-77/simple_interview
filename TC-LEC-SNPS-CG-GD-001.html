@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guided: RTL-to-Gate LEC with Clock Gating &mdash; LEC-SNPS-CG</title>
+<link rel="stylesheet" href="../common/styles.css">
+<style>
+    .btn-check-answer {
+        display: inline-block;
+        margin-top: 12px;
+        padding: 9px 24px;
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.95em;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s, opacity 0.2s;
+        letter-spacing: 0.02em;
+    }
+    .btn-check-answer:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-check-answer:disabled { opacity: 0.45; cursor: not-allowed; }
+    .quiz-options li.selected {
+        background: #eff6ff;
+        border-left: 4px solid #2563eb;
+        color: #1e3a8a;
+    }
+</style>
+</head>
+<body>
+
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Guided: AES Cipher Top &mdash; RTL vs Netlist LEC with Clock Gating</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#128205; <a href="../LEC-SNPS-CG.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Guided</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#127919; Type: Guided Exercise</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201; Estimated Time: 60&ndash;90 minutes</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Problem Statement -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Problem Statement</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                <p>
+                    You will perform Logical Equivalence Checking (LEC) between the AES cipher top RTL
+                    and its synthesized gate-level netlist using Synopsys Formality interactively.
+                </p>
+                <p style="margin-top: 12px;">
+                    The synthesis run inserted clock-gating cells. This guided testcase walks you through
+                    every Formality command interactively — type each command at the <code>fm_shell&gt;</code>
+                    prompt, observe what fails when clock gating is ignored, and apply the fix.
+                    When done, type <code>exit</code> and run <code>make verify</code>.
+                </p>
+            </div>
+        </div>
+
+        <!-- Verification Flow Overview -->
+        <div class="content-box">
+            <h2 class="section-title">&#9881; Verification Flow Overview</h2>
+            <div class="section-content">
+                <p>
+                    Formality compares a reference design (RTL) and an implementation design (netlist)
+                    by breaking the design into compare points such as registers and outputs.
+                </p>
+                <p style="margin-top: 10px;">
+                    Each compare point is analyzed through its logic cone, and equivalence is proven
+                    by ensuring both designs produce identical outputs for the same inputs.
+                    The process involves reading designs, mapping compare points, and verifying equivalence.
+                </p>
+            </div>
+        </div>
+
+        <!-- Command Flow -->
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Execution Flow and Command Understanding</h2>
+
+            <ul class="step-list">
+
+                <li>
+                    <h3>Launch fm_shell</h3>
+                    <p>Navigate to the testcase directory and launch Formality interactively:</p>
+                    <pre class="code-block">cd ~/pd/labs/LEC-SNPS-CG/TC-LEC-SNPS-CG-GD-001
+make run</pre>
+                    <p style="margin-top: 10px;">
+                        <code>make run</code> launches fm_shell in interactive mode. You will see the
+                        <code>fm_shell&gt;</code> prompt. Type each command from the steps below directly
+                        at this prompt and observe the tool's output.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Initial Setup</h3>
+                    <pre class="code-block">set synopsys_auto_setup true</pre>
+                    <p style="margin-top: 10px;">
+                        This command enables automatic configuration inside Formality. It simplifies setup
+                        by handling RTL interpretation, undriven signals, and default verification settings.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Load SVF</h3>
+                    <pre class="code-block">set_svf ../inputs/default.svf</pre>
+                    <p style="margin-top: 10px;">
+                        SVF provides synthesis guidance such as mapping information and optimizations,
+                        helping Formality match RTL and netlist more efficiently.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Read Reference Design (RTL)</h3>
+                    <pre class="code-block">read_verilog -r {/efs/semicon_labs_pd/designs/aes_core/aes_cipher_top.v \
+                 /efs/semicon_labs_pd/designs/aes_core/aes_key_expand_128.v \
+                 /efs/semicon_labs_pd/designs/aes_core/aes_rcon.v \
+                 /efs/semicon_labs_pd/designs/aes_core/aes_sbox.v \
+                 /efs/semicon_labs_pd/designs/aes_core/timescale.v}</pre>
+                    <p style="margin-top: 10px;">
+                        Loads RTL into the reference container. This is treated as the golden design for comparison.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Load Technology Libraries</h3>
+                    <pre class="code-block">read_db {/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lib/nldm/tcbn28hpcplusbwp40p140ssg0p81vm40c.db \
+         /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/lib/nldm/tcbn28hpcplusbwp40p140lvtssg0p81vm40c.db \
+         /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/lib/nldm/tcbn28hpcplusbwp40p140hvtssg0p81vm40c.db}</pre>
+                    <p style="margin-top: 10px;">
+                        Loads technology libraries required to understand standard cells used in the netlist.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Set Reference Top</h3>
+                    <pre class="code-block">set_top aes_cipher_top</pre>
+                    <p style="margin-top: 10px;">
+                        After reading the source RTL files, <code>set_top</code> elaborates (links) the design
+                        and defines the top-level module. This ensures Formality correctly understands the design
+                        hierarchy starting from the specified top module.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Read Implementation (Gate-Level Netlist)</h3>
+                    <pre class="code-block">read_verilog -i ../inputs/aes_cipher_top.v</pre>
+                    <p style="margin-top: 10px;">
+                        Loads the synthesized netlist into the implementation container (<code>-i</code>).
+                        The implementation design represents the post-synthesis version of the RTL, where logic
+                        has been mapped to standard cells from the technology library.
+                    </p>
+                    <p style="margin-top: 8px;">
+                        Unlike RTL, the netlist is a gate-level representation that includes:
+                    </p>
+                    <ul style="margin-left: 20px; margin-top: 4px; line-height: 1.8; list-style-type: disc;">
+                        <li>Standard cell instances (AND, OR, flip-flops, etc.)</li>
+                        <li>Optimizations introduced during synthesis</li>
+                        <li>Structural transformations such as clock gating, register merging, or register inversions</li>
+                    </ul>
+                    <div class="info-card" style="margin-top: 12px; border-left: 4px solid #FA9600; background-color: #fff8f0;">
+                        <strong>Key Insight:</strong> The implementation design may look structurally very different
+                        from RTL due to synthesis optimizations. However, Formality focuses on verifying
+                        <strong>functional equivalence</strong>, not structural similarity.
+                    </div>
+                </li>
+
+                <li>
+                    <h3>Set Implementation Top</h3>
+                    <pre class="code-block">set_top -auto</pre>
+                    <p style="margin-top: 10px;">
+                        For the implementation design, <code>set_top -auto</code> allows Formality to
+                        automatically detect and assign the top-level module based on the netlist structure.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Match Compare Points</h3>
+                    <pre class="code-block">match</pre>
+                    <p style="margin-top: 10px;">
+                        The <code>match</code> command aligns compare points between the reference (RTL)
+                        and implementation (netlist) designs. During this phase, Formality identifies
+                        corresponding elements such as registers, primary outputs, and black-box interface points.
+                    </p>
+                    <div class="info-card" style="margin-top: 12px; border-left: 4px solid #FA9600; background-color: #fff8f0;">
+                        <strong>Key Concept:</strong> Most compare points are matched automatically based on naming.
+                        If structural differences exist due to synthesis optimizations, guidance (like SVF) helps improve matching.
+                    </div>
+                </li>
+
+                <li>
+                    <h3>Verify Equivalence</h3>
+                    <pre class="code-block">verify</pre>
+                    <p style="margin-top: 10px;">
+                        The <code>verify</code> command checks functional equivalence between matched compare
+                        points by analyzing their logic cones. For each compare point, Formality evaluates
+                        whether the logic driving that point produces identical outputs in both RTL and
+                        netlist for all possible inputs.
+                    </p>
+                    <div class="warning-card" style="margin-top: 12px;">
+                        <strong>Important Note:</strong> If mismatches exist due to structural transformations
+                        such as clock gating, verification may fail even if functionality is correct. These
+                        cases require additional guidance or attributes to resolve.
+                    </div>
+                </li>
+
+            </ul>
+        </div>
+
+        <!-- Observation -->
+        <div class="content-box">
+            <h2 class="section-title">&#128270; Observation During Verification</h2>
+            <div class="section-content">
+                <p>
+                    During verification, some compare points fail and many remain unverified. This indicates
+                    that the tool is unable to establish equivalence under the current interpretation.
+                </p>
+            </div>
+            <div class="warning-card" style="margin-top: 12px;">
+                <strong>Observed Results:</strong>
+                <ul style="margin-top: 8px; list-style-type: disc; margin-left: 20px;">
+                    <li>20 failing compare points</li>
+                    <li>497 unverified compare points</li>
+                </ul>
+            </div>
+
+            <h4 style="margin-top: 20px;"><strong>Failure Summary</strong></h4>
+            <div style="text-align:center;">
+                <img src="verify_issues.png"
+                     style="max-width:900px; width:100%; border-radius:6px; display:block; margin:15px auto;">
+                <div style="font-size:14px; color:#555; margin-top:8px;">
+                    Verification report showing passing, failing, and unverified compare points
+                </div>
+            </div>
+
+            <h4 style="margin-top: 20px;"><strong>Failing Cone Analysis</strong></h4>
+            <div style="text-align:center;">
+                <img src="Logic_cone.png"
+                     style="max-width:950px; width:100%; border-radius:6px; display:block; margin:15px auto;">
+                <div style="font-size:14px; color:#555; margin-top:8px;">
+                    Cone schematic showing mismatch between reference (RTL) and implementation (netlist)
+                </div>
+            </div>
+        </div>
+
+        <!-- Root Cause -->
+        <div class="content-box">
+            <h2 class="section-title">&#128269; Understanding the Issue</h2>
+            <div class="section-content">
+                <p>
+                    The root cause lies in synthesis optimizations. During synthesis, clock gating logic
+                    is inserted to reduce power consumption. This modifies the structure of the design by
+                    introducing gating elements between the clock and registers.
+                </p>
+                <p style="margin-top: 10px;">
+                    Although functionality remains unchanged, this structural difference prevents Formality
+                    from correctly mapping RTL and netlist. Specifically:
+                </p>
+                <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.8; list-style-type: disc;">
+                    <li>New compare points are created for clock-gating latches</li>
+                    <li>These points do not have corresponding matches in RTL</li>
+                    <li>The logic feeding register clock pins is altered</li>
+                    <li>As a result, multiple register compare points fail verification</li>
+                </ul>
+            </div>
+            <div class="warning-card" style="margin-top: 12px;">
+                <strong>Why Clock Gating Causes Failure:</strong> Formality performs equivalence checking
+                based on structural mapping of logic cones. Clock gating modifies the structure by inserting
+                gating latches and changing clock paths, making it difficult for the tool to correlate RTL
+                and netlist directly.
+            </div>
+        </div>
+
+        <!-- Resolution -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Resolution Approach</h2>
+            <div class="section-content">
+                <p>
+                    To resolve this issue, Formality provides a mechanism called
+                    <strong>Reverse Clock Gating (RCG)</strong>, enabled using the following command:
+                </p>
+            </div>
+            <pre class="code-block">set verification_clock_gate_reverse_gating true</pre>
+
+            <div class="validation-box" style="margin-top: 16px;">
+                <strong>What Reverse Clock Gating (RCG) Does:</strong>
+                <p style="margin-top: 10px;">
+                    When this attribute is enabled, Formality identifies clock gating latch structures
+                    inserted by synthesis and internally removes them. The tool reconnects the clock and
+                    enable signals directly to the receiving registers.
+                </p>
+                <p style="margin-top: 8px;">
+                    In effect, the gated clock structure is transformed back into a load-enable
+                    representation, which closely matches the original RTL behavior. This transformation
+                    does not change the functional behavior of the circuit, but allows Formality to
+                    correctly verify clock-gated designs.
+                </p>
+            </div>
+
+            <div style="text-align:center; margin-top: 16px;">
+                <img src="clock_gating.png"
+                     style="max-width:900px; width:100%; border-radius:6px; margin:15px auto;">
+            </div>
+
+            <div class="info-card" style="margin-top: 12px; border-left: 4px solid #FA9600; background-color: #fff8f0;">
+                <strong>Important Behavior:</strong>
+                <p style="margin-top: 8px;">
+                    When <code>verification_clock_gate_reverse_gating</code> is enabled:
+                </p>
+                <ul style="margin-left: 20px; margin-top: 4px; list-style-type: disc; line-height: 1.8;">
+                    <li>Clock gating latches are automatically identified and reversed</li>
+                    <li>Both reference and implementation designs are normalized for comparison</li>
+                </ul>
+            </div>
+
+            <div class="warning-card" style="margin-top: 12px;">
+                <strong>Critical Limitation:</strong> This attribute cannot be applied after entering the
+                verification phase. Once the <code>verify</code> command is executed, the design is already
+                elaborated and internal models are fixed. Therefore, to apply this fix correctly, the entire
+                LEC flow must be re-executed with the attribute set in setup mode.
+            </div>
+
+            <div class="section-content" style="margin-top: 12px;">
+                <p>
+                    After re-running the flow with this attribute enabled, the tool successfully maps
+                    the transformed structures and proves equivalence between RTL and netlist.
+                </p>
+            </div>
+        </div>
+
+        <!-- Verification Outcome -->
+        <div class="content-box">
+            <div class="completion-banner">
+                <h2>Verification Outcome</h2>
+                <p style="margin-top: 10px;">
+                    After applying the fix, all compare points were successfully verified, confirming
+                    functional equivalence between RTL and netlist.
+                </p>
+            </div>
+        </div>
+
+        <!-- History Tip -->
+        <div class="content-box">
+            <div class="info-card" style="border-left: 4px solid #2563eb; background-color: #eff6ff;">
+                <strong>&#128190; Save Your Session Commands for Future Reference</strong>
+                <p style="margin-top: 8px;">
+                    Before moving to the challenge testcase, save the commands you used in this
+                    session to <code>../logs/history</code> for future reference:
+                </p>
+                <pre class="code-block" style="margin-top: 8px;">history -h &gt; ../logs/history</pre>
+                <p style="margin-top: 8px; font-size: 0.92em; color: #374151;">
+                    Run this in your Linux shell (not inside fm_shell). The <code>-h</code> flag saves
+                    commands without line numbers so the file is easy to read and reuse.
+                </p>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>Run from the testcase directory after Formality exits:</p>
+                <pre class="code-block">make verify</pre>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. What is the main goal of LEC?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">Improve timing in the synthesized netlist</li>
+                        <li onclick="selectOption(this)" data-correct="true">Check functional equivalence between RTL and netlist</li>
+                        <li onclick="selectOption(this)">Reduce dynamic power consumption</li>
+                        <li onclick="selectOption(this)">Optimize area after place-and-route</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>&#10003; Correct!</strong> LEC formally proves that RTL and netlist behave identically for all possible inputs. It does not optimize timing, power, or area.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. Why does clock gating cause LEC failures?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">The RTL source files are incorrect</li>
+                        <li onclick="selectOption(this)" data-correct="true">Synthesis inserts extra gating logic that changes the structural representation</li>
+                        <li onclick="selectOption(this)">The clock stops working after synthesis</li>
+                        <li onclick="selectOption(this)">The technology libraries are missing</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>&#10003; Correct!</strong> Clock gating inserts latch-based ICG structures not present in RTL, creating compare points that Formality cannot match without the RCG attribute.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. What is a compare point in Formality?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">A timing path endpoint in the netlist</li>
+                        <li onclick="selectOption(this)" data-correct="true">A signal (register output or primary output) where equivalence is checked between reference and implementation</li>
+                        <li onclick="selectOption(this)">A clock signal that controls register updates</li>
+                        <li onclick="selectOption(this)">A library cell definition used during verification</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>&#10003; Correct!</strong> Compare points are register outputs and primary outputs where Formality proves Boolean equivalence between the reference and implementation logic cones.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. What does setting <code>verification_clock_gate_reverse_gating true</code> do?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">Adds more clock gate cells to improve power savings</li>
+                        <li onclick="selectOption(this)" data-correct="true">Internally reverses the clock gating transformation so Formality can correctly verify clock-gated designs</li>
+                        <li onclick="selectOption(this)">Modifies the RTL to add enable logic</li>
+                        <li onclick="selectOption(this)">Stops verification and generates an error report</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>&#10003; Correct!</strong> RCG internally reverses the clock gating transformation, converting gated-clock structures back to enable logic so Formality can correctly match them to RTL.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Next Step -->
+        <div class="content-box">
+            <h2 class="section-title">&#9658; Next Step</h2>
+            <div class="section-content">
+                <p>You have completed the guided testcase. You learned:</p>
+                <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                    <li>How LEC works in Formality: reference container, implementation container, compare points</li>
+                    <li>What logic cones are and why they matter for equivalence checking</li>
+                    <li>Why clock gating causes verification failures</li>
+                    <li>How Reverse Clock Gating (RCG) resolves structural mismatches</li>
+                    <li>Why the RCG attribute must be set before the verification phase</li>
+                </ul>
+                <p style="margin-top: 15px; color: #2e7d32; font-weight: bold;">
+                    &#x1F389; Congratulations! You have successfully completed this guided testcase.
+                </p>
+                <p style="margin-top: 10px;">
+                    Proceed to the challenge testcase where you will write the complete Formality script
+                    from scratch, applying all three clock-gate verification attributes independently.
+                </p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../LEC-SNPS-CG.html" class="btn btn-back">&larr; Back to Lab Home</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../TC-LEC-SNPS-CG-CH-001/TC-LEC-SNPS-CG-CH-001.html" class="btn btn-success">Continue to Testcase 2 &rarr;</a>
+            </div>
+        </div>
+
+    </div>
+
+<script>
+    var LAB_ID       = 'LEC-SNPS-CG';
+    var TESTCASE_NUM = '1';
+</script>
+<script src="../common/interactive.js"></script>
+<script>
+    function selectOption(option) {
+        var qc = option.closest('.quiz-question');
+        if (qc.dataset.answered === 'true') return;
+        qc.querySelectorAll('.quiz-options li').forEach(function(o) {
+            o.classList.remove('selected');
+            o.classList.remove('wrong-answer');
+        });
+        option.classList.add('selected');
+        var fb = qc.querySelector('.feedback');
+        if (fb) { fb.textContent = ''; fb.className = 'feedback'; fb.style.display = 'none'; }
+    }
+
+    function submitAnswer(button) {
+        var qc = button.closest('.quiz-question');
+        var sel = qc.querySelector('.quiz-options li.selected');
+        var fb = qc.querySelector('.feedback');
+        var ans = qc.querySelector('.answer');
+        if (!sel) {
+            fb.textContent = 'Please select an answer first.';
+            fb.className = 'feedback incorrect';
+            fb.style.display = 'block';
+            return;
+        }
+        var ok = sel.dataset.correct === 'true';
+        if (ok) {
+            sel.classList.remove('selected');
+            sel.classList.add('correct-answer');
+            fb.textContent = '\u2705 Correct!';
+            fb.className = 'feedback correct';
+            fb.style.display = 'block';
+            if (ans) ans.style.display = 'block';
+            qc.querySelectorAll('.quiz-options li').forEach(function(o) { o.style.pointerEvents = 'none'; });
+            button.disabled = true;
+            qc.dataset.answered = 'true';
+        } else {
+            sel.classList.remove('selected');
+            sel.classList.add('wrong-answer');
+            sel.style.pointerEvents = 'none';
+            fb.textContent = '\u274C Incorrect. Try again!';
+            fb.className = 'feedback incorrect';
+            fb.style.display = 'block';
+        }
+    }
+</script>
+
+</body>
+</html>

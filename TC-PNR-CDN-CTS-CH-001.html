@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challenge Testcase: Clock Tree Synthesis — aes_cipher_top (Innovus)</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        code { color: #333; }
+        .btn-check-answer {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 8px 20px;
+            background: #2c3e50;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.92em;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .btn-check-answer:hover { background: #1a252f; }
+
+        .quiz-options li {
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .quiz-options li.selected {
+            background: #e8f4f8 !important;
+            border-left: 4px solid #2980b9 !important;
+        }
+        .quiz-options li.correct-answer {
+            background: #d4edda !important;
+            border-left: 4px solid #28a745 !important;
+        }
+        .quiz-options li.wrong-answer {
+            background: #f8d7da !important;
+            border-left: 4px solid #dc3545 !important;
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body>
+<!-- Scroll progress bar is created dynamically by interactive.js -->
+
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Challenge Testcase: CTS — aes_cipher_top (Bug Fix)</h1>
+        <div class="lab-meta">
+            <div class="meta-item">
+                <span>&#127968; <a href="../PNR-CDN-CTS.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Challenge Testcase</span>
+            </div>
+            <div class="meta-item"><span>&#128203; Type: Independent Challenge</span></div>
+            <div class="meta-item"><span>&#128336; Estimated Time: 90–120 minutes</span></div>
+            <div class="meta-item"><span>&#11088;&#11088; Difficulty: Medium</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Challenge Problem -->
+    <div class="content-box">
+        <div class="test-case-header">
+            <h2>Challenge Problem</h2>
+            <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+        </div>
+        <div class="section-content">
+            <p>You are given a CTS script for <strong>aes_cipher_top</strong> that is identical in structure to the guided testcase script, but contains a <strong>deliberate bug in a report output path</strong>. One of the <code>report_timing</code> commands writes to the wrong location — missing the <code>../reports/</code> directory prefix — so its output file will appear in the wrong directory (the current working directory instead of the reports directory).</p>
+
+            <div class="info-card" style="margin-top: 15px; background: #fff3cd; border-left-color: #ffc107;">
+                <strong>&#9888; What goes wrong without the fix:</strong>
+                <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                    <li><strong>Bug — wrong report output path:</strong> <code>report_timing -group reg2reg -max_paths 10 &gt; report_timing.reg2reg.setup.rpt</code> is missing <code>../reports/</code>. The report file is written to the current directory (the testcase working directory) instead of <code>../reports/</code>, causing the verify target to fail when it looks for the report in the expected location.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Requirements -->
+    <div class="content-box">
+        <h2 class="section-title">&#128221; Requirements and Deliverables</h2>
+        <ul style="margin-left: 20px; line-height: 2.2;">
+            <li>Fix the <code>report_timing</code> output path bug in <code>scripts/cts.tcl</code></li>
+            <li>Complete CTS flow runs without errors</li>
+            <li><code>ccopt_design</code> achieves skew &le; 0.1 ns</li>
+            <li>All timing and clock report files generated in <code>../reports/</code> — including <code>../reports/report_timing.reg2reg.setup.rpt</code></li>
+            <li><code>../outputs/cts.db</code> exists and is a valid Innovus database</li>
+        </ul>
+    </div>
+
+    <!-- Recommended Workflow -->
+    <div class="content-box">
+        <h2 class="section-title">&#9881; Recommended Workflow</h2>
+        <ol style="margin-left: 20px; line-height: 2.2;">
+            <li>Navigate: <code>cd ~/pd/labs/PNR-CDN-CTS/TC-PNR-CDN-CTS-CH-001</code></li>
+            <li>Open <code>scripts/cts.tcl</code> and compare each report output path against the guided testcase</li>
+            <li>Identify the line where <code>../reports/</code> prefix is missing</li>
+            <li>Fix the output path</li>
+            <li>Run <code>make all</code> and source the corrected script</li>
+            <li>Verify all report files are generated in <code>../reports/</code></li>
+            <li>Run <code>make verify</code></li>
+        </ol>
+    </div>
+
+    <!-- Hints -->
+    <div class="content-box">
+        <h2 class="section-title">&#128161; Hints</h2>
+
+        <details style="margin-bottom: 15px;">
+            <summary style="cursor: pointer; font-weight: bold; padding: 10px; background: #f8f9fa; border-radius: 6px;">Hint 1 — Where is the bug?</summary>
+            <div style="padding: 15px; background: #fff; border: 1px solid #e0e0e0; border-radius: 0 0 6px 6px;">
+                Scan the reporting section of the script (the block of <code>report_timing</code> commands). Compare each output path against the pattern: <code>&gt; ../reports/report_timing.GROUP.ANALYSIS.rpt</code>. The buggy line writes to <code>report_timing.reg2reg.setup.rpt</code> directly without the <code>../reports/</code> prefix.
+            </div>
+        </details>
+
+        <details>
+            <summary style="cursor: pointer; font-weight: bold; padding: 10px; background: #f8f9fa; border-radius: 6px;">Hint 2 — How to verify the fix worked</summary>
+            <div style="padding: 15px; background: #fff; border: 1px solid #e0e0e0; border-radius: 0 0 6px 6px;">
+                After running the corrected script, list the contents of the reports directory: <code>ls ../reports/</code>. You should see <code>report_timing.reg2reg.setup.rpt</code> there — not in the testcase working directory. If the file appears in the working directory instead of <code>../reports/</code>, the bug was not fixed correctly.
+            </div>
+        </details>
+    </div>
+
+    <!-- Success Criteria -->
+    <div class="content-box">
+        <h2 class="section-title">&#9989; Success Criteria</h2>
+        <div class="validation-box">
+            <h4 style="margin-bottom: 15px; color: #0c5460;">Challenge is complete when ALL of the following are true:</h4>
+            <ul style="margin-left: 20px; line-height: 2.2; color: #0c5460;">
+                <li>Bug fixed: <code>report_timing -group reg2reg ... &gt; ../reports/report_timing.reg2reg.setup.rpt</code></li>
+                <li>Complete CTS flow runs without errors</li>
+                <li><code>ccopt_design</code> achieves skew &le; 0.1 ns</li>
+                <li>All 14 report files present in <code>../reports/</code></li>
+                <li><code>../outputs/cts.db</code> exists</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Validation -->
+    <div class="content-box">
+        <h2 class="section-title">&#128270; Validation and Verification</h2>
+        <pre class="code-block">make verify</pre>
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128218; Knowledge Assessment Quiz</h2>
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. NDR (Non-Default Routing) rules are applied to clock nets during CTS. What do these rules specify, and why are they needed?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false" onclick="selectOption(this)">NDR rules specify that clock nets must use only the top metal layer (M9) to avoid interference with data signals on lower layers</li>
+                    <li data-correct="false" onclick="selectOption(this)">NDR rules restrict clock nets to a minimum width to reduce capacitance and improve transition time</li>
+                    <li data-correct="true" onclick="selectOption(this)">NDR rules specify wider wire width (e.g., 2× default) and larger spacing (e.g., 2× default) for clock nets. Wider wires reduce resistance and improve transition time; wider spacing reduces capacitive coupling from neighboring signal nets that could cause noise-induced skew or glitches on the clock</li>
+                    <li data-correct="false" onclick="selectOption(this)">NDR rules replace the standard routing algorithm with a custom clock-specific router that guarantees zero skew between all branches</li>
+                </ul>
+                <div class="feedback" style="display:none;"></div>
+                <div class="answer" style="display:none;"><strong>Correct!</strong> Clock nets are the most timing-sensitive nets in the design. NDR rules apply two key constraints: (1) Width increase (typically 2× default) — a wider wire has lower resistance per unit length, reducing RC delay on the wire segment and improving clock transition time; (2) Spacing increase (typically 2× default) — larger spacing to neighboring signal wires reduces capacitive coupling. If a switching signal net is routed adjacent to the clock, coupling capacitance can inject noise onto the clock, causing edge jitter and skew variation. The combination of lower resistance and lower coupling noise makes NDR-constrained clock routing significantly more robust than default signal routing rules.</div>
+                <button class="btn-check-answer" onclick="submitAnswer(this)" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. In CTS pin type classification, a flip-flop clock input is assigned as a "sink pin." What is the correct definition of a sink pin in CTS?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false" onclick="selectOption(this)">A sink pin is a clock output — it is where the clock signal exits a buffer and enters the next stage of the tree</li>
+                    <li data-correct="false" onclick="selectOption(this)">A sink pin is a clock input at the top level of the hierarchy — the entry point into the chip from the external clock source</li>
+                    <li data-correct="true" onclick="selectOption(this)">A sink pin is an endpoint of the clock tree — a clock input on a sequential element (flip-flop, latch, or register) where the clock is consumed. The CTS engine must balance delays from the clock source to all sink pins to minimize skew</li>
+                    <li data-correct="false" onclick="selectOption(this)">A sink pin is a clock input on a macro block — it is treated differently from flip-flop clock inputs because macros have internal clock networks</li>
+                </ul>
+                <div class="feedback" style="display:none;"></div>
+                <div class="answer" style="display:none;"><strong>Correct!</strong> CTS classifies each clock pin into one of four types to guide tree construction: Sink pins — sequential element clock inputs (flip-flop, latch, register) that are the endpoints the tree must reach and balance; Through pins — hierarchical module clock inputs that pass the clock through to lower-level sinks without being a sink themselves; Ignore pins — clock pins the CTS tool should not consider or buffer (e.g., test-mode paths or intentionally unconstrained inputs); Float pins — pins the tool may optionally balance but is not required to. The sink pin classification is most critical because all tree balancing optimization is measured relative to achieving equal arrival time at all sinks.</div>
+                <button class="btn-check-answer" onclick="submitAnswer(this)" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. What is a "through pin" in CTS and how does it differ from a sink pin?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false" onclick="selectOption(this)">A through pin is a clock pin that is driven by two sources simultaneously — used in clock muxing designs</li>
+                    <li data-correct="false" onclick="selectOption(this)">A through pin is a clock input on a special high-drive-strength buffer that spans between two physical regions of the die</li>
+                    <li data-correct="true" onclick="selectOption(this)">A through pin is a hierarchical module clock input that the CTS engine passes the clock signal through to reach the actual sinks inside the hierarchy. Unlike a sink pin, it does not consume the clock — it is a pass-through point in the design hierarchy that the CTS tool traverses to find deeper sinks</li>
+                    <li data-correct="false" onclick="selectOption(this)">A through pin is a clock input that is marked as don't-touch so the CTS engine routes around it without inserting any buffers on that path</li>
+                </ul>
+                <div class="feedback" style="display:none;"></div>
+                <div class="answer" style="display:none;"><strong>Correct!</strong> In hierarchical physical design, a module boundary creates a hierarchy pin — a clock input on the module's boundary. If the module contains flip-flops inside, the clock must pass through this boundary pin to reach the sinks. This boundary pin is classified as a "through pin" in CTS: the tool crosses it to find the actual sinks and builds buffering/balancing for the full path from the clock root to the innermost sinks. The through pin itself is not a timing endpoint — it is a transit point. Misclassifying a through pin as a sink would cause the CTS engine to stop tree construction at the module boundary, leaving all sinks inside the module with no clock tree buffering.</div>
+                <button class="btn-check-answer" onclick="submitAnswer(this)" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. CTS target skew is typically specified as a fraction of the clock period. What is the commonly recommended guideline?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false" onclick="selectOption(this)">Target skew should be less than 1% of the clock period — tighter than this is impossible to achieve in silicon</li>
+                    <li data-correct="false" onclick="selectOption(this)">Target skew should equal the clock period divided by the number of flip-flops — larger designs can tolerate more skew</li>
+                    <li data-correct="true" onclick="selectOption(this)">Target skew is typically ~5% of the clock period. For a 1 GHz clock (1 ns period), this gives a 50 ps target. This value accounts for the fact that clock uncertainty in timing analysis already includes ~5% of period as the skew margin, and zero skew causes simultaneous switching that can spike IR drop</li>
+                    <li data-correct="false" onclick="selectOption(this)">Target skew should be set to zero — modern CTS tools can achieve true zero skew, which eliminates all skew-related timing violations</li>
+                </ul>
+                <div class="feedback" style="display:none;"></div>
+                <div class="answer" style="display:none;"><strong>Correct!</strong> The ~5% of clock period guideline for CTS target skew balances competing requirements. Zero skew is impractical (all flip-flops switching simultaneously causes large IR drop spikes and is impossible to maintain under process variation). Very tight skew targets (1–2%) require enormous buffering effort and aggressive NDR rules that consume routing resources. The 5% guideline is well within what modern CTS engines can reliably achieve, is accommodated by the 5% clock uncertainty allocation used in timing analysis, and leaves margin for process variation. For a 1 GHz design, 50 ps target skew is a reasonable goal; for a 500 MHz design, 100 ps is typical.</div>
+                <button class="btn-check-answer" onclick="submitAnswer(this)" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="content-box">
+        <div class="nav-buttons">
+            <a href="../TC-PNR-CDN-CTS-GD-001/TC-PNR-CDN-CTS-GD-001.html" class="btn btn-back">&#8592; Back to Guided Testcase</a>
+            <a href="../PNR-CDN-CTS.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    var LAB_ID = 'PNR-CDN-CTS';
+    var TESTCASE_NUM = '2';
+
+    function copyCode(btn) {
+        const container = btn.closest('.code-container');
+        const codeBlock = container.querySelector('.code-block');
+        const text = codeBlock.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            btn.textContent = '\u2713 Copied!';
+            btn.style.background = '#28a745';
+            setTimeout(() => { btn.textContent = 'Copy'; btn.style.background = '#374151'; }, 2000);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('pre.code-block').forEach(function (pre) {
+            if (pre.closest('.code-container')) return;
+            const container = document.createElement('div');
+            container.className = 'code-container';
+            const btn = document.createElement('button');
+            btn.className = 'copy-button';
+            btn.textContent = 'Copy';
+            btn.setAttribute('onclick', 'copyCode(this)');
+            pre.parentNode.insertBefore(container, pre);
+            container.appendChild(btn);
+            container.appendChild(pre);
+            pre.style.margin = '0';
+            pre.style.background = 'transparent';
+            pre.style.boxShadow = 'none';
+            pre.style.borderRadius = '0';
+        });
+    });
+</script>
+<script>
+    function selectOption(el) {
+        var options = el.closest('ul').querySelectorAll('li');
+        options.forEach(function(opt) {
+            opt.classList.remove('selected', 'wrong-answer');
+        });
+        el.classList.add('selected');
+    }
+
+    function submitAnswer(btn) {
+        var question = btn.closest('.quiz-question');
+        var selected = question.querySelector('.quiz-options li.selected');
+        var feedback = question.querySelector('.feedback');
+        var answer   = question.querySelector('.answer');
+
+        if (!selected) {
+            feedback.style.display = 'block';
+            feedback.style.color   = '#856404';
+            feedback.style.background = '#fff3cd';
+            feedback.style.padding = '10px';
+            feedback.style.borderRadius = '6px';
+            feedback.textContent = 'Please select an answer before checking.';
+            return;
+        }
+
+        var correct = selected.getAttribute('data-correct') === 'true';
+        if (correct) {
+            selected.classList.remove('selected');
+            selected.classList.add('correct-answer');
+            answer.style.display = 'block';
+            feedback.style.display = 'none';
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            question.querySelectorAll('.quiz-options li').forEach(function(opt) {
+                opt.style.pointerEvents = 'none';
+            });
+        } else {
+            selected.classList.remove('selected');
+            selected.classList.add('wrong-answer');
+            feedback.style.display = 'block';
+            feedback.style.color   = '#721c24';
+            feedback.style.background = '#f8d7da';
+            feedback.style.padding = '10px';
+            feedback.style.borderRadius = '6px';
+            feedback.textContent = 'Incorrect — try again.';
+        }
+    }
+</script>
+<script src="../common/interactive.js"></script>
+</body>
+</html>

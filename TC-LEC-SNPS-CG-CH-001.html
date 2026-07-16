@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LEC-SNPS-CG &#8212; TC-CH-001: AES RTL-to-Gate LEC with Clock Gating (Challenge)</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        details {
+            margin: 0.75rem 0;
+        }
+        summary {
+            cursor: pointer;
+            background: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            color: #374151;
+            font-size: 0.9rem;
+            list-style: none;
+            user-select: none;
+            font-weight: 600;
+        }
+        summary::-webkit-details-marker { display: none; }
+        summary::before { content: "\25B6  "; color: #667eea; font-size: 0.75rem; }
+        details[open] summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+        details[open] summary::before { content: "\25BC  "; }
+        .hint-body {
+            background: #f8f9fa;
+            border: 1px solid #d1d5db;
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            padding: 1rem 1.2rem;
+            color: #374151;
+            font-size: 0.88rem;
+            line-height: 1.7;
+        }
+        .btn-check-answer {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 9px 24px;
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, opacity 0.2s;
+            letter-spacing: 0.02em;
+        }
+        .btn-check-answer:hover:not(:disabled) { background: #1d4ed8; }
+        .btn-check-answer:disabled { opacity: 0.45; cursor: not-allowed; }
+        .quiz-options li.selected {
+            background: #eff6ff;
+            border-left: 4px solid #2563eb;
+            color: #1e3a8a;
+        }
+    </style>
+</head>
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<!-- Header -->
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Challenge: AES Cipher Top &mdash; Write the Complete Formality Script</h1>
+        <div class="lab-meta">
+            <div class="meta-item">
+                <span>&#128205; <a href="../LEC-SNPS-CG.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Challenge</span>
+            </div>
+            <div class="meta-item">
+                <span>&#127919; Type: Independent Work</span>
+            </div>
+            <div class="meta-item">
+                <span>&#9201; Estimated Time: 60 minutes</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Challenge Problem -->
+    <div class="content-box">
+        <h2 class="section-title">Challenge</h2>
+        <div class="info-card">
+            <p>The AES cipher top design has been synthesized using Synopsys Design Compiler targeting TSMC 28nm. The synthesis run inserted clock-gating cells and produced an SVF file recording all structural transformations.</p>
+            <p style="margin-top: 0.75rem;">The <code>scripts/formality.tcl</code> file in your testcase directory is <strong>empty</strong>. You must write the complete Formality LEC script from scratch so that <code>make all</code> produces <strong>Verification SUCCEEDED</strong> and generates all six equivalence report files.</p>
+        </div>
+        <p style="margin-top: 1rem;">Apply everything you practiced in TC-GD-001. Pay particular attention to the clock-gate attributes &#8212; all three must be set, including the one that caused the guided testcase to fail initially.</p>
+    </div>
+
+    <!-- Inputs -->
+    <div class="content-box">
+        <h2 class="section-title">Inputs</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Role</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>inputs/aes_cipher_top.v</code></td>
+                    <td>Implementation &#8212; synthesized gate-level netlist</td>
+                    <td>Read with <code>read_verilog -i</code></td>
+                </tr>
+                <tr>
+                    <td><code>inputs/default.svf</code></td>
+                    <td>SVF &#8212; synthesis transformation records</td>
+                    <td>Must be loaded before any <code>read_verilog</code></td>
+                </tr>
+                <tr>
+                    <td>RTL source (5 files, central path)</td>
+                    <td>Reference &#8212; AES RTL behavioral model</td>
+                    <td>Read with <code>read_verilog -r</code>; paths given below</td>
+                </tr>
+                <tr>
+                    <td>TSMC 28nm .db libraries (3 files)</td>
+                    <td>Technology library for gate cell models</td>
+                    <td>Read with <code>read_db</code>; paths given below</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-card" style="margin-top: 1rem;">
+            <strong>RTL source paths (5 files):</strong>
+            <pre style="margin-top: 0.5rem; font-size: 0.85rem; color: #374151;">/proj1/santosh/Sources/HDL/aes/aes_cipher_top.v
+/proj1/santosh/Sources/HDL/aes/aes_key_expand_128.v
+/proj1/santosh/Sources/HDL/aes/aes_rcon.v
+/proj1/santosh/Sources/HDL/aes/aes_sbox.v
+/proj1/santosh/Sources/HDL/aes/timescale.v</pre>
+            <strong>Technology library .db paths (3 files, TSMC 28nm HPHP BWP35 SSG corner):</strong>
+            <pre style="margin-top: 0.5rem; font-size: 0.85rem; color: #374151;">/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lib/ccs/tcbn28hpcbwp35p140ssg0p81vm40c_ccs.db
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/lib/ccs/tcbn28hpcbwp35p140lvtssg0p81vm40c_ccs.db
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/lib/ccs/tcbn28hpcbwp35p140hvtssg0p81vm40c_ccs.db</pre>
+        </div>
+    </div>
+
+    <!-- Requirements -->
+    <div class="content-box">
+        <h2 class="section-title">Requirements &amp; Deliverables</h2>
+        <ul style="color:#555; line-height:2.2;">
+            <li>Write <code>scripts/formality.tcl</code> so that <code>fm_shell -f formality.tcl</code> completes without errors</li>
+            <li>All required clock-gate verification attributes set correctly</li>
+            <li>Achieve <code>Verification SUCCEEDED</code> in <code>logs/formality.log</code></li>
+            <li>No lines starting with <code>Error</code> in the log</li>
+            <li>All six <code>.rpt</code> files generated in <code>reports/</code></li>
+            <li><code>make verify</code> reports <strong>PASS</strong> for all three automated checks</li>
+        </ul>
+    </div>
+
+    <!-- Recommended Workflow -->
+    <div class="content-box">
+        <h2 class="section-title">Recommended Workflow</h2>
+        <ul class="step-list">
+            <li>
+                <strong>Navigate to the challenge testcase</strong>
+                <div class="code-container"><pre class="code">cd ~/pd/labs/LEC-SNPS-CG/TC-LEC-SNPS-CG-CH-001
+ls inputs/
+# Expected: aes_cipher_top.v   default.svf</pre></div>
+            </li>
+            <li>
+                <strong>Write the Formality script</strong>
+                <div class="code-container"><pre class="code">vi scripts/formality.tcl</pre></div>
+                <p>Fill in all required commands in the correct order. Remember: SVF must be loaded before any <code>read_verilog</code>.</p>
+            </li>
+            <li>
+                <strong>Run Formality</strong>
+                <div class="code-container"><pre class="code">make run</pre></div>
+            </li>
+            <li>
+                <strong>Inspect the log</strong>
+                <div class="code-container"><pre class="code">grep -i "verification\|error\|fail\|clock.gate" logs/formality.log</pre></div>
+            </li>
+            <li>
+                <strong>Verify</strong>
+                <div class="code-container"><pre class="code">make verify</pre></div>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Hints -->
+    <div class="content-box">
+        <h2 class="section-title">Hints</h2>
+
+        <details>
+            <summary>Hint 1 &#8212; Which global settings are required at the top of the script</summary>
+            <div class="hint-body">
+                <p>The design uses clock gating. You need <strong>four</strong> global settings, not two or three. One of them is the attribute that was missing and caused TC-GD-001 to fail initially. All four must appear before any other command:</p>
+                <ul style="margin-top:0.5rem; line-height:2;">
+                    <li><code>set synopsys_auto_setup</code></li>
+                    <li><code>set verification_clock_gate_reverse_gating</code></li>
+                    <li><code>set verification_clock_gate_hold_mode</code></li>
+                    <li><code>set verification_clock_gate_edge_analysis</code></li>
+                </ul>
+            </div>
+        </details>
+
+        <details>
+            <summary>Hint 2 &#8212; Command order and the top module for the implementation side</summary>
+            <div class="hint-body">
+                <p>The required command sequence is:</p>
+                <ol style="margin-top:0.5rem; line-height:2.2;">
+                    <li>4 global <code>set</code> attributes</li>
+                    <li><code>set_svf ../inputs/default.svf</code> &#8212; before any read_verilog</li>
+                    <li><code>read_verilog -r { 5 RTL files }</code></li>
+                    <li><code>set_top aes_cipher_top</code></li>
+                    <li><code>read_db { 3 .db files }</code></li>
+                    <li><code>read_verilog -i ../inputs/aes_cipher_top.v</code></li>
+                    <li><code>set_top -auto</code> &#8212; lets Formality infer the implementation top</li>
+                    <li><code>match</code> then <code>verify</code></li>
+                    <li>Six <code>report_*</code> commands to <code>../reports/</code></li>
+                    <li><code>exit</code></li>
+                </ol>
+            </div>
+        </details>
+
+        <details>
+            <summary>Hint 3 &#8212; Report commands</summary>
+            <div class="hint-body">
+                <p>The six report commands are:</p>
+                <pre style="font-size:0.85rem;">report_passing_points   &gt; ../reports/report_passing_points.rpt
+report_verify_points    &gt; ../reports/report_verify_points.rpt
+report_failing_points   &gt; ../reports/report_failing_points.rpt
+report_matched_points   &gt; ../reports/report_matched_points.rpt
+report_unmatched_points &gt; ../reports/report_unmatched_points.rpt
+report_black_boxes      &gt; ../reports/report_black_boxes.rpt</pre>
+                <p>Paths are relative to <code>work/</code>, which is the directory the Makefile changes into before invoking <code>fm_shell</code>.</p>
+            </div>
+        </details>
+
+    </div>
+
+    <!-- Success Criteria -->
+    <div class="content-box">
+        <h2 class="section-title">Success Criteria</h2>
+        <div class="validation-box">
+            <p><strong>make verify checks the following:</strong></p>
+            <ul>
+                <li>&#8220;Verification SUCCEEDED&#8221; found in <code>logs/formality.log</code></li>
+                <li>No lines starting with <code>Error</code> in the log</li>
+                <li>At least one <code>.rpt</code> file present in <code>reports/</code></li>
+            </ul>
+            <p>All three checks must pass for <code>overall_result.csv</code> to report <strong>PASS</strong>.</p>
+        </div>
+    </div>
+
+    <!-- Validation -->
+    <div class="content-box">
+        <h2 class="section-title">Validation &amp; Verification</h2>
+        <div class="code-container"><pre class="code">make verify</pre></div>
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">Knowledge Assessment</h2>
+        <p style="margin-bottom: 16px; color: #555;">Select the best answer. Wrong choices clear automatically so you can keep trying. The explanation appears once you find the correct answer.</p>
+        <div class="quiz-container">
+
+            <div class="quiz-question">
+                <h3>1. Formality reports "Verification FAILED" with 4 failing points after you write your script. You confirm the SVF is loaded correctly and the libraries are right. What is the most likely cause?</h3>
+                <ul class="quiz-options">
+                    <li onclick="selectOption(this)">The RTL source files are not in the correct order inside the <code>read_verilog -r</code> command.</li>
+                    <li onclick="selectOption(this)">The <code>set_top</code> command names a module that does not exist in the reference container.</li>
+                    <li onclick="selectOption(this)" data-correct="true">One or more of the three clock-gate verification attributes is missing or set to the wrong value. The failing points are clock-gated registers whose enable polarity is being modeled incorrectly.</li>
+                    <li onclick="selectOption(this)">The <code>exit</code> command at the end of the script is preventing the reports from being written.</li>
+                </ul>
+                <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer"><strong>&#10003; Correct!</strong> When the SVF and libraries are correct and specific registers fail, the clock-gate attribute configuration is the first thing to check. Each of the three attributes addresses a different aspect of how clock-gated registers are modeled. A missing or wrong attribute produces false failures on those registers.</div>
+            </div>
+
+            <div class="quiz-question">
+                <h3>2. You run Formality on two different synthesis runs of the same RTL: one with clock gating enabled and one without. For the run <em>without</em> clock gating, do you still need to set <code>verification_clock_gate_reverse_gating true</code>?</h3>
+                <ul class="quiz-options">
+                    <li onclick="selectOption(this)">Yes &#8212; the attribute must always be set regardless of whether clock gating was used, because it is part of the recommended synopsys_auto_setup bundle.</li>
+                    <li onclick="selectOption(this)" data-correct="true">Not strictly required &#8212; if no clock-gate cells are present in the netlist, the attribute has no effect. However, leaving all three attributes set is harmless and is the standard practice to avoid issues if a later run does include clock gating.</li>
+                    <li onclick="selectOption(this)">No &#8212; setting it on a non-gated design causes Formality to incorrectly model non-gated flip-flops and produces false failures.</li>
+                    <li onclick="selectOption(this)">Yes &#8212; it is required because Formality always searches for clock-gate cells whether or not synthesis inserted any.</li>
+                </ul>
+                <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer"><strong>&#10003; Correct!</strong> The clock-gate attributes only affect the modeling of clock-gate cells found in the netlist. If there are none, the attributes are silently irrelevant. Standard practice is to include all three unconditionally so the script is reusable across designs regardless of power optimization settings.</div>
+            </div>
+
+            <div class="quiz-question">
+                <h3>3. Formality needs <code>read_db</code> to load technology libraries for the AES netlist. If you omit <code>read_db</code> entirely, what is the most likely outcome?</h3>
+                <ul class="quiz-options">
+                    <li onclick="selectOption(this)">Formality aborts immediately with a fatal error because it cannot parse Verilog without knowing cell names.</li>
+                    <li onclick="selectOption(this)">Verification SUCCEEDED with all points passing &#8212; Formality infers cell functions from the cell names.</li>
+                    <li onclick="selectOption(this)" data-correct="true">All instantiated standard cells become black boxes. Formality cannot evaluate the Boolean function of any gate, so most compare points cannot be proven and the run produces a large number of unmatched or aborted points.</li>
+                    <li onclick="selectOption(this)">Only HVT cells become black boxes; SVT and LVT cells are recognized from a built-in library.</li>
+                </ul>
+                <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer"><strong>&#10003; Correct!</strong> Without <code>read_db</code>, every instantiated gate is an opaque black box to Formality. The tool cannot determine what logic function the cell implements. This means it cannot build the combinational cones needed for equivalence checking, resulting in most compare points being unverifiable.</div>
+            </div>
+
+            <div class="quiz-question">
+                <h3>4. After a successful LEC run, a DFT engineer modifies the netlist to insert scan chains. Does the original formality.tcl and SVF from synthesis still apply for verifying the scan-inserted netlist against the original RTL?</h3>
+                <ul class="quiz-options">
+                    <li onclick="selectOption(this)">Yes &#8212; the SVF covers all netlist transformations including DFT insertion, so no changes are needed.</li>
+                    <li onclick="selectOption(this)">Yes &#8212; since RTL-to-Gate LEC proved equivalence at synthesis, the scan-modified netlist is automatically trusted.</li>
+                    <li onclick="selectOption(this)" data-correct="true">No &#8212; scan insertion modifies the netlist. A new LEC run is needed. The comparison type should be gate-to-gate (pre-scan vs. post-scan netlist), and a new SVF from the DFT tool (if available) or structural awareness of scan modifications is required. The original synthesis SVF does not cover DFT transformations.</li>
+                    <li onclick="selectOption(this)">No &#8212; scan-inserted netlists cannot be verified with Formality at all; simulation is required instead.</li>
+                </ul>
+                <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer"><strong>&#10003; Correct!</strong> Each netlist transformation creates a new LEC checkpoint. The synthesis SVF only captures synthesis transformations. After DFT insertion, you run gate-to-gate LEC (pre-DFT vs. post-DFT netlist) with a DFT-aware setup &#8212; typically using scan-enable pinning to verify functional equivalence with scan held inactive. The original synthesis SVF is not applicable here.</div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="nav-buttons">
+        <a href="../LEC-SNPS-CG.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+        <a href="../TC-LEC-SNPS-CG-GD-001/TC-LEC-SNPS-CG-GD-001.html" class="btn btn-secondary">&#8592; Back to Testcase 1</a>
+        <button class="btn btn-success" onclick="completeTestcase()">Mark Complete &#10003;</button>
+    </div>
+
+</div>
+
+<script>
+    var LAB_ID       = 'LEC-SNPS-CG';
+    var TESTCASE_NUM = '2';
+</script>
+<script src="../common/interactive.js"></script>
+
+<script>
+    function selectOption(option) {
+        var qc = option.closest('.quiz-question');
+        if (qc.dataset.answered === 'true') return;
+        qc.querySelectorAll('.quiz-options li').forEach(function(o) {
+            o.classList.remove('selected');
+            o.classList.remove('wrong-answer');
+        });
+        option.classList.add('selected');
+        var fb = qc.querySelector('.feedback');
+        if (fb) { fb.textContent = ''; fb.className = 'feedback'; fb.style.display = 'none'; }
+    }
+
+    function submitAnswer(button) {
+        var qc = button.closest('.quiz-question');
+        var sel = qc.querySelector('.quiz-options li.selected');
+        var fb = qc.querySelector('.feedback');
+        var ans = qc.querySelector('.answer');
+        if (!sel) {
+            fb.textContent = 'Please select an answer first.';
+            fb.className = 'feedback incorrect';
+            fb.style.display = 'block';
+            return;
+        }
+        var ok = sel.dataset.correct === 'true';
+        if (ok) {
+            sel.classList.remove('selected');
+            sel.classList.add('correct-answer');
+            fb.textContent = '\u2705 Correct!';
+            fb.className = 'feedback correct';
+            fb.style.display = 'block';
+            if (ans) ans.style.display = 'block';
+            qc.querySelectorAll('.quiz-options li').forEach(function(o) { o.style.pointerEvents = 'none'; });
+            button.disabled = true;
+            qc.dataset.answered = 'true';
+        } else {
+            sel.classList.remove('selected');
+            sel.classList.add('wrong-answer');
+            sel.style.pointerEvents = 'none';
+            fb.textContent = '\u274C Incorrect. Try again!';
+            fb.className = 'feedback incorrect';
+            fb.style.display = 'block';
+        }
+    }
+</script>
+
+</body>
+</html>

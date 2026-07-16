@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guided Testcase &mdash; G2G Formality LEC</title>
+    <link rel="stylesheet" href="../common/styles.css">
+</head>
+<body>
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Guided Testcase: AES Cipher Gate-to-Gate LEC</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#127968; <a href="../LEC-SNPS-N2N_snps.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Guided Testcase</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128203; Type: Guided Exercise</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201;&#65039; Estimated Time: 45-60 minutes</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Problem Statement</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                              <p style="margin-top: 20px;"><strong>Your task:</strong> Prove mathematically that the PNR tool did not alter the functional intent of your logic. You will use Synopsys Formality to perform a Gate-to-Gate (G2G) Logical Equivalence Check between the golden post-synthesis netlist and the revised post-PnR netlist.</p>
+            </div>
+            
+            <div class="info-card" style="margin-top: 25px;">
+                <strong>&#128161; Note on the shell prompt:</strong> Formality's prompt changes depending on what stage you are at &mdash; <code>fm_shell (setup)</code>, <code>fm_shell (match)</code>, or <code>fm_shell (verify)</code>. This tells you which phase you have just completed.
+            </div>
+        </div>
+
+     
+        <div class="content-box">
+            <h2 class="section-title">&#128196; G2G LEC &mdash; Step-by-Step Command Explanation</h2>
+            <p style="color: #555; margin-bottom: 20px;">Below is a complete walkthrough of every command used in the actual G2G run using the exact paths for your design.</p>
+     
+            <ul class="step-list">
+                <li>
+                    <h3>Navigate and Start the Testcase</h3>
+                    <p>You have already set up the lab directory structure using the provided setup guidelines. The required Input files are now available in the testcase directory. With the lab environment ready, proceed with the following steps.</p>
+             
+                    <pre class="code-block">cd ~/pd/labs/LEC-SNPS-N2N/TC-LEC-SNPS-N2N-GD-001/
+make all</pre>
+                </li>
+
+                
+             
+
+                <li>
+    <h3>Read Technology Libraries</h3>
+    <p><strong>What it does:</strong> Loads the Synopsys binary technology library (<code>.db</code>) files. These define every standard cell in the technology library &mdash; AND gates, OR gates, flip-flops, buffers, and so on. Formality needs these to understand what each gate in your netlist actually does.</p>
+    
+    <div class="info-card" style="margin-top: 10px;">
+        <strong>Note:</strong> If there are macros in the design, we have to give their <code>.db</code> files as well.
+    </div>
+    
+    <div class="code-block">fm_shell (setup)> read_db {../../pdk/stdcells/9T/hvt/lib/ccs/tcbn28hpcplusbwp40p140hvtssg0p81vm40c_ccs.db ../../pdk/stdcells/9T/lvt/lib/nldm/tcbn28hpcplusbwp40p140lvtssg0p81vm40c.db ../../pdk/stdcells/9T/svt/lib/nldm/tcbn28hpcplusbwp40p140ssg0p81vm40c.db}</div>
+</li>
+
+         <li>
+    <h3>Read the Reference Design (Synthesis Netlist)</h3>
+    <p>The <code>-r</code> flag tells Formality to load this netlist into the <strong>reference container ("r")</strong>. This is your synthesis output netlist &mdash; the "golden" design. The <code>set_top -auto</code> command lets Formality determine the top-level module automatically.</p>
+
+    <div class="code-block">
+        fm_shell (setup)> read_verilog -r ../inputs/aes_cipher_top.v
+        <br><br>
+        fm_shell (setup)> set_top -auto
+    </div>
+
+    <div class="info-card" style="margin-top: 10px;">
+        <strong>&#128161; Important rule:</strong> <code>set_top</code> must complete successfully in the current container before you start reading anything into a new container. Always read the reference fully before switching to reading the implementation.
+    </div>
+</li>
+<li>
+    <h3>Read the Implementation Design (PnR Netlist)</h3>
+    <p>The <code>-i</code> flag loads the netlist into the <strong>implementation container ("i")</strong>. After PnR, this is the revised design you want to verify against the reference.</p>
+    
+    <div class="code-block">
+        
+        fm_shell (setup)> read_verilog -i ../inputs/aes_cipher_top_lec.v.gz<br>
+        <br>
+       <span style="color:#75715e"># Link and set top for the implementation</span><br>
+         fm_shell (setup)> set_top -auto
+    </div>
+</li>
+
+               <li>
+    <h3>Save Containers (Checkpoint)</h3>
+    <p><strong>What it does:</strong> Saves the current elaborated state of each container &mdash; including all design hierarchy, library mappings, and elaboration data &mdash; into a binary snapshot file (<code>.fsc</code>).</p>
+    
+    <div class="code-block">
+        <span style="color:#75715e"># Save reference container snapshot</span><br>
+        fm_shell (setup)> write_container -r ref_g2g.fsc<br>
+        <br>
+        <span style="color:#75715e"># Save implementation container snapshot</span><br>
+        fm_shell (setup)> write_container -i impl_g2g.fsc
+    </div>
+    
+    <p style="margin-top: 15px;"><strong>Why save containers?</strong> The upcoming <code>match</code> command can modify what's inside the containers. Having a saved snapshot means you can restore and rerun from this point without re-reading the large netlist files.</p>
+</li>
+
+                <li>
+                    <h3>Run the Match Phase</h3>
+                    <p><strong>What it does:</strong> The <code>match</code> command is the first major computation step. It tries to <em>pair up</em> corresponding compare points between the reference and implementation containers using name matching, signature analysis, and topology analysis.</p>
+                    
+                    
+                        <div class="code-block">fm_shell (setup)> match</div>
+                
+                    
+                    <div class="hint-box">
+                        <h4>&#128161; Optional but Recommended for Interactive Work</h4>
+                        <p>The <code>match</code> command is technically optional &mdash; <code>verify</code> also runs matching internally. However, running <code>match</code> separately is strongly recommended when working interactively so you can check matching results and fix any issues <em>before</em> investing time in the full verification run.</p>
+                    </div>
+                </li>
+
+                <li>
+    <h3>Investigate Unmatched Points</h3>
+    <p><strong>What it does:</strong> After the <code>match</code> command runs, it is common to see a few points left unmatched between your reference (synthesis) and implementation (PnR) netlists. This command allows you to explicitly list and inspect exactly what Formality could not pair up.</p>
+    
+   
+        <div class="code-block">fm_shell (match)> report_unmatched_points -status unread</div>
+
+    
+    <div class="info-card" style="margin-top: 20px;">
+        <h4 style="margin-bottom: 10px; color: #0c5460;">Analyzing the Matching Log</h4>
+        <p>If you look at the matching summary in your terminal, you will see this specific line:</p>
+        <p><code style="background: #e7f3ff; color: #333; padding: 5px;">0(1) Unmatched reference(implementation) unread points</code></p>
+        <p style="margin-top: 10px;">This notation means there are <strong>0</strong> unread points in the Reference design, but <strong>1</strong> unread point in the Implementation design. When you execute the report command, the tool explicitly identifies this single culprit:</p>
+        <p style="margin-top: 10px;"><code style="background: #e7f3ff; color: #d63384; padding: 5px;">Impl DFF &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;i:/WORK/aes_cipher_top/spare_cell_6_0</code></p>
+        
+        <h4 style="margin-top: 15px; margin-bottom: 10px; color: #0c5460;">Why does this happen?</h4>
+        <p>During the physical design stage of the RTL-to-GDSII flow, it is standard practice to intentionally sprinkle unconnected "spare cells" (in this case, a D-Flip-Flop) across the floorplan. These act as physical backup gates. If a functional bug is found late in the design cycle or after tape-out, engineers can perform an Engineering Change Order (ECO) by routing wires to these already-placed spare cells without having to redo the entire placement.</p>
+        <p style="margin-top: 10px;">Because this dummy cell was added specifically during physical implementation, it never existed in the original synthesized reference netlist. Formality is simply doing its job by pointing out this extra cell. Since this is a known, expected addition to the layout, it is completely safe to ignore.</p>
+    </div>
+</li>
+
+                <li>
+    <h3>Run Verification</h3>
+    <p><strong>What it does:</strong> This is the core formal proof step. For each matched pair of compare points, the Formality tool deploys mathematical solvers to prove whether the logic cones are equivalent or not.</p>
+    
+                 <div class="code-block">verify</div>
+
+
+    <p style="margin-top: 15px;"><strong>Four possible outcomes for each compare point:</strong></p>
+    <div style="overflow-x: auto; margin-top: 10px;">
+        <table>
+            <thead>
+                <tr><th>Status</th><th>Meaning</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>&#9989; <strong>Passing</strong></td><td>Logic cones are functionally equivalent</td></tr>
+                <tr><td>&#10060; <strong>Failing</strong></td><td>Logic cones are NOT equivalent &mdash; real logic bug</td></tr>
+                <tr><td>&#9888;&#65039; <strong>Aborted/Inconclusive</strong></td><td>Solver timed out &mdash; too complex to prove</td></tr>
+                <tr><td>&#128269; <strong>Not Compared</strong></td><td>Unmatched points (e.g., a cell swept/optimized away)</td></tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="validation-box" style="margin-top: 20px;">
+        <h4 style="margin-bottom: 10px; color: #0c5460;">Analyzing the Verification Log</h4>
+        <p>Looking at the terminal output, the most critical line is <strong>Verification SUCCEEDED</strong>. The detailed table at the end of the log breaks down exactly what passed:</p>
+        <ul style="margin-top: 10px; margin-left: 20px; color: #0c5460;">
+            <p><strong>129 Ports:</strong> All primary input/output boundary logic matches.</p>
+            <p><strong>530 DFFs:</strong> All internal state elements (D-Flip-Flops) match.</p>
+            <p><strong>Total:</strong> All 659 compared points passed, with exactly <strong>0 Failing</strong> points.</p>
+        </ul>
+        <p style="margin-top: 10px; color: #0c5460;">This confirms that the physical layout (PnR) perfectly aligns with the original synthesis intent. No functional logic was broken during placement and routing.</p>
+    </div>
+
+   
+</li>
+<li>
+    <div class="content-box">
+        <h2 class="section-title">&#128190; The save_session Command</h2>
+        <div class="section-content">
+            <p>After running <code>verify</code>, you can save the entire Formality session state &mdash; including all match results, verification results, and design data &mdash; into a single session file.</p>
+        </div>
+
+        <div class="section">
+            <div class="code-block">
+                <span style="color:#75715e"># Save the session after verification</span><br>
+                save_session -replace g2g_session.fss<br>
+                <br>
+                <span style="color:#75715e"># Restore the session in a new Formality run</span><br>
+                restore_session g2g_session.fss
+            
+        
+    </div>
+<p><strong>When is this useful?</strong></p>
+                <ol style="margin-left: 25px; line-height: 2.2; margin-top: 12px;">
+                    <p><strong>Debugging failures later:</strong> If your verification fails, you can save the session and restore it in a separate Formality run to debug the failing points at your convenience &mdash; without re-running the entire verification (which can take hours for large designs)</p>
+                    <p><strong>Collaborative debugging:</strong> You can share the session file with a senior engineer so they can inspect the exact state of your failing run</p>
+                    <p><strong>Incremental work:</strong> If you only fixed a few compare points, you can restore the session and continue verifying without starting over</p>
+                </ol>
+
+                <div class="warning-card" style="margin-top: 15px;">
+                    <strong>&#9888;&#65039; Important limitation:</strong> Session files (<code>.fss</code>) are <em>NOT portable across Formality software versions</em>. A session saved in Formality 2022.03 cannot be restored in Formality 2023.06. Container files (<code>.fsc</code>) from <code>write_container</code> are portable. Plan accordingly.
+                </div>
+</li>
+
+
+<li>
+    <h3>Exit Current Shell</h3>
+    <p>Before proceeding, ensure you have exited active tool shells. Type the following command to return to your main terminal.</p>
+
+ 
+       
+        <pre class="code-block">exit</pre>
+    
+</li>
+
+                
+
+            </div>
+      <div class="content-box">
+    <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+    <div class="section-content">
+        <p>Use the automated verification command to validate your results.</p>
+
+     
+    
+            <pre class="code-block">make verify</pre>
+       
+
+       
+       
+ 
+</div>
+</div>
+  
+
+<div class="content-box">
+            <h2 class="section-title">&#128196; Complete G2G Script</h2>
+<pre class="code-block"><span style="color:#75715e"># ============================================================
+# G2G LEC Script &mdash; Gate-Level Netlist to PnR Netlist
+# Design: aes_cipher_top
+# Tool: Synopsys Formality
+# ============================================================</span>
+<span style="color:#75715e"># Step 1: Load technology libraries (shared to both containers)</span>
+read_db {../../pdk/stdcells/9T/hvt/lib/ccs/tcbn28hpcplusbwp40p140hvtssg0p81vm40c_ccs.db ../../pdk/stdcells/9T/lvt/lib/nldm/tcbn28hpcplusbwp40p140lvtssg0p81vm40c.db ../../pdk/stdcells/9T/svt/lib/nldm/tcbn28hpcplusbwp40p140ssg0p81vm40c.db}
+
+<span style="color:#75715e"># Step 2: Read reference design (post-synthesis gate-level netlist)</span>
+read_verilog -r ../inputs/aes_cipher_top.v
+set_top -auto
+
+<span style="color:#75715e"># Step 3: Read implementation design (post-PnR netlist)</span>
+read_verilog -i ../inputs/aes_cipher_top_lec.v.gz
+set_top -auto
+
+<span style="color:#75715e"># Step 4: Save container snapshots (checkpoint before match)</span>
+write_container -r ref_g2g.fsc
+write_container -i impl_g2g.fsc
+
+<span style="color:#75715e"># Step 5: Match compare points (applies SVF, then name/sig matching)</span>
+match
+
+<span style="color:#75715e"># Step 6: Check unmatched logic mapping</span>
+report_unmatched_points -status unread
+
+<span style="color:#75715e"># Step 7: Verify equivalence</span>
+verify
+
+<span style="color:#75715e"># Step 8 (Optional): Save session for later debugging</span>
+save_session -replace g2g_session.fss
+
+<span style="color:#75715e"># Step 9: Exit the tool</span>
+exit</pre>
+        </div>
+      
+
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+            <div class="quiz-container">
+
+                               <div class="quiz-question" id="q5">
+                    <h3>1. What is the purpose of running <code>write_container</code> before the <code>match</code> command?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">To export the netlist in a different file format for reporting</li>
+                        <li onclick="checkAnswer(this, false)">It is mandatory &mdash; Formality will not run match without a saved container</li>
+                        <li onclick="checkAnswer(this, true)">To save a snapshot of the elaborated design state before SVF processing modifies the containers, enabling you to restore and rerun without re-reading large netlist files</li>
+                        <li onclick="checkAnswer(this, false)">To lock the container so no other Formality process can modify it</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> SVF processing during the <code>match</code> phase can modify the contents of the containers. Saving containers beforehand with <code>write_container</code> gives you a restore point &mdash; you can reload with <code>read_container</code> and rerun match/verify without the expensive step of re-reading and re-elaborating the netlist files. This saves significant time on large designs.</div>
+                </div>
+
+             
+
+                <div class="quiz-question" id="q7">
+                    <h3>2. What is the difference between a container file (<code>.fsc</code>) and a session file (<code>.fss</code>)?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">There is no real difference &mdash; both store the same information in different formats</li>
+                        <li onclick="checkAnswer(this, true)">A container (.fsc) stores the elaborated design state and is portable across Formality versions; a session (.fss) stores the complete verification state (including results) but is NOT portable across versions</li>
+                        <li onclick="checkAnswer(this, false)">A container is only for the reference design; a session stores both reference and implementation</li>
+                        <li onclick="checkAnswer(this, false)">Session files are larger and slower to save than container files</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Container files (.fsc from <code>write_container</code>) are snapshots of the elaborated design state &mdash; portable across Formality versions, good for sharing and archiving. Session files (.fss from <code>save_session</code>) capture the full verification state including match and verify results &mdash; ideal for later debugging &mdash; but are version-specific and cannot be moved between Formality releases.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#127881; Next Step</h2>
+            <div class="section-content">
+                <p>Great job completing the <strong>Guided Testcase</strong>!</p>
+                <p>You have mastered setting up the Formality environment, comparing the reference/implementation netlists to formally prove functional equivalence for physical design.</p>
+                <p>&#128640; Now that you are comfortable debugging the LEC setup, you are ready to apply these concepts in the next independent challenge assignment.</p>
+            </div>
+            <div class="nav-buttons">
+                <a href="../LEC-SNPS-N2N_snps.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+                <a href="../TC-LEC-SNPS-N2N-CH-001/TC-LEC-SNPS-N2N-CH-001.html" class="btn btn-success">Continue to Challenge Testcase &#8594;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="../common/interactive.js"></script>
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        // Copy code functionality
+        function copyCode(btn) {
+            const container = btn.closest('.code-container');
+            const codeBlock = container.querySelector('.code-block');
+            const text = codeBlock.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                btn.textContent = 'â Copied!';
+                btn.style.background = '#28a745';
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                    btn.style.background = '#374151';
+                }, 2000);
+            });
+        }
+
+        // Quiz functionality
+        // Quiz functionality
+        function checkAnswer(option, isCorrect) {
+            const parent = option.parentElement;
+            const questionContainer = parent.parentElement;
+            const feedback = questionContainer.querySelector('.feedback');
+            const answer = questionContainer.querySelector('.answer');
+
+            if (isCorrect) {
+                // User got it right: disable ALL options to end the question
+                const options = parent.querySelectorAll('li');
+                options.forEach(opt => opt.style.pointerEvents = 'none');
+
+                option.classList.add('correct-answer');
+                feedback.textContent = "â Correct!";
+                feedback.className = "feedback correct";
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+            } else {
+                // User got it wrong: disable ONLY the option they just clicked
+                option.style.pointerEvents = 'none';
+                
+                option.classList.add('wrong-answer');
+                feedback.textContent = "â Incorrect. Try again.";
+                feedback.className = "feedback incorrect";
+                feedback.style.display = 'block';
+            }
+        }
+       
+    </script>
+</body>
+</html>
