@@ -170,6 +170,18 @@ def _split_by_headings(html, tag="h2"):
     return sections
 
 
+_NAV_LINE_RE = re.compile(
+    r'^\s*(?:[←→‹›⟵⟶]|Back to\b|Next\b|Mark Complete\b)',
+    re.IGNORECASE,
+)
+
+
+def _strip_nav_lines(content):
+    """Remove standalone navigation-button lines from section text."""
+    kept = [ln for ln in content.split("\n") if not _NAV_LINE_RE.match(ln)]
+    return "\n".join(kept).strip()
+
+
 def extract_sections(html_path, lab_name=None):
     """
     Extract sections from an HTML file.
@@ -205,10 +217,25 @@ def extract_sections(html_path, lab_name=None):
 
     results = []
     for sec_html in raw_sections:
-        heading = _find_section_heading(sec_html) or "Introduction"
+        heading = _find_section_heading(sec_html)
         content = _html_to_text(sec_html)
         if not content.strip():
             continue
+
+        # Drop the heading line if it's duplicated as the first line of content
+        if heading:
+            lines = content.split("\n")
+            if lines and lines[0].strip() == heading.strip():
+                content = "\n".join(lines[1:]).strip()
+
+        # Strip nav-button lines (← Back to..., → Next..., Mark Complete ✓)
+        content = _strip_nav_lines(content)
+
+        # Skip chunks that are empty after cleanup (pure nav/footer blocks)
+        if not content.strip():
+            continue
+
+        heading = heading or "Introduction"
 
         # Build final chunk with lab name prepended
         chunk = f"[{lab_name}]\n\n## {heading}\n\n{content}"
