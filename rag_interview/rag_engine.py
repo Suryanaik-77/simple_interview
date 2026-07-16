@@ -17,6 +17,7 @@ import hashlib
 import numpy as np
 from dotenv import load_dotenv
 from openai import OpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Import the existing extractor from the parent directory.
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -25,10 +26,22 @@ if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 from extract_html_sections import extract_sections  # noqa: E402
 
+# Prefer this app's own .env (may hold a funded key); fall back to parent .env.
 load_dotenv(os.path.join(_PARENT, ".env"))
+load_dotenv(os.path.join(_HERE, ".env"), override=True)
 
-EMBED_MODEL = "text-embedding-3-small"
+EMBED_MODEL = "text-embedding-3-large"
 INDEX_PATH = os.path.join(_HERE, "data", "index.pkl")
+
+# Chunk size / overlap for the recursive character splitter.
+CHUNK_SIZE = 800
+CHUNK_OVERLAP = 120
+
+_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=CHUNK_SIZE,
+    chunk_overlap=CHUNK_OVERLAP,
+    separators=["\n\n", "\n", ". ", " ", ""],
+)
 
 _client = None
 
@@ -79,10 +92,22 @@ class RAGEngine:
         """Extract chunks from the given HTML files and embed them."""
         chunks = []
         for path in sorted(html_paths):
+            source = os.path.basename(path)
             for sec in extract_sections(path):
-                sec = dict(sec)
-                sec["source"] = os.path.basename(path)
-                chunks.append(sec)
+                header = f"[{sec['lab_name']}]\n\n## {sec['heading']}"
+                parts = _splitter.split_text(sec["content"])
+
+                # If a section splits into several chunks, prepend the header
+                # to each so every chunk keeps its lab/section context.
+                # If it stays a single chunk, add the header once.
+                for part in parts:
+                    chunks.append({
+                        "heading": sec["heading"],
+                        "lab_name": sec["lab_name"],
+                        "content": part,
+                        "chunk": f"{header}\n\n{part}",
+                        "source": source,
+                    })
 
         if not chunks:
             raise RuntimeError("No chunks extracted from the provided HTML files.")

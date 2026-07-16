@@ -1,3 +1,5 @@
 data/*.pkl
 __pycache__/
 *.pyc
+.env
+diag.py
