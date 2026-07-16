@@ -9,6 +9,9 @@
     <!-- TensorFlow.js + COCO-SSD — mobile phone detection in webcam -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <!-- Silero VAD — client-side neural speech detection via ONNX WASM -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/bundle.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
 
@@ -1091,7 +1094,7 @@
         interviewEnded = true;
         sessionOn = false;
         releaseMic();
-        if (vadWs) { try { vadWs.close(); } catch(e) {} vadWs = null; }
+        if (sileroVad) { try { sileroVad.destroy(); } catch(e) {} sileroVad = null; }
 
         // Tell the server to end the session (use sendBeacon so it survives page unload)
         if (sessionId) {
@@ -1259,78 +1262,53 @@
     let _pauseStartedAt = null;       // wall-clock of pause start; null while speaking
     let _hadCommitInPause = false;    // true after 1s commit fires; cleared on speech resume
 
-    // ── Silero VAD WebSocket ──
-    let vadWs = null;
+    // ── Silero VAD (client-side) ──
+    // Replaces volume threshold with neural speech detection.
+    // Only sets _vadIsSpeaking flag — all timing logic (1s commit, 2s finalize) stays in checkAudio.
+    let sileroVad = null;
     let vadMode = 'browser';  // 'silero' or 'browser'
-    let speculativeSttResult = null;  // holds early STT result from 1.0s silence
-    let vadAudioSender = null;  // interval for sending audio chunks to server
+    let speculativeSttResult = null;
+    let _vadIsSpeaking = false;
 
-    function initVadWebSocket() {
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        vadWs = new WebSocket(`${proto}//${location.host}/ws/audio?session_id=${sessionId}`);
-        vadWs.onopen = () => console.log('[VAD WS] Connected');
-        vadWs.onmessage = (evt) => {
-            const msg = JSON.parse(evt.data);
-            if (msg.event === 'connected') {
-                vadMode = msg.vad || 'browser';
-                console.log('[VAD] Mode:', vadMode);
-                if (vadMode === 'browser' && vadWs) {
-                    vadWs.close();
-                    vadWs = null;
-                    console.log('[VAD] Server uses browser VAD — closed WebSocket');
-                }
-            }
-            if (msg.event === 'speech_start') {
-                speechDetected = true;
-                silenceStart = null;
-                speculativeSttResult = null;
-                document.getElementById('sub-label').textContent = 'speaking...';
-            }
-            if (msg.event === 'silence_1s') {
-                document.getElementById('sub-label').textContent = 'pause... (sending to STT)';
-                console.log('[VAD] 1.0s silence — speculative STT started');
-            }
-            if (msg.event === 'stt_result' && msg.speculative) {
-                speculativeSttResult = { transcript: msg.transcript, stt_ms: msg.stt_ms };
-                console.log(`[VAD] Speculative STT: ${msg.stt_ms}ms — "${msg.transcript.substring(0, 50)}..."`);
-            }
-            if (msg.event === 'silence_final' && isRecording) {
-                document.getElementById('sub-label').textContent = 'processing...';
-                console.log('[VAD] 2.0s silence — final, stopping recording');
-                stopRecording();
-            }
-        };
-        vadWs.onerror = (e) => { console.log('[VAD WS] Error, falling back to browser VAD'); vadMode = 'browser'; };
-        vadWs.onclose = () => { console.log('[VAD WS] Closed'); vadMode = 'browser'; };
+    async function initSileroVad() {
+        if (sileroVad) return true;
+        if (typeof vad === 'undefined' || !vad.MicVAD) {
+            console.warn('[VAD] @ricky0123/vad-web not loaded, using browser fallback');
+            return false;
+        }
+        try {
+            sileroVad = await vad.MicVAD.new({
+                positiveSpeechThreshold: 0.5,
+                negativeSpeechThreshold: 0.35,
+                redemptionFrames: 8,
+                minSpeechFrames: 3,
+                startOnLoad: false,
+                baseAssetPath: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/",
+                onnxWASMBasePath: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/",
+                onSpeechStart: () => { _vadIsSpeaking = true; },
+                onSpeechEnd: () => { _vadIsSpeaking = false; },
+            });
+            vadMode = 'silero';
+            console.log('[VAD] Silero VAD initialized (client-side)');
+            return true;
+        } catch (e) {
+            console.error('[VAD] Silero init failed, using browser fallback:', e);
+            vadMode = 'browser';
+            return false;
+        }
     }
 
     function startVadAudioStream() {
-        if (vadMode !== 'silero' || !vadWs || vadWs.readyState !== WebSocket.OPEN) return;
-        // Send raw PCM16 audio chunks to server every 100ms
-        const vadChunkSize = 1600;  // 100ms at 16kHz
-        const vadProcessor = audioContext.createScriptProcessor(vadChunkSize, 1, 1);
-        const vadSource = audioContext.createMediaStreamSource(mediaStream);
-        vadSource.connect(vadProcessor);
-        vadProcessor.connect(audioContext.destination);
-        vadProcessor.onaudioprocess = (e) => {
-            if (!isRecording || vadWs.readyState !== WebSocket.OPEN) return;
-            const float32 = e.inputBuffer.getChannelData(0);
-            // Convert float32 to int16
-            const int16 = new Int16Array(float32.length);
-            for (let i = 0; i < float32.length; i++) {
-                const s = Math.max(-1, Math.min(1, float32[i]));
-                int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-            }
-            vadWs.send(int16.buffer);
-        };
-        vadAudioSender = vadProcessor;
+        if (sileroVad && vadMode === 'silero') {
+            try { sileroVad.start(); } catch(e) {}
+        }
     }
 
     function stopVadAudioStream() {
-        if (vadAudioSender) {
-            try { vadAudioSender.disconnect(); } catch(e) {}
-            vadAudioSender = null;
+        if (sileroVad && vadMode === 'silero') {
+            try { sileroVad.pause(); } catch(e) {}
         }
+        _vadIsSpeaking = false;
     }
 
     // Initialize mic once — kept open for the entire interview
@@ -1347,6 +1325,7 @@
             source.connect(analyser);
             micReady = true;
             console.log('[Mic] Initialized — stream kept alive');
+            initSileroVad().then(ok => console.log('[VAD]', ok ? 'silero active' : 'browser fallback'));
             return true;
         } catch (err) {
             console.error('[Mic] Init failed:', err);
@@ -1424,7 +1403,6 @@
         // Start the interview — init mic early so first recording is instant
         sessionOn = true;
         initMic();
-        initVadWebSocket();
         document.getElementById('main-btn').textContent = 'end interview';
         document.getElementById('status-dot').classList.add('live');
         document.getElementById('live-badge').textContent = 'starting';
@@ -1747,18 +1725,19 @@
         document.getElementById('main-label').textContent = 'Listening...';
         document.getElementById('sub-label').textContent = 'speak now...';
 
-        // Start sending audio to Silero VAD on server
+        // Start Silero VAD listening
         startVadAudioStream();
 
-        // Audio level monitoring — Silero handles silence detection if available,
-        // browser fallback if not
+        // Audio level monitoring — uses Silero neural VAD if available,
+        // falls back to volume threshold otherwise. All timing logic same.
         const checkAudio = () => {
             if (!isRecording || interviewEnded) return;
 
             analyser.getByteFrequencyData(dataArray);
             const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
 
-            const isSilent = avg < SILENCE_THRESHOLD;
+            // Silero VAD: use neural speech detection; Browser fallback: use volume threshold
+            const isSilent = (vadMode === 'silero') ? !_vadIsSpeaking : (avg < SILENCE_THRESHOLD);
 
             // 30s auto-send — send current chunk, keep recording
             const elapsed = Date.now() - recordingStartTime;
@@ -1769,23 +1748,7 @@
                 return;
             }
 
-            // If Silero is handling VAD, skip browser-side silence detection
-            if (vadMode === 'silero') {
-                if (!isSilent) {
-                    document.getElementById('sub-label').textContent = `speaking... (${avg.toFixed(0)})`;
-                } else if (!speechDetected) {
-                    const waitTime = Date.now() - recordingStartTime;
-                    if (waitTime >= NO_SPEECH_TIMEOUT) {
-                        document.getElementById('sub-label').textContent = 'Please speak your answer...';
-                        document.getElementById('main-label').textContent = 'Waiting for you...';
-                    }
-                }
-                requestAnimationFrame(checkAudio);
-                return;
-            }
-
-            // Browser fallback VAD
-            // Pause flow:
+            // Pause flow (same for Silero and browser fallback — isSilent source differs):
             //   speech → 1.0s silence → commit chunk to STT (background), STOP recorder.
             //   Then post-commit monitor watches the live mic (no MediaRecorder running):
             //     speech resumes  → startRecording() (new recorder captures it)
@@ -1978,7 +1941,7 @@
 
             analyser.getByteFrequencyData(dataArray);
             const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-            const isSilent = avg < SILENCE_THRESHOLD;
+            const isSilent = (vadMode === 'silero') ? !_vadIsSpeaking : (avg < SILENCE_THRESHOLD);
             const now = Date.now();
             const totalPause = _pauseStartedAt !== null ? (now - _pauseStartedAt) : 0;
 
