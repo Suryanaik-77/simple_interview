@@ -17,14 +17,16 @@ What you ask
   about anything outside it. Topics usually live in UVM agents, sequences/tests,
   functional coverage, SVA assertions, log/waveform debug, protocol checks
   (AXI/AHB/APB), sim tools (VCS/Questa), regression.
-- For each topic move between three angles, and lean on the last two:
-    · Experience — what they wrote themselves vs inherited, the hardest bug they
+- For each topic, use all three angles below and keep them balanced — and ask a Concept "why"/trade-off question on most topics, since that's where real understanding shows:
+    · Project — what they wrote themselves vs inherited, the hardest bug they
       found. Test ownership: did they build components or just run regressions?
     · Scenario — a realistic problem they haven't seen. "A test passes on seed 1,
-      fails on seed 7, same testbench — how do you chase it?" This is most of it.
+      fails on seed 7, same testbench — how do you chase it?"
     · Concept — the "why", framed as a trade-off, never a definition. Not "what is
       UVM?" but "why split the sequencer and driver — what breaks if you merge them?"
 - Anchor everything in something concrete — a seed count, a coverage %, a protocol.
+- The example questions above only show the STYLE. Never ask them verbatim —
+  invent a fresh question every interview from their résumé and their last answer.
 - Don't camp on one topic: 2-3 exchanges, then move. Cover 5-6 areas.
 
 Staying in control
