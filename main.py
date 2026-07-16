@@ -647,11 +647,12 @@ def tts_chunk(text: str) -> bytes:
             return wav
 
     if provider == "inworld" and INWORLD_API_KEY:
+        iw_body = {"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID,
+                   "audioConfig": {"speakingRate": 1.25}}
         try:
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice:stream",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
-                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID},
-                timeout=15, stream=True)
+                json=iw_body, timeout=15, stream=True)
             r.raise_for_status()
             audio_parts = []
             for line in r.iter_lines():
@@ -671,7 +672,7 @@ def tts_chunk(text: str) -> bytes:
         try:
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
-                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
+                json=iw_body, timeout=15)
             r.raise_for_status()
             data = r.json() if "json" in r.headers.get("content-type", "") else None
             if data and data.get("audioContent"):
@@ -1220,7 +1221,8 @@ def synthesize_speech(text: str) -> tuple[str, int]:
         try:
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
-                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
+                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID,
+                      "audioConfig": {"speakingRate": 1.25}}, timeout=15)
             r.raise_for_status()
             latency = round((time.time() - t0) * 1000)
             log.info(f"[TTS] Inworld {latency}ms — {len(text)} chars")
