@@ -9,9 +9,6 @@
     <!-- TensorFlow.js + COCO-SSD — mobile phone detection in webcam -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
-    <!-- Silero VAD — client-side voice activity detection via ONNX Runtime WASM -->
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/bundle.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
 
@@ -1094,7 +1091,7 @@
         interviewEnded = true;
         sessionOn = false;
         releaseMic();
-        if (sileroVad) { try { sileroVad.destroy(); } catch(e) {} sileroVad = null; }
+        if (vadWs) { try { vadWs.close(); } catch(e) {} vadWs = null; }
 
         // Tell the server to end the session (use sendBeacon so it survives page unload)
         if (sessionId) {
@@ -1262,86 +1259,78 @@
     let _pauseStartedAt = null;       // wall-clock of pause start; null while speaking
     let _hadCommitInPause = false;    // true after 1s commit fires; cleared on speech resume
 
-    // ── Silero VAD (client-side via @ricky0123/vad-web) ──
-    let sileroVad = null;
+    // ── Silero VAD WebSocket ──
+    let vadWs = null;
     let vadMode = 'browser';  // 'silero' or 'browser'
-    let speculativeSttResult = null;
-    let _vadSpeechActive = false;
-    let _vadSilenceStart = null;
+    let speculativeSttResult = null;  // holds early STT result from 1.0s silence
+    let vadAudioSender = null;  // interval for sending audio chunks to server
 
-    async function initSileroVad() {
-        if (sileroVad) return true;
-        if (typeof vad === 'undefined' || !vad.MicVAD) {
-            console.warn('[VAD] @ricky0123/vad-web not loaded, using browser fallback');
-            return false;
-        }
-        try {
-            sileroVad = await vad.MicVAD.new({
-                positiveSpeechThreshold: 0.5,
-                negativeSpeechThreshold: 0.35,
-                redemptionFrames: 8,
-                minSpeechFrames: 3,
-                startOnLoad: false,
-                baseAssetPath: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/",
-                onnxWASMBasePath: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/",
-                onSpeechStart: () => {
-                    if (!isRecording || interviewEnded) return;
-                    _vadSpeechActive = true;
-                    _vadSilenceStart = null;
-                    speechDetected = true;
-                    silenceStart = null;
-                    speculativeSttResult = null;
-                    _pauseStartedAt = null;
-                    _hadCommitInPause = false;
-                    document.getElementById('sub-label').textContent = 'speaking...';
-                    console.log('[VAD] Speech started');
-                },
-                onSpeechEnd: (audio) => {
-                    if (!isRecording || interviewEnded) return;
-                    _vadSpeechActive = false;
-                    _vadSilenceStart = Date.now();
-                    console.log('[VAD] Speech ended');
-                    if (speechDetected && !_hadCommitInPause) {
-                        _hadCommitInPause = true;
-                        _pauseStartedAt = _vadSilenceStart;
-                        document.getElementById('sub-label').textContent = 'pause — committing chunk...';
-                        mediaRecorder._autoChunk = true;
-                        mediaRecorder._pauseCommit = true;
-                        stopRecording();
-                    }
-                },
-                onFrameProcessed: (probs) => {
-                    if (!isRecording || interviewEnded) return;
-                    if (_vadSilenceStart && speechDetected && _hadCommitInPause) {
-                        const totalPause = Date.now() - _vadSilenceStart;
-                        if (totalPause >= SILENCE_TIMEOUT && _postCommitMonitorActive) {
-                            document.getElementById('sub-label').textContent = 'finalizing...';
-                        }
-                    }
-                },
-            });
-            vadMode = 'silero';
-            console.log('[VAD] Silero VAD initialized (client-side)');
-            return true;
-        } catch (e) {
-            console.error('[VAD] Silero init failed:', e);
-            vadMode = 'browser';
-            return false;
-        }
+    function initVadWebSocket() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        vadWs = new WebSocket(`${proto}//${location.host}/ws/audio?session_id=${sessionId}`);
+        vadWs.onopen = () => console.log('[VAD WS] Connected');
+        vadWs.onmessage = (evt) => {
+            const msg = JSON.parse(evt.data);
+            if (msg.event === 'connected') {
+                vadMode = msg.vad || 'browser';
+                console.log('[VAD] Mode:', vadMode);
+                if (vadMode === 'browser' && vadWs) {
+                    vadWs.close();
+                    vadWs = null;
+                    console.log('[VAD] Server uses browser VAD — closed WebSocket');
+                }
+            }
+            if (msg.event === 'speech_start') {
+                speechDetected = true;
+                silenceStart = null;
+                speculativeSttResult = null;
+                document.getElementById('sub-label').textContent = 'speaking...';
+            }
+            if (msg.event === 'silence_1s') {
+                document.getElementById('sub-label').textContent = 'pause... (sending to STT)';
+                console.log('[VAD] 1.0s silence — speculative STT started');
+            }
+            if (msg.event === 'stt_result' && msg.speculative) {
+                speculativeSttResult = { transcript: msg.transcript, stt_ms: msg.stt_ms };
+                console.log(`[VAD] Speculative STT: ${msg.stt_ms}ms — "${msg.transcript.substring(0, 50)}..."`);
+            }
+            if (msg.event === 'silence_final' && isRecording) {
+                document.getElementById('sub-label').textContent = 'processing...';
+                console.log('[VAD] 2.0s silence — final, stopping recording');
+                stopRecording();
+            }
+        };
+        vadWs.onerror = (e) => { console.log('[VAD WS] Error, falling back to browser VAD'); vadMode = 'browser'; };
+        vadWs.onclose = () => { console.log('[VAD WS] Closed'); vadMode = 'browser'; };
     }
 
     function startVadAudioStream() {
-        if (sileroVad && vadMode === 'silero') {
-            try { sileroVad.start(); } catch(e) { console.warn('[VAD] start error:', e); }
-        }
+        if (vadMode !== 'silero' || !vadWs || vadWs.readyState !== WebSocket.OPEN) return;
+        // Send raw PCM16 audio chunks to server every 100ms
+        const vadChunkSize = 1600;  // 100ms at 16kHz
+        const vadProcessor = audioContext.createScriptProcessor(vadChunkSize, 1, 1);
+        const vadSource = audioContext.createMediaStreamSource(mediaStream);
+        vadSource.connect(vadProcessor);
+        vadProcessor.connect(audioContext.destination);
+        vadProcessor.onaudioprocess = (e) => {
+            if (!isRecording || vadWs.readyState !== WebSocket.OPEN) return;
+            const float32 = e.inputBuffer.getChannelData(0);
+            // Convert float32 to int16
+            const int16 = new Int16Array(float32.length);
+            for (let i = 0; i < float32.length; i++) {
+                const s = Math.max(-1, Math.min(1, float32[i]));
+                int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            vadWs.send(int16.buffer);
+        };
+        vadAudioSender = vadProcessor;
     }
 
     function stopVadAudioStream() {
-        if (sileroVad && vadMode === 'silero') {
-            try { sileroVad.pause(); } catch(e) { console.warn('[VAD] pause error:', e); }
+        if (vadAudioSender) {
+            try { vadAudioSender.disconnect(); } catch(e) {}
+            vadAudioSender = null;
         }
-        _vadSpeechActive = false;
-        _vadSilenceStart = null;
     }
 
     // Initialize mic once — kept open for the entire interview
@@ -1358,10 +1347,6 @@
             source.connect(analyser);
             micReady = true;
             console.log('[Mic] Initialized — stream kept alive');
-            // Initialize Silero VAD (async, non-blocking — falls back to browser if it fails)
-            initSileroVad().then(ok => {
-                console.log('[VAD] Init result:', ok ? 'silero' : 'browser fallback');
-            });
             return true;
         } catch (err) {
             console.error('[Mic] Init failed:', err);
@@ -1439,6 +1424,7 @@
         // Start the interview — init mic early so first recording is instant
         sessionOn = true;
         initMic();
+        initVadWebSocket();
         document.getElementById('main-btn').textContent = 'end interview';
         document.getElementById('status-dot').classList.add('live');
         document.getElementById('live-badge').textContent = 'starting';
@@ -1761,17 +1747,17 @@
         document.getElementById('main-label').textContent = 'Listening...';
         document.getElementById('sub-label').textContent = 'speak now...';
 
-        // Start Silero VAD (or no-op if browser fallback)
+        // Start sending audio to Silero VAD on server
         startVadAudioStream();
 
-        // Audio level monitoring loop — handles 30s auto-chunk, no-speech timeout,
-        // and browser-fallback silence detection when Silero VAD is unavailable.
-        // When Silero is active, speech/silence is detected via its callbacks above.
+        // Audio level monitoring — Silero handles silence detection if available,
+        // browser fallback if not
         const checkAudio = () => {
             if (!isRecording || interviewEnded) return;
 
             analyser.getByteFrequencyData(dataArray);
             const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+
             const isSilent = avg < SILENCE_THRESHOLD;
 
             // 30s auto-send — send current chunk, keep recording
@@ -1783,13 +1769,13 @@
                 return;
             }
 
-            // If Silero VAD is active, it handles speech/silence via callbacks.
-            // Only handle no-speech timeout here.
+            // If Silero is handling VAD, skip browser-side silence detection
             if (vadMode === 'silero') {
-                if (!speechDetected) {
+                if (!isSilent) {
+                    document.getElementById('sub-label').textContent = `speaking... (${avg.toFixed(0)})`;
+                } else if (!speechDetected) {
                     const waitTime = Date.now() - recordingStartTime;
                     if (waitTime >= NO_SPEECH_TIMEOUT) {
-                        if (_accumulatedTranscript.trim()) { stopRecording(); return; }
                         document.getElementById('sub-label').textContent = 'Please speak your answer...';
                         document.getElementById('main-label').textContent = 'Waiting for you...';
                     }
@@ -1798,15 +1784,22 @@
                 return;
             }
 
-            // Browser fallback VAD (volume threshold)
+            // Browser fallback VAD
+            // Pause flow:
+            //   speech → 1.0s silence → commit chunk to STT (background), STOP recorder.
+            //   Then post-commit monitor watches the live mic (no MediaRecorder running):
+            //     speech resumes  → startRecording() (new recorder captures it)
+            //     2.0s total silence → finalize turn (no re-send, uses accumulated transcript)
             const now = Date.now();
             if (!isSilent) {
+                // Speech (resumed or initial) — clear all pause tracking
                 speechDetected = true;
                 silenceStart = null;
                 _pauseStartedAt = null;
                 _hadCommitInPause = false;
                 document.getElementById('sub-label').textContent = `speaking... (${avg.toFixed(0)})`;
             } else if (speechDetected) {
+                // Silence after speech in THIS recorder
                 if (silenceStart === null) silenceStart = now;
                 if (_pauseStartedAt === null) _pauseStartedAt = now;
                 const localSilence = now - silenceStart;
@@ -1814,17 +1807,23 @@
                 document.getElementById('sub-label').textContent = `pause ${(totalPause/1000).toFixed(1)}s... (${avg.toFixed(0)}/255)`;
 
                 if (!_hadCommitInPause && localSilence >= EARLY_COMMIT_MS) {
+                    // 1.0s silence — ship what we have, then STOP. Wait for speech via post-commit monitor.
                     _hadCommitInPause = true;
                     document.getElementById('sub-label').textContent = 'pause 1.0s — committing chunk...';
                     mediaRecorder._autoChunk = true;
-                    mediaRecorder._pauseCommit = true;
+                    mediaRecorder._pauseCommit = true;   // distinguish 1s commit from 30s mid-speech chunk
                     stopRecording();
                     return;
                 }
             } else {
+                // No speech yet in a fresh turn
                 const waitTime = now - recordingStartTime;
                 if (waitTime >= NO_SPEECH_TIMEOUT) {
-                    if (_accumulatedTranscript.trim()) { stopRecording(); return; }
+                    if (_accumulatedTranscript.trim()) {
+                        // Accumulated transcript from a prior chunk but no new speech — finalize it
+                        stopRecording();
+                        return;
+                    }
                     document.getElementById('sub-label').textContent = 'Please speak your answer...';
                     document.getElementById('main-label').textContent = 'Waiting for you...';
                 } else {
@@ -1958,63 +1957,33 @@
     }
 
     // After a 1s pause-commit there is NO MediaRecorder running. This loop watches the live
-    // mic via the analyser (or Silero VAD callbacks):
-    //   speech detected → startRecording() for the next segment
-    //   2.0s total silence → finalize the turn (no STT re-send)
+    // mic via the analyser:
+    //   speech detected (avg ≥ SILENCE_THRESHOLD) → startRecording() for the next segment
+    //   2.0s total silence (from _pauseStartedAt) → finalize the turn (no STT re-send)
     let _postCommitMonitorActive = false;
     function startPostCommitMonitor() {
         if (_postCommitMonitorActive || !analyser || interviewEnded) return;
         _postCommitMonitorActive = true;
         setOrb('idle');
         document.getElementById('status-txt').textContent = 'waiting';
-
-        // Re-enable Silero VAD listening during post-commit so its onSpeechStart fires
-        if (sileroVad && vadMode === 'silero') {
-            try { sileroVad.start(); } catch(e) {}
-        }
-
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
         const tick = () => {
             if (interviewEnded) { _postCommitMonitorActive = false; return; }
+            // If something else started a recorder (e.g. the LLM finished and called startRecording),
+            // the monitor's job is done.
             if (isRecording) { _postCommitMonitorActive = false; return; }
+            // Pause flags cleared elsewhere → state is no longer "post-commit"; bail.
             if (!_hadCommitInPause) { _postCommitMonitorActive = false; return; }
 
-            const now = Date.now();
-            const totalPause = _pauseStartedAt !== null ? (now - _pauseStartedAt) : 0;
-
-            // Silero VAD mode: speech detection happens via onSpeechStart callback.
-            // The callback sets speechDetected=true and clears _hadCommitInPause,
-            // so on next tick the !_hadCommitInPause guard above will exit.
-            // We only need to check the silence timeout here.
-            if (vadMode === 'silero') {
-                if (_vadSpeechActive) {
-                    _hadCommitInPause = false;
-                    _pauseStartedAt = null;
-                    _postCommitMonitorActive = false;
-                    if (sileroVad) { try { sileroVad.pause(); } catch(e) {} }
-                    document.getElementById('sub-label').textContent = 'resuming...';
-                    startRecording();
-                    return;
-                }
-                document.getElementById('sub-label').textContent = `pause ${(totalPause/1000).toFixed(1)}s (waiting)...`;
-                if (totalPause >= SILENCE_TIMEOUT) {
-                    _postCommitMonitorActive = false;
-                    if (sileroVad) { try { sileroVad.pause(); } catch(e) {} }
-                    document.getElementById('sub-label').textContent = 'finalizing...';
-                    finalizeAfterPauseCommit();
-                    return;
-                }
-                requestAnimationFrame(tick);
-                return;
-            }
-
-            // Browser fallback
             analyser.getByteFrequencyData(dataArray);
             const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
             const isSilent = avg < SILENCE_THRESHOLD;
+            const now = Date.now();
+            const totalPause = _pauseStartedAt !== null ? (now - _pauseStartedAt) : 0;
 
             if (!isSilent) {
+                // Speech resumed — start a fresh recorder for the next segment.
                 _hadCommitInPause = false;
                 _pauseStartedAt = null;
                 _postCommitMonitorActive = false;
@@ -2026,6 +1995,7 @@
             document.getElementById('sub-label').textContent = `pause ${(totalPause/1000).toFixed(1)}s (waiting)...`;
 
             if (totalPause >= SILENCE_TIMEOUT) {
+                // 2.0s total silence and no resumed speech — finalize.
                 _postCommitMonitorActive = false;
                 document.getElementById('sub-label').textContent = 'finalizing...';
                 finalizeAfterPauseCommit();
