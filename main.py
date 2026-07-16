@@ -6,6 +6,8 @@ question pipeline, evaluation pipeline, evaluation validator.
 Question generation: conversation history + resume → LLM → next question.
 That's it. No complex routing.
 """
+import warnings
+warnings.filterwarnings("ignore", module="sklearn")
 import os, time, json, re, secrets, tempfile, base64, threading, smtplib, logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta, timezone
