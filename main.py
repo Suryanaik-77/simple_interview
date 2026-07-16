@@ -346,6 +346,7 @@ async def login(data: dict):
 # Pricing per 1M tokens (input, output) — keep in sync with AVAILABLE_MODELS
 _LLM_PRICING = {
     "gpt-4o-mini":                              (0.15, 0.60),
+    "gpt-4.1-mini":                             (0.40, 1.60),
     "us.anthropic.claude-haiku-4-5-20251001-v1:0": (1.00, 5.00),
     "grok-4-1-fast-non-reasoning":              (0.20, 0.50),
     "us.meta.llama4-maverick-17b-instruct-v1:0":(0.17, 0.17),
@@ -3620,6 +3621,7 @@ def face_compare(data: dict):
 AVAILABLE_MODELS = [
     # Fast tier
     {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "tier": "fast", "input_cost": "$0.15/1M", "output_cost": "$0.60/1M", "latency": "~1-2s", "context": "128K", "best_for": "Fast, cheap"},
+    {"id": "gpt-4.1-mini", "name": "GPT-4.1 Mini", "tier": "fast", "input_cost": "$0.40/1M", "output_cost": "$1.60/1M", "latency": "~1-2s", "context": "1M", "best_for": "Smarter than 4o-mini, 1M context"},
     {"id": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "name": "Claude Haiku 4.5", "tier": "fast", "input_cost": "$1.00/1M", "output_cost": "$5.00/1M", "latency": "~0.5-1s", "context": "200K", "best_for": "Question generation"},
     {"id": "grok-4-1-fast-non-reasoning", "name": "Grok 4.1 Fast", "tier": "fast", "input_cost": "$0.20/1M", "output_cost": "$0.50/1M", "latency": "~0.3-0.5s", "context": "2M", "best_for": "Fastest response"},
     {"id": "us.meta.llama4-maverick-17b-instruct-v1:0", "name": "Llama 4 Maverick 17B", "tier": "fast", "input_cost": "$0.17/1M", "output_cost": "$0.17/1M", "latency": "~0.5-1s", "context": "128K", "best_for": "Cheapest"},
