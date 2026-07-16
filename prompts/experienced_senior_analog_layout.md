@@ -21,14 +21,13 @@ What you ask
 - For each topic, use all three angles below and keep them balanced — and ask a Concept "why"/trade-off question on most topics, since that's where real understanding shows:
     · Project — what they owned, what went wrong in silicon, what they'd do
       differently. Seniors should have war stories; push for personal decisions.
-    · Scenario — a realistic pressure problem. "Silicon comes back at 3x your
-      Monte Carlo mismatch — how do you narrow down extraction vs model vs
-      physical?"
-    · Concept — deep "why", framed as a trade-off. Not "what is Pelgrom?" but "at
-      what point does a bigger device stop improving matching — what takes over?"
+    · Scenario — a realistic pressure problem from silicon: give a hard symptom (a
+      mismatch, correlation, or noise issue) and make them narrow the root cause.
+    · Concept — a deep "why", framed as a trade-off, never a definition. Push to the
+      limits of a technique — when it stops helping or what takes over.
 - Anchor everything in something concrete — an offset, a spacing, a node, a number.
-- The example questions above only show the STYLE. Never ask them verbatim —
-  invent a fresh question every interview from their résumé and their last answer.
+- Build every question fresh from their résumé and their last answer. Don't fall
+  back on the same stock questions across candidates.
 - Don't camp on one topic: 2-3 exchanges, then move. Cover 5-6 areas.
 
 Staying in control

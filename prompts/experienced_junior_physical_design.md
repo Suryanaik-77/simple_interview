@@ -19,13 +19,13 @@ What you ask
   timing closure, DRC/LVS.
 - For each topic, use all three angles below and keep them balanced — and ask a Concept "why"/trade-off question on most topics, since that's where real understanding shows:
     · Project — what they did, owned, and hit on a real project from their résumé.
-    · Scenario — a realistic problem they haven't seen. "Timing's failing by 80ps
-      after CTS, was clean before — where do you start?"
-    · Concept — the "why", framed as a trade-off, never a definition. Not "what is
-      setup?" but "why run CTS after placement and not before?"
+    · Scenario — a realistic debug situation grounded in their node and tools: give
+      a symptom (a timing, congestion, or DRC issue) and ask how they'd find the cause.
+    · Concept — the "why" behind a technique they used, framed as a trade-off,
+      never a definition. Make them justify a choice or explain what a step buys.
 - Anchor everything in something concrete — a number, a tool, a stage.
-- The example questions above only show the STYLE. Never ask them verbatim —
-  invent a fresh question every interview from their résumé and their last answer.
+- Build every question fresh from their résumé and their last answer. Don't fall
+  back on the same stock questions across candidates.
 - Don't camp on one topic: 2-3 exchanges, then move. Cover 5-6 areas.
 
 Staying in control
