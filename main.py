@@ -9,6 +9,8 @@ That's it. No complex routing.
 import warnings
 warnings.filterwarnings("ignore", module="sklearn")
 import os, time, json, re, secrets, tempfile, base64, threading, smtplib, logging
+from concurrent.futures import ThreadPoolExecutor
+_tts_executor = ThreadPoolExecutor(max_workers=2)
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
@@ -644,6 +646,27 @@ def tts_chunk(text: str) -> bytes:
             return wav
 
     if provider == "inworld" and INWORLD_API_KEY:
+        try:
+            r = http_requests.post("https://api.inworld.ai/tts/v1/voice:stream",
+                headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
+                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID},
+                timeout=15, stream=True)
+            r.raise_for_status()
+            audio_parts = []
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                    ac = chunk.get("result", chunk).get("audioContent")
+                    if ac:
+                        audio_parts.append(base64.b64decode(ac))
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            if audio_parts:
+                return b"".join(audio_parts)
+        except Exception as e:
+            log.error(f"[TTS Stream] Inworld stream error: {e}")
         try:
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
@@ -2964,7 +2987,26 @@ def stream_answer(data: dict):
             return any(p in text.lower().strip().rstrip('.!') for p in _VOICE_ONLY_PATTERNS)
 
         try:
+            pending_tts = None  # (future, t0_tts, sentence)
             token_hold = []
+            voice_only_hold = False
+
+            def _flush_tts():
+                """Wait for pending TTS future and yield audio."""
+                nonlocal pending_tts, total_tts_ms, total_tts_chars, sentence_count
+                if not pending_tts:
+                    return []
+                future, t0_t, sent = pending_tts
+                pending_tts = None
+                audio_bytes = future.result()
+                tts_ms = round((time.time() - t0_t) * 1000)
+                total_tts_ms += tts_ms
+                total_tts_chars += len(sent)
+                log.info(f"[Stream] Sentence {sentence_count}: TTS {tts_ms}ms — \"{sent[:50]}...\"")
+                if audio_bytes:
+                    return [f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"]
+                return []
+
             for token in stream_llm(messages, temperature=0.7, max_tokens=200):
                 full_text += token
                 sentence_buffer += token
@@ -2974,23 +3016,24 @@ def stream_answer(data: dict):
                 if re.search(r'[.?!]\s*$', sentence_buffer) or len(sentence_buffer) > 150:
                     sentence = sentence_buffer.strip()
                     sentence_buffer = ""
-                    if sentence:
-                        voice_only = _is_voice_only(sentence)
-                        if not voice_only:
-                            for t in token_hold:
-                                yield f"data: {json.dumps({'type': 'token', 'content': t})}\n\n"
-                        else:
-                            log.info(f"[Stream] Voice-only (hidden from UI): \"{sentence[:60]}\"")
-                        token_hold = []
-                        sentence_count += 1
-                        t0_tts = time.time()
-                        audio_bytes = tts_chunk(sentence)
-                        tts_ms = round((time.time() - t0_tts) * 1000)
-                        total_tts_ms += tts_ms
-                        total_tts_chars += len(sentence)
-                        if audio_bytes:
-                            yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
-                        log.info(f"[Stream] Sentence {sentence_count}: TTS {tts_ms}ms — \"{sentence[:50]}...\"")
+                    if not sentence:
+                        continue
+                    voice_only_hold = _is_voice_only(sentence)
+                    if not voice_only_hold:
+                        for t in token_hold:
+                            yield f"data: {json.dumps({'type': 'token', 'content': t})}\n\n"
+                    else:
+                        log.info(f"[Stream] Voice-only (hidden from UI): \"{sentence[:60]}\"")
+                    token_hold = []
+
+                    # Flush previous TTS before starting new one
+                    for evt in _flush_tts():
+                        yield evt
+
+                    sentence_count += 1
+                    t0_tts = time.time()
+                    pending_tts = (_tts_executor.submit(tts_chunk, sentence), t0_tts, sentence)
+
         except Exception as e:
             stream_error = True
             log.error(f"[Stream] LLM streaming error: {e}")
@@ -3014,6 +3057,10 @@ def stream_answer(data: dict):
                 for t in token_hold:
                     yield f"data: {json.dumps({'type': 'token', 'content': t})}\n\n"
             token_hold = []
+            # Flush any pending TTS first
+            for evt in _flush_tts():
+                yield evt
+            sentence_count += 1
             t0_tts = time.time()
             audio_bytes = tts_chunk(sentence)
             tts_ms = round((time.time() - t0_tts) * 1000)
@@ -3021,6 +3068,10 @@ def stream_answer(data: dict):
             total_tts_chars += len(sentence)
             if audio_bytes:
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
+        else:
+            # Flush last pending TTS
+            for evt in _flush_tts():
+                yield evt
 
         llm_ms = round((time.time() - t0_llm) * 1000)
         # Use actual Bedrock usage if available (includes cache info), else estimate
