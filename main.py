@@ -643,10 +643,9 @@ def tts_chunk(text: str) -> bytes:
 
     if provider == "inworld" and INWORLD_API_KEY:
         try:
-            inworld_vid = voice.split("__")[0] if "__" in voice else voice
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
-                json={"text": text[:2000], "voiceId": inworld_vid or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
+                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
             data = r.json() if "json" in r.headers.get("content-type", "") else None
             if data and data.get("audioContent"):
@@ -1193,10 +1192,9 @@ def synthesize_speech(text: str) -> tuple[str, int]:
     # Inworld
     if provider == "inworld" and INWORLD_API_KEY:
         try:
-            inworld_vid = voice.split("__")[0] if "__" in voice else voice
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
-                json={"text": text[:2000], "voiceId": inworld_vid or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
+                json={"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}, timeout=15)
             r.raise_for_status()
             latency = round((time.time() - t0) * 1000)
             log.info(f"[TTS] Inworld {latency}ms — {len(text)} chars")
