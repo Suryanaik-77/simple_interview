@@ -2193,8 +2193,9 @@ def _stale_session_sweeper():
 
 threading.Thread(target=_stale_session_sweeper, daemon=True, name="stale-sweeper").start()
 
-import cognition
-cognition.start_sweeper()
+# cognition agent disabled
+# import cognition
+# cognition.start_sweeper()
 
 
 # ── API Endpoints ────────────────────────────────────────────────────────
@@ -2986,6 +2987,13 @@ def stream_answer(data: dict):
         _VOICE_ONLY_PATTERNS = ["please answer in english", "answer in english", "speak in english",
                                 "please speak in english", "please respond in english"]
 
+        _STRIP_TAGS = ["[FOLLOWUP]", "[END_INTERVIEW]", "[PERSONAL]", "[ABUSIVE]"]
+
+        def _clean_for_tts(text):
+            for tag in _STRIP_TAGS:
+                text = text.replace(tag, "")
+            return text.strip()
+
         def _is_voice_only(text):
             return any(p in text.lower().strip().rstrip('.!') for p in _VOICE_ONLY_PATTERNS)
 
@@ -3023,8 +3031,9 @@ def stream_answer(data: dict):
                         continue
                     voice_only_hold = _is_voice_only(sentence)
                     if not voice_only_hold:
-                        for t in token_hold:
-                            yield f"data: {json.dumps({'type': 'token', 'content': t})}\n\n"
+                        ui_text = _clean_for_tts(sentence)
+                        if ui_text:
+                            yield f"data: {json.dumps({'type': 'token', 'content': ui_text})}\n\n"
                     else:
                         log.info(f"[Stream] Voice-only (hidden from UI): \"{sentence[:60]}\"")
                     token_hold = []
@@ -3034,8 +3043,10 @@ def stream_answer(data: dict):
                         yield evt
 
                     sentence_count += 1
+                    tts_sentence = _clean_for_tts(sentence)
                     t0_tts = time.time()
-                    pending_tts = (_tts_executor.submit(tts_chunk, sentence), t0_tts, sentence)
+                    if tts_sentence:
+                        pending_tts = (_tts_executor.submit(tts_chunk, tts_sentence), t0_tts, tts_sentence)
 
         except Exception as e:
             stream_error = True
@@ -3057,15 +3068,17 @@ def stream_answer(data: dict):
         if sentence_buffer.strip():
             sentence = sentence_buffer.strip()
             if not _is_voice_only(sentence):
-                for t in token_hold:
-                    yield f"data: {json.dumps({'type': 'token', 'content': t})}\n\n"
+                ui_text = _clean_for_tts(sentence)
+                if ui_text:
+                    yield f"data: {json.dumps({'type': 'token', 'content': ui_text})}\n\n"
             token_hold = []
             # Flush any pending TTS first
             for evt in _flush_tts():
                 yield evt
             sentence_count += 1
+            tts_sentence = _clean_for_tts(sentence)
             t0_tts = time.time()
-            audio_bytes = tts_chunk(sentence)
+            audio_bytes = tts_chunk(tts_sentence) if tts_sentence else b""
             tts_ms = round((time.time() - t0_tts) * 1000)
             total_tts_ms += tts_ms
             total_tts_chars += len(sentence)
@@ -4374,43 +4387,13 @@ def get_session_reviews(session_id: str, _=Depends(require_admin)):
     return database.list_expert_reviews(session_id=session_id)
 
 
-# ── Admin: Cognition AI ─────────────────────────────────────────────────
-
-@app.get("/api/admin/cognition/signals")
-def get_cognition_signals(signal_type: str = None, domain: str = None,
-                          level: str = None, severity: str = None,
-                          limit: int = 200, _=Depends(require_admin)):
-    return database.list_cognition_signals(
-        signal_type=signal_type, domain=domain,
-        level=level, severity=severity, limit=limit,
-    )
-
-
-@app.get("/api/admin/cognition/summary")
-def get_cognition_summary(_=Depends(require_admin)):
-    return database.cognition_signal_summary()
-
-
-@app.get("/api/admin/cognition/diagnoses")
-def get_cognition_diagnoses(status: str = None, domain: str = None,
-                            limit: int = 100, _=Depends(require_admin)):
-    return database.list_cognition_diagnoses(status=status, domain=domain, limit=limit)
-
-
-@app.post("/api/admin/cognition/diagnoses/{diagnosis_id}")
-def update_cognition_diagnosis(diagnosis_id: int, data: dict, _=Depends(require_admin)):
-    new_status = data.get("status", "")
-    if new_status not in ("applied", "dismissed", "open"):
-        raise HTTPException(400, "status must be 'applied', 'dismissed', or 'open'")
-    ok = database.update_diagnosis_status(diagnosis_id, new_status)
-    return {"ok": ok}
-
-
-@app.post("/api/admin/cognition/trigger")
-def trigger_cognition_sweep(_=Depends(require_admin)):
-    import cognition
-    saved = cognition.run_sweep()
-    return {"ok": True, "signals_saved": saved}
+# ── Admin: Cognition AI (DISABLED) ─────────────────────────────────────
+# cognition agent disabled — all endpoints commented out
+# @app.get("/api/admin/cognition/signals")
+# @app.get("/api/admin/cognition/summary")
+# @app.get("/api/admin/cognition/diagnoses")
+# @app.post("/api/admin/cognition/diagnoses/{diagnosis_id}")
+# @app.post("/api/admin/cognition/trigger")
 
 
 # ── Start ────────────────────────────────────────────────────────────────
