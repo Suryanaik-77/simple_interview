@@ -628,6 +628,9 @@ def tts_chunk(text: str) -> bytes:
     """Generate TTS audio bytes for a text chunk. Returns raw audio bytes."""
     if not RUNTIME_CONFIG.get("tts_enabled", True) or not text.strip():
         return b""
+    # Underscores are kept in the UI (e.g. set_false_path) but read oddly aloud,
+    # so replace them with spaces for TTS only.
+    text = text.replace("_", " ")
     provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
     voice = RUNTIME_CONFIG.get("tts_voice", "aura-asteria-en")
 
@@ -1191,6 +1194,8 @@ def synthesize_speech(text: str) -> tuple[str, int]:
     """Returns (base64_audio, latency_ms)."""
     if not RUNTIME_CONFIG.get("tts_enabled", True) or not text:
         return "", 0
+    # Underscores read oddly aloud; strip them for TTS only (UI keeps them).
+    text = text.replace("_", " ")
     provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
     voice = RUNTIME_CONFIG.get("tts_voice", "aura-asteria-en")
     t0 = time.time()
