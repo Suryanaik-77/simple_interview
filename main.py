@@ -2979,14 +2979,29 @@ def stream_answer(data: dict):
             pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
         # Turn-aware ending control — the model won't reliably self-count, so tell it
         # explicitly where it stands relative to the 8-question minimum.
+        # Turn-aware ending control. The interview closes only at sweet spots — 8,
+        # 16, or 24 questions — or at the hard maximum of 30. At each sweet spot the
+        # model decides by performance: not clearly strong → close; clearly strong →
+        # push on to the next sweet spot. Between sweet spots it keeps going.
         q_asked = len(session.get("conversation", []))
+        SWEET_SPOTS = (8, 16, 24)
+        HARD_MAX = 30
         if q_asked < 8:
-            pacing += f"\nProgress: {q_asked} questions asked so far. Do NOT end yet — the minimum is 8 questions."
+            pacing += (f"\nProgress: {q_asked} questions asked. The minimum is 8 — "
+                       "do NOT end yet, keep asking.")
+        elif q_asked >= HARD_MAX:
+            pacing += (f"\nProgress: {q_asked} questions asked — this is the hard maximum of {HARD_MAX}. "
+                       "END NOW no matter how strong they are: give one short closing line and include [END_INTERVIEW].")
+        elif q_asked in SWEET_SPOTS:
+            nxt = next(s for s in (16, 24, HARD_MAX) if s > q_asked)
+            pacing += (f"\nProgress: {q_asked} questions asked — a decision checkpoint. Decide now on performance: "
+                       "if the candidate is NOT clearly strong (any vague, incomplete, or wrong answers), "
+                       "END NOW with one short closing line and [END_INTERVIEW]. "
+                       f"Only if they've been clearly strong across the board, continue and probe harder toward the next checkpoint at {nxt}.")
         else:
-            pacing += (f"\nProgress: {q_asked} questions asked (past the 8-question minimum). "
-                       "If the candidate has been weak, unsure, or giving vague/incomplete/wrong answers, "
-                       "END NOW: give one short closing line and include [END_INTERVIEW]. "
-                       "Continue only if they are clearly strong and worth probing further.")
+            nxt = next(s for s in (*SWEET_SPOTS, HARD_MAX) if s >= q_asked)
+            pacing += (f"\nProgress: {q_asked} questions asked — between checkpoints. Keep going with fresh, "
+                       f"harder questions; do NOT end here and do NOT repeat a covered topic. Next checkpoint is at {nxt}.")
         messages.append({"role": "user", "content": answer + pacing})
 
         # Stream LLM tokens, buffer into sentences
