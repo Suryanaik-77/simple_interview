@@ -12,6 +12,7 @@ Then open http://localhost:8100
 """
 
 import os
+import re
 import json
 
 from fastapi import FastAPI
@@ -25,16 +26,24 @@ from rag_engine import RAGEngine
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
-CHAT_MODEL = "gpt-4.1-mini"       # final answer
-VERIFY_MODEL = "gpt-4.1-mini"     # small verifier agent
-RETRIEVE_K = 8                    # retrieve wide, then verify + expand
+# Chat/verify run on DeepSeek V4 Flash (OpenAI-compatible API). Embeddings stay
+# on OpenAI inside rag_engine — DeepSeek has no embeddings endpoint.
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+CHAT_MODEL = "deepseek-v4-flash"     # final answer
+VERIFY_MODEL = "deepseek-v4-flash"   # small verifier agent
+RETRIEVE_K = 8                       # retrieve wide, then verify + expand
 
 app = FastAPI(title="Lab RAG")
 templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
 
 # Build/load the index once at startup.
 engine = RAGEngine.load_or_build()
-_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+_client = OpenAI(
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+    base_url=DEEPSEEK_BASE_URL,
+    timeout=60.0,
+    max_retries=2,
+)
 
 SYSTEM_PROMPT = (
     "You are a precise assistant for VLSI lab testcases. Follow these rules:\n"
@@ -49,6 +58,27 @@ SYSTEM_PROMPT = (
     "4. Be concise and technical. Cite facts as [1], [2] matching the numbered "
     "context blocks."
 )
+
+# Internal/central lab paths must never reach the candidate. Rewrite any
+# central admin path to the user-space working-directory convention
+# (~/pd/labs/...) wherever it appears — matching how every other lab is worded.
+# Applied to the verifier's section listing (the middle chunk-verification
+# model), to the answer context, and to the returned answer + sources, so no
+# central path can leak even from future lab data.
+_CENTRAL_PATH_RES = (
+    (re.compile(r"/proj5/semicon_labs/central_labs/labs/"), "~/pd/labs/"),
+    (re.compile(r"/proj5/semicon_labs/central_labs/"), "~/pd/labs/"),
+)
+
+
+def _sanitize_paths(text):
+    """Replace central/admin lab paths with the user-facing ~/pd/labs/ path."""
+    if not text:
+        return text
+    for pattern, repl in _CENTRAL_PATH_RES:
+        text = pattern.sub(repl, text)
+    return text
+
 
 VERIFY_PROMPT = (
     "You select which retrieved sections are actually relevant to the user's "
@@ -70,13 +100,16 @@ def _verify_relevant(question, hits):
     """Small agent: pick indices of hits that truly answer the question."""
     listing = "\n".join(
         f"{i}. [lab: {h['lab_name']} | section: {h['heading']}] "
-        f"{h['content'][:220]}"
+        f"{_sanitize_paths(h['content'][:220])}"
         for i, h in enumerate(hits)
     )
     try:
         resp = _client.chat.completions.create(
             model=VERIFY_MODEL,
             temperature=0,
+            # v4-flash thinks first (reasoning_content), then emits the JSON in
+            # content — budget enough tokens for both.
+            max_tokens=1024,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": VERIFY_PROMPT},
@@ -136,7 +169,8 @@ def api_ask(req: AskRequest):
             "heading": h["heading"],
             "source": h["source"],
             "score": round(h["score"], 3),
-            "content": engine.get_section(h["lab_name"], h["heading"]),
+            "content": _sanitize_paths(engine.get_section(h["lab_name"],
+                                                          h["heading"])),
         })
 
     # 4. Final answer from the reassembled full sections.
@@ -147,6 +181,8 @@ def api_ask(req: AskRequest):
     resp = _client.chat.completions.create(
         model=CHAT_MODEL,
         temperature=0.2,
+        # Room for v4-flash reasoning tokens plus the final grounded answer.
+        max_tokens=2048,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",
@@ -154,7 +190,7 @@ def api_ask(req: AskRequest):
                         f"Question: {req.question}"},
         ],
     )
-    answer = resp.choices[0].message.content
+    answer = _sanitize_paths(resp.choices[0].message.content)
 
     sources = [{"n": n + 1, **s} for n, s in enumerate(sections)]
     return {"answer": answer, "sources": sources}
