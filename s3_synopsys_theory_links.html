@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PD Theory S3 Links — Synopsys (DC Shell &amp; ICC2)</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1020px; margin: 40px auto; padding: 0 20px; background: #f5f7fa; color: #333; }
+        h1 { color: #1a5276; border-bottom: 3px solid #2e86c1; padding-bottom: 10px; }
+        .subtitle { color: #555; margin-top: -8px; margin-bottom: 30px; font-size: 0.95em; }
+        h2 { color: #2e86c1; margin-top: 40px; border-left: 5px solid #2e86c1; padding-left: 12px; }
+        .tool-badge { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 0.75em; font-weight: 700; margin-left: 8px; vertical-align: middle; }
+        .badge-dc   { background: #d6eaf8; color: #1a5276; }
+        .badge-icc2 { background: #d5f5e3; color: #1e8449; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 30px; }
+        thead { background: #2e86c1; color: #fff; }
+        th { padding: 12px 15px; text-align: left; font-size: 0.88em; }
+        td { padding: 10px 15px; border-bottom: 1px solid #e8ecf0; font-size: 0.86em; vertical-align: top; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #eaf4fb; }
+        td.num  { width: 40px; color: #999; font-weight: 600; text-align: center; vertical-align: middle; }
+        td.name { width: 200px; font-weight: 700; color: #1a5276; }
+        td.name .summary { font-weight: 400; color: #555; font-size: 0.9em; margin-top: 5px; line-height: 1.5; }
+        td.name code { background: #eef4fb; color: #1a5276; padding: 1px 5px; border-radius: 3px; font-size: 0.88em; }
+        td.url { word-break: break-all; }
+        a { color: #2e86c1; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .note-box  { background: #fef9e7; border-left: 4px solid #f39c12; padding: 12px 16px; border-radius: 4px; margin-bottom: 20px; font-size: 0.9em; }
+        .excl-box  { background: #fdecea; border-left: 4px solid #e74c3c; padding: 12px 16px; border-radius: 4px; margin-bottom: 30px; font-size: 0.9em; }
+        .excl-box ul { margin: 8px 0 0 20px; }
+        tfoot td   { background: #f0f7ff; font-size: 0.82em; color: #666; padding: 8px 15px; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<h1>PD Theory S3 Links &mdash; Synopsys Tools</h1>
+<p class="subtitle">Filtered for <strong>DC Shell</strong> and <strong>ICC2</strong> content &mdash; for Synopsys-based labs (SYN-SNPS-LS, etc.)</p>
+
+<div class="note-box">
+    <strong>How to read this document:</strong> Each row shows the topic name, a short summary of the Synopsys-specific content covered inside that S3 file (commands, flow steps, reports), and the S3 link.
+</div>
+
+<div class="excl-box">
+    <strong>Excluded (Cadence-only content — not present in this document):</strong>
+    <ul>
+        <li><strong>syn_topic17 — Check Timing</strong>: covers <code>check_timing_intent</code> — a Cadence Genus-specific command (SYN-CDN-CT only).</li>
+        <li><strong>PNR Topic18 — Power Grid Creation in Innovus</strong>: Innovus is the Cadence PnR tool.</li>
+    </ul>
+</div>
+
+<!-- ===================== SYNTHESIS ===================== -->
+<h2>Synthesis &amp; Timing Concepts <span class="tool-badge badge-dc">DC Shell</span></h2>
+
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Topic &amp; Synopsys Content</th>
+            <th>S3 URL</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td class="num">1</td>
+            <td class="name">ASIC Design Flow
+                <div class="summary">RTL-to-GDSII flow stages with Synopsys toolchain: <code>dc_shell</code> for synthesis, <code>icc2_shell</code> for PnR, <code>pt_shell</code> for signoff STA. Explains where each Synopsys tool fits in the end-to-end ASIC flow.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic1_ASIC_FLOW/asic_design_flow.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic1_ASIC_FLOW/asic_design_flow.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">2</td>
+            <td class="name">PPA &amp; Clock Timing
+                <div class="summary">Power, Performance, Area trade-offs driven by <code>compile_ultra</code> in DC Shell. Covers how DC Shell balances PPA goals through timing-driven optimization and clock-frequency targets set via SDC constraints.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic2_ppa_clock_timing/syn_topic2_ppa_clock_timing.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic2_ppa_clock_timing/syn_topic2_ppa_clock_timing.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">3</td>
+            <td class="name">Setup &amp; Hold Timing Terminology
+                <div class="summary">Setup and hold slack definitions as reported by <code>report_timing</code> in DC Shell. Covers WNS, TNS, and timing path anatomy used to interpret DC Shell timing reports.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic3_setup_hold_timing_terminology/syn_topic3_setup_hold_intro_terminology.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic3_setup_hold_timing_terminology/syn_topic3_setup_hold_intro_terminology.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">4</td>
+            <td class="name">STA / DTA Timing Paths
+                <div class="summary">Static timing analysis path types (reg-to-reg, input-to-reg, reg-to-output, combinational) as analyzed by DC Shell during <code>compile_ultra</code>. Explains how DC Shell identifies and fixes critical paths.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic4_sta_dta_timing_paths/syn_topic4_sta_dta_timing_paths.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic4_sta_dta_timing_paths/syn_topic4_sta_dta_timing_paths.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">5</td>
+            <td class="name">Setup &amp; Hold — Ideal Clock
+                <div class="summary">Setup and hold analysis under ideal (zero-skew) clocks — the default clock model during DC Shell synthesis before CTS. Covers how <code>create_clock</code> defines the ideal clock and how DC Shell uses it during <code>compile_ultra</code>.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic5_setup_and_hold_Ideal/syn_topic5_setup_and_hold_Ideal.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic5_setup_and_hold_Ideal/syn_topic5_setup_and_hold_Ideal.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">6</td>
+            <td class="name">Setup &amp; Hold — Propagated Clock
+                <div class="summary">Propagated clock analysis used in ICC2 post-CTS. Covers <code>set_propagated_clock</code> and how ICC2 switches from ideal to propagated clocks after <code>clock_opt</code>, affecting setup and hold margins.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic6_setup_and_hold_prop_clock/syn_topic6_setup_and_hold_prop_clock.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic6_setup_and_hold_prop_clock/syn_topic6_setup_and_hold_prop_clock.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">7</td>
+            <td class="name">Types of Cells
+                <div class="summary">HVT, SVT, LVT cell flavors and how DC Shell selects them during <code>compile_ultra</code>. Covers <code>set_dont_use</code> to block LVT/clock-tree cells and <code>set_attribute</code> for cell preferences in DC Shell.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic7_types_of_cells/syn_topic7_types_of_cells.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic7_types_of_cells/syn_topic7_types_of_cells.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">8</td>
+            <td class="name">Synthesis Inputs &amp; Outputs
+                <div class="summary">DC Shell input files: RTL (Verilog/SV), <code>.db</code> technology libraries set via <code>target_library</code> / <code>link_library</code>, and <code>.sdc</code> constraints. Output files: gate-level netlist (<code>write_verilog</code>), design database (<code>write_ddc</code>), and post-synthesis SDC (<code>write_sdc</code>).</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic8_synthesis_inputs_outputs/syn_topic8_synthesis_inputs_outputs.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic8_synthesis_inputs_outputs/syn_topic8_synthesis_inputs_outputs.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">9</td>
+            <td class="name">Synthesis until Elaboration
+                <div class="summary">DC Shell pre-synthesis steps: <code>analyze -format verilog</code> to parse RTL, <code>elaborate</code> to build the design hierarchy, and <code>link</code> to resolve all module references before constraints are applied.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic9_synthesis_until_elab/syn_topic9_synthesis_until_elab.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic9_synthesis_until_elab/syn_topic9_synthesis_until_elab.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">10</td>
+            <td class="name">Cell Drive Strength
+                <div class="summary">Drive-strength upsizing and downsizing performed by DC Shell during <code>compile_ultra</code> to fix timing violations or reduce area/power. Covers how DC Shell automatically selects drive strengths from the <code>.db</code> library.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic10_cell_drive_strength/syn_topic10_cell_drive_strength.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic10_cell_drive_strength/syn_topic10_cell_drive_strength.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">11</td>
+            <td class="name">Lib File
+                <div class="summary">Liberty (<code>.lib</code>) and compiled (<code>.db</code>) format used by DC Shell. Covers <code>target_library</code>, <code>link_library</code>, and <code>symbol_library</code> variables in DC Shell; how cell timing arcs, power tables, and pin attributes are read from <code>.db</code> files.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic11_lib_file/syn_topic11_lib_file.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic11_lib_file/syn_topic11_lib_file.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">12</td>
+            <td class="name">Synthesis Stages
+                <div class="summary">DC Shell synthesis flow: <code>analyze</code> → <code>elaborate</code> → <code>source constraints.sdc</code> → <code>compile_ultra</code> → <code>write_verilog</code> / <code>write_ddc</code>. Explains what each stage does and what DC Shell produces at each step.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic12_synthesis_stages/syn_topic12_synthesis_stages.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic12_synthesis_stages/syn_topic12_synthesis_stages.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">13</td>
+            <td class="name">Reports
+                <div class="summary">DC Shell report commands: <code>report_timing</code> (critical path slack), <code>report_area</code> (cell and net area), <code>report_power</code> (dynamic and leakage), and <code>report_constraint</code>. Covers how to read and interpret each report for synthesis sign-off.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic13_reports/syn_topic13_reports.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic13_reports/syn_topic13_reports.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">14</td>
+            <td class="name">Tool Introduction <span class="tool-badge badge-dc">DC Shell</span>
+                <div class="summary">DC Shell environment setup: <code>search_path</code>, <code>target_library</code>, <code>link_library</code>, <code>symbol_library</code> variables. Covers launching <code>dc_shell</code>, sourcing setup scripts, and the DC Shell interactive vs. batch execution modes.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic14_tool_intro/syn_topic14_tool_intro.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic14_tool_intro/syn_topic14_tool_intro.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">15</td>
+            <td class="name">SDC Constraints
+                <div class="summary">SDC commands used in DC Shell: <code>create_clock</code>, <code>set_input_delay</code>, <code>set_output_delay</code>, <code>set_load</code>, <code>set_driving_cell</code>, and timing exceptions (<code>set_false_path</code>, <code>set_multicycle_path</code>). These constraints drive <code>compile_ultra</code> optimization targets.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic15_sdc/SDC_constarints.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic15_sdc/SDC_constarints.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">16</td>
+            <td class="name">Path Group
+                <div class="summary"><code>group_path</code> command in DC Shell to prioritize critical clock domains during <code>compile_ultra</code>. Covers how DC Shell allocates optimization effort across path groups and how to use <code>set_path_group_options</code> to weight timing goals.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic16_path_group/syn_topic15_path_group.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic16_path_group/syn_topic15_path_group.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">17</td>
+            <td class="name">Check Design
+                <div class="summary"><code>check_design</code> command in DC Shell to detect structural issues before synthesis: unresolved references, undriven nets, multiple drivers, and hierarchy problems. Run after <code>elaborate</code> and before applying constraints.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic18_check_design/syn_topic18_check_design.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic18_check_design/syn_topic18_check_design.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">18</td>
+            <td class="name">Wire Load Model
+                <div class="summary"><code>set_wire_load_model</code> and <code>set_wire_load_mode</code> in DC Shell. Wire load models from <code>.db</code> files used to estimate net parasitics during pre-layout synthesis when actual routed lengths are unknown.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic19_wlm/wire_load_model.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic19_wlm/wire_load_model.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">19</td>
+            <td class="name">PVT Corner
+                <div class="summary"><code>set_operating_conditions</code> in DC Shell to select the PVT corner (e.g., slow-corner for setup, fast-corner for hold). Covers how DC Shell reads operating condition tables from <code>.db</code> files and applies them during timing analysis.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic20_pvt/pvt_corner.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic20_pvt/pvt_corner.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">20</td>
+            <td class="name">Timing Analysis at Synthesis
+                <div class="summary">How DC Shell performs STA during <code>compile_ultra</code>: timing-driven mapping, incremental optimization passes, and the interaction between timing analysis and cell selection. Covers <code>report_timing -delay_type max/min</code> to check setup and hold at synthesis stage.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic21_timing_analysis/Timing_analysis_and_optimizations_at_synthesis_stage.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic21_timing_analysis/Timing_analysis_and_optimizations_at_synthesis_stage.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">21</td>
+            <td class="name">Synthesis Optimization Techniques
+                <div class="summary">DC Shell optimization strategies: <code>compile_ultra -timing_high_effort_script</code>, <code>compile_ultra -area_high_effort_script</code>, retiming, register merging, and boundary optimization. Covers <code>set_dont_touch</code>, <code>set_size_only</code>, and incremental compile flow.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic22_synthesis_optimization_techniques/Synthesis_optimization_techniques.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic22_synthesis_optimization_techniques/Synthesis_optimization_techniques.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">22</td>
+            <td class="name">Synthesis Special Requirements
+                <div class="summary">Handling special design requirements in DC Shell: preserving hierarchical boundaries (<code>set_boundary_optimization false</code>), ungroup control, scan-chain preservation for DFT, and constraints for black-box modules.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic23_synthesis_spl_requirements/Synthesis_special_requirements.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic23_synthesis_spl_requirements/Synthesis_special_requirements.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">23</td>
+            <td class="name">Synthesis Clock Gating
+                <div class="summary"><code>compile_ultra -gate_clock</code> in DC Shell for Integrated Clock Gating (ICG) cell insertion. Covers <code>set_clock_gating_style</code> (cell type, minimum bitwidth, observation point), and how DC Shell identifies enable signals in RTL to insert ICG cells for dynamic power reduction.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic24_synthesis_clock_gating/clock_gating_checks.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic24_synthesis_clock_gating/clock_gating_checks.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">24</td>
+            <td class="name">On-Chip Variation (OCV)
+                <div class="summary"><code>set_timing_derate</code> in DC Shell to apply OCV derating factors on cell delays and net delays for setup and hold analysis. Covers how DC Shell applies pessimistic (early/late) derating during <code>compile_ultra</code> to guard against on-chip process variation.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic25_OCV/on_chip_variation.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic25_OCV/on_chip_variation.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">25</td>
+            <td class="name">Crosstalk
+                <div class="summary">Crosstalk-aware optimization in DC Shell using <code>set_si_mode</code>. Covers how DC Shell accounts for aggressor/victim net coupling in timing analysis during synthesis and how ICC2 addresses crosstalk during routing via <code>route_opt -si</code>.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic26_crosstalk/crosstalk_vlsi_module.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic26_crosstalk/crosstalk_vlsi_module.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">26</td>
+            <td class="name">Uncertainties at Different Stages
+                <div class="summary"><code>set_clock_uncertainty</code> in DC Shell for pre-CTS (ideal clock) uncertainty budgeting. Covers how uncertainty values change across synthesis, post-CTS, and post-route stages, and how DC Shell vs. ICC2 apply different uncertainty values per scenario.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic27_uncertainties/uncertainties_at_different_stages.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic27_uncertainties/uncertainties_at_different_stages.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">27</td>
+            <td class="name">Timing Checks
+                <div class="summary">Recovery, removal, pulse-width, and clock-gating checks performed by DC Shell during synthesis. Covers how DC Shell reports these checks via <code>report_timing -check_type</code> and how ICC2 re-evaluates them post-CTS with propagated clocks.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic28_timing_checks/syn_topic28_timing_checks.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic28_timing_checks/syn_topic28_timing_checks.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">28</td>
+            <td class="name">Latch-Based Timing
+                <div class="summary">Time borrowing analysis for latch-based designs in DC Shell. Covers how DC Shell handles transparent latch timing, <code>set_latch_time_borrow</code>, and the difference in <code>report_timing</code> output for latch vs. flip-flop paths.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic29_latch_based_timing/latch_based_timing.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic29_latch_based_timing/latch_based_timing.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">29</td>
+            <td class="name">AOCV
+                <div class="summary">Advanced OCV (AOCV) in DC Shell: depth- and distance-based derating factors using AOCV lookup tables from the <code>.db</code> library. Covers <code>set_aocv_mode</code> and how AOCV produces less pessimistic timing results than flat OCV derating.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic30_AOCV/syn_topic30_AOCV.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic30_AOCV/syn_topic30_AOCV.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">30</td>
+            <td class="name">DFT for PD
+                <div class="summary">DFT-aware constraints for DC Shell synthesis: scan-chain insertion hooks, <code>set_scan_configuration</code>, test compression setup, and how to preserve DFT structures through <code>compile_ultra</code> without breaking scan connectivity.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic31_dft/DFT_for_pd.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/Synthesis/version1/syn_topic31_dft/DFT_for_pd.html</a></td>
+        </tr>
+    </tbody>
+    <tfoot>
+        <tr><td colspan="3">Excluded: syn_topic17 (Check Timing / <code>check_timing_intent</code> — Cadence Genus command only)</td></tr>
+    </tfoot>
+</table>
+
+<!-- ===================== PNR — Init & Floorplan ===================== -->
+<h2>PnR — Init &amp; Floorplan <span class="tool-badge badge-icc2">ICC2</span></h2>
+
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Topic &amp; Synopsys Content</th>
+            <th>S3 URL</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td class="num">1</td>
+            <td class="name">Introduction to Physical Design
+                <div class="summary">Physical design stages in the Synopsys flow: floorplan → power plan → placement → CTS → routing → signoff in ICC2. Overview of how <code>icc2_shell</code> fits in the full RTL-to-GDSII flow alongside DC Shell and PrimeTime.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic1_PD_introduction/Topic1_Introduction_to_Physical_Design_stages.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic1_PD_introduction/Topic1_Introduction_to_Physical_Design_stages.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">2</td>
+            <td class="name">PD Inputs &amp; Tech LEF
+                <div class="summary">Technology LEF (<code>.tlef</code>) loaded into ICC2 via <code>read_lef</code>. Covers routing layers, via definitions, and design rules that ICC2 uses to control placement legality and routing track grids.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic2_PD_Inputs_TLEF/Topic2_PD_inputs_and_techlef.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic2_PD_Inputs_TLEF/Topic2_PD_inputs_and_techlef.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">3</td>
+            <td class="name">Standard Cell LEF
+                <div class="summary">Standard cell LEF files read into ICC2 via <code>read_lef</code>. Covers cell size, pin geometry, obstruction layers, and how ICC2 uses LEF data for placement legalization and routing pin access.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic3_Std_cell_LEF/Topic3_std_cell_lef.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic3_Std_cell_LEF/Topic3_std_cell_lef.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">4</td>
+            <td class="name">ITF &amp; RC Corners
+                <div class="summary">ITF (Interconnect Technology Format) files used by StarRC (Synopsys parasitics extractor) to model RC at different process corners. Covers how ICC2 and StarRC use ITF to generate corner-specific parasitics for MMMC timing analysis.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic4_ITF/Topic4_itf_rc_corners.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic4_ITF/Topic4_itf_rc_corners.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">5</td>
+            <td class="name">MMMC
+                <div class="summary">Multi-Mode Multi-Corner (MMMC) setup in ICC2: <code>create_corner</code>, <code>create_mode</code>, <code>create_scenario</code>, <code>set_scenario_options</code>. Covers how ICC2 simultaneously optimizes across functional and test scenarios using multiple PVT corners.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic5_MMMC/Topic5_mmmc_vlsi_module.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic5_MMMC/Topic5_mmmc_vlsi_module.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">6</td>
+            <td class="name">ICC2 Design Init <span class="tool-badge badge-icc2">ICC2</span>
+                <div class="summary">ICC2-specific design initialization: <code>create_lib</code>, <code>read_lef</code>, <code>read_verilog</code>, <code>link_block</code>, <code>read_sdc</code>. Covers the NDM (New Data Model) library structure, block creation, and how to set up the ICC2 design database from scratch.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic6_ICC2_Design_init/Topic6_icc2_overview_module.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic6_ICC2_Design_init/Topic6_icc2_overview_module.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">7</td>
+            <td class="name">Floorplanning — Top Level
+                <div class="summary"><code>initialize_floorplan</code> in ICC2: setting die area, core area, and utilization. Covers <code>create_boundary</code>, aspect ratio control, and <code>report_floorplan</code> to verify floorplan dimensions in ICC2.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic7_floorplanning_module1/floorplan_toplevel.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic7_floorplanning_module1/floorplan_toplevel.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">8</td>
+            <td class="name">IC Packages
+                <div class="summary">Package types and their impact on ICC2 floorplanning: wire-bond vs. flip-chip pin constraints, I/O ring placement, and how package parasitics are modeled in the ICC2 design setup for accurate timing.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic8_IC_packages/ic_packages_tutorial.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic8_IC_packages/ic_packages_tutorial.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">9</td>
+            <td class="name">Floorplanning Partitioning
+                <div class="summary">Top-level partitioning in ICC2: <code>create_voltage_area</code> for power domains, <code>set_voltage_area_boundary</code>, and hierarchical design partitioning strategies. Covers how ICC2 handles multi-block designs with separate placement regions.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic9_floorplanning_partitioning/floorplan_top_level_partitioning.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic9_floorplanning_partitioning/floorplan_top_level_partitioning.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">10</td>
+            <td class="name">Block Floorplan
+                <div class="summary">Block-level floorplanning in ICC2: setting block boundaries, I/O pin planning with <code>set_block_pin_constraints</code>, and <code>place_pins</code>. Covers how ICC2 manages hierarchical blocks within a top-level chip floorplan.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic10_block_floorplan/block_floorplan_module.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic10_block_floorplan/block_floorplan_module.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">11</td>
+            <td class="name">Port Placement
+                <div class="summary">I/O port placement in ICC2 using <code>place_pins</code> and <code>set_pin_physical_constraints</code>. Covers port location, layer assignment, pitch constraints, and how ICC2 handles port placement for block-level and top-level designs.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic11_port_placement/io-placement-module.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic11_port_placement/io-placement-module.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">12</td>
+            <td class="name">Macro Placement Guidelines
+                <div class="summary">Macro placement in ICC2: <code>place_bound_cells</code>, <code>set_cell_location</code> for fixed macros, and <code>create_placement_blockage</code> halos around macros. Covers channel routing space, macro orientation, and timing-driven macro placement guidelines for ICC2.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic12_macro_placement_guidelines/Macro_placement_guidelines.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic12_macro_placement_guidelines/Macro_placement_guidelines.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">13</td>
+            <td class="name">Placement Blockages
+                <div class="summary"><code>create_placement_blockage</code> in ICC2: hard blockage, soft blockage, and partial blockage types. Covers how ICC2 uses blockages to prevent cell placement in macro halos, power-domain boundaries, and reserved areas.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic13_Placement_blockages/Topic13_placement_blockages.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic13_Placement_blockages/Topic13_placement_blockages.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">14</td>
+            <td class="name">Endcap Cell Placement
+                <div class="summary"><code>add_end_cap</code> in ICC2 to insert endcap cells at row boundaries. Covers the <code>-prefix</code> and <code>-lib_cell</code> options and why endcap insertion must be done before standard cell placement in the ICC2 flow.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic14_Endcap_cell_placement/endcap_cell_insertion_new.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic14_Endcap_cell_placement/endcap_cell_insertion_new.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">15</td>
+            <td class="name">Welltap Cell Insertion
+                <div class="summary"><code>add_well_tap</code> in ICC2 to insert well-tap cells at regular intervals to prevent latch-up. Covers <code>-cell</code>, <code>-interval</code>, and <code>-pattern</code> options, and verifying tap coverage with <code>check_well_tap</code> in ICC2.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic15_Welltap_cell_insertion/Topic15_well_tap_cell_insertion.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic15_Welltap_cell_insertion/Topic15_well_tap_cell_insertion.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">16</td>
+            <td class="name">Power Planning Intro
+                <div class="summary">Power network concepts in ICC2: <code>create_net</code> for PG nets, <code>connect_pg_net</code>, and power-domain setup using <code>create_power_domain</code>. Covers VDD/VSS ring and mesh terminology used in ICC2 power planning commands.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic16_power_planning_intro/Power_planning_power_types.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic16_power_planning_intro/Power_planning_power_types.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">17</td>
+            <td class="name">Power Grid Calculations
+                <div class="summary">IR drop and electromigration calculations used to size the power grid before running ICC2 PG commands. Covers current density limits, sheet resistance, and how these calculations determine the metal width and pitch inputs to <code>create_pg_mesh_pattern</code> in ICC2.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic17_power_grid_calculations/power_planning_pg_grid_calculations.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic17_power_grid_calculations/power_planning_pg_grid_calculations.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">18</td>
+            <td class="name">Power Grid Creation — ICC2 <span class="tool-badge badge-icc2">ICC2</span>
+                <div class="summary"><code>create_pg_ring_pattern</code>, <code>create_pg_mesh_pattern</code>, <code>create_pg_std_cell_conn_pattern</code>, and <code>compile_pg</code> in ICC2. Covers defining PG strategies, applying them to voltage areas, and verifying the power grid with <code>check_pg_connectivity</code>.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic18_power_grid_creation_in_ICC2/power_planning_pg_grid_creation_icc2.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic18_power_grid_creation_in_ICC2/power_planning_pg_grid_creation_icc2.html</a></td>
+        </tr>
+    </tbody>
+    <tfoot>
+        <tr><td colspan="3">Excluded: Topic18_Power_Grid_Creation_in_Innovus — Cadence Innovus tool</td></tr>
+    </tfoot>
+</table>
+
+<!-- ===================== PNR — Placement ===================== -->
+<h2>PnR — Placement <span class="tool-badge badge-icc2">ICC2</span></h2>
+
+<table>
+    <thead>
+        <tr><th>#</th><th>Topic &amp; Synopsys Content</th><th>S3 URL</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td class="num">19</td>
+            <td class="name">Placement Introduction
+                <div class="summary"><code>place_opt</code> in ICC2 for global placement and optimization. Covers the placement stages (coarse → legalization → detail), <code>-flow</code> options, and how ICC2 integrates timing-driven placement with <code>report_placement</code> for quality checks.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic19_placement_introduction/Topic19_placement_introduction.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic19_placement_introduction/Topic19_placement_introduction.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">20</td>
+            <td class="name">Preparing for Std Cell Placement
+                <div class="summary">Pre-placement setup in ICC2: <code>check_legality</code>, <code>set_placement_options</code>, and enabling ICC2 placement controls such as <code>set_app_options</code> for congestion-driven and timing-driven placement modes. Covers how to configure ICC2 before running <code>place_opt</code>.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic20_+preparing_for_std_cell_placement/Topic20_Preparing_for_stdcell_placement.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic20_+preparing_for_std_cell_placement/Topic20_Preparing_for_stdcell_placement.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">21</td>
+            <td class="name">Advanced Placement Control Techniques
+                <div class="summary">ICC2 advanced placement controls: <code>set_placement_status {fixed|locked}</code>, <code>set_dont_touch</code> on instances, <code>create_placement_constraint</code> for relative placement, and <code>set_cell_location</code> for hard-fixing critical cells. Covers how to guide ICC2 placement for timing-critical paths.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic21_+Advanced_placement_control_techniques/Topic21_Advanced_placement_control_techniques.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic21_+Advanced_placement_control_techniques/Topic21_Advanced_placement_control_techniques.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">22</td>
+            <td class="name">Post-Placement Analysis &amp; Quality Checks <span class="tool-badge badge-icc2">ICC2</span>
+                <div class="summary">ICC2 post-placement QOR: <code>report_design</code>, <code>report_qor</code>, <code>report_timing</code> after <code>place_opt</code>. Covers checking setup WNS/TNS, utilization, and <code>check_legality</code> to confirm all cells are legally placed before CTS.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic22_Post_Placement_Analysis_Quality_Checks-ICC2/Topic22_Post_Placement_Analysis_Quality_Checks-ICC2.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic22_Post_Placement_Analysis_Quality_Checks-ICC2/Topic22_Post_Placement_Analysis_Quality_Checks-ICC2.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">23</td>
+            <td class="name">Post-Placement Congestion Analysis <span class="tool-badge badge-icc2">ICC2</span>
+                <div class="summary"><code>report_congestion</code> in ICC2 after <code>place_opt</code>. Covers global routing congestion maps, overflow counts per layer, and ICC2 congestion-driven placement options (<code>-congestion</code> flow) to reduce routing hotspots before detailed routing.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic23_Post_Placement_Congestion_Analysis-ICC2/Topic23_Post_Placement_Congestion_Analysis-ICC2.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic23_Post_Placement_Congestion_Analysis-ICC2/Topic23_Post_Placement_Congestion_Analysis-ICC2.html</a></td>
+        </tr>
+    </tbody>
+</table>
+
+<!-- ===================== PNR — CTS ===================== -->
+<h2>PnR — CTS <span class="tool-badge badge-icc2">ICC2</span></h2>
+
+<table>
+    <thead>
+        <tr><th>#</th><th>Topic &amp; Synopsys Content</th><th>S3 URL</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td class="num">24</td>
+            <td class="name">Introduction to CTS
+                <div class="summary"><code>clock_opt</code> in ICC2 for clock tree synthesis and optimization. Covers the CTS flow phases (build → route → post-route opt), skew and latency goals, and how ICC2 transitions from ideal to propagated clocks after <code>clock_opt</code>.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic24_Introduction_to_CTS/Topic24_Introduction_to_CTS.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic24_Introduction_to_CTS/Topic24_Introduction_to_CTS.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">25</td>
+            <td class="name">CTS Skew Groups &amp; Inter-Clock Balancing
+                <div class="summary"><code>create_clock_tree_spec</code> and skew group definitions in ICC2. Covers how ICC2 balances multiple clock domains, inter-clock skew constraints, and <code>set_clock_tree_options -skew_group</code> to control latency matching across clock groups.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic25_CTS_Skew_groups_Inter_clock_balancing/Topic25_CTS_skew_groups_Interclock_balancing.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic25_CTS_Skew_groups_Inter_clock_balancing/Topic25_CTS_skew_groups_Interclock_balancing.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">26</td>
+            <td class="name">CTS Clock Tree Cells &amp; Clock NDRs
+                <div class="summary"><code>set_clock_tree_options -clock_tree_cells</code> in ICC2 to assign clock buffers and inverters. Covers Non-Default Routing Rules (NDRs) defined via <code>create_routing_rule</code> and applied to clock nets for double-width, double-spacing routing in ICC2.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic26_CTS_Clock_tree_cells_Clock_NDRs/Topic26_CTS_clock_tree_cells_clock_NDRs.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic26_CTS_Clock_tree_cells_Clock_NDRs/Topic26_CTS_clock_tree_cells_clock_NDRs.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">27</td>
+            <td class="name">CTS Clock Build Strategies
+                <div class="summary">ICC2 clock tree build strategies: top-down vs. bottom-up, mesh-assisted CTS, and <code>set_clock_tree_options -target_skew</code> / <code>-target_latency</code>. Covers how ICC2 selects the CTS algorithm based on design size and skew requirements.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic27_CTS_Clock_build_strategies/Topic27_CTS_Clock_build_strategies.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic27_CTS_Clock_build_strategies/Topic27_CTS_Clock_build_strategies.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">28</td>
+            <td class="name">CTS Complete Flow
+                <div class="summary">End-to-end CTS flow in ICC2: <code>clock_opt -from build_clock -to build_clock</code>, <code>clock_opt -from route_clock -to route_clock</code>, and <code>clock_opt -from final_opto</code>. Covers each phase command, what ICC2 does internally, and checkpoints between phases.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic28_CTS_Complete_Flow/Topic28_CTS_Complete_Flow.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic28_CTS_Complete_Flow/Topic28_CTS_Complete_Flow.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">29</td>
+            <td class="name">CTS Reports <span class="tool-badge badge-icc2">ICC2</span>
+                <div class="summary"><code>report_clock_tree</code> and <code>report_clock_qor</code> in ICC2. Covers how to read clock latency, skew, and insertion delay values; interpreting per-clock-tree summary output; and <code>report_timing -corner</code> post-CTS to verify setup and hold with propagated clocks.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic29_CTS_Reports_ICC2/Topic29_CTS_Reports_ICC2.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic29_CTS_Reports_ICC2/Topic29_CTS_Reports_ICC2.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">30</td>
+            <td class="name">CTS Advanced Clock Tree Types
+                <div class="summary">Advanced clock topologies in ICC2: H-tree, clock mesh, and hybrid mesh-tree. Covers <code>set_clock_tree_options -clock_topology</code>, when ICC2 uses mesh routing for ultra-low skew requirements, and the trade-offs in power and routability.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic30_CTS_Advance_clock_tree_types/Topic30_CTS_advanced_clock_tree_types.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic30_CTS_Advance_clock_tree_types/Topic30_CTS_advanced_clock_tree_types.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">31</td>
+            <td class="name">Tie Cells &amp; Delay Buffers
+                <div class="summary">Tie-high / tie-low cell insertion in ICC2 using <code>insert_spare_cells</code> and delay buffer insertion for hold fixing via <code>clock_opt</code>. Covers <code>set_dont_touch</code> on tie cells and how ICC2 handles constant-net driving during legalization.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic31_Tie_cells_and_Delay_buffers/Topic31_Tie_cells_and_Delay_buffers.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic31_Tie_cells_and_Delay_buffers/Topic31_Tie_cells_and_Delay_buffers.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">32</td>
+            <td class="name">Post-CTS Optimization
+                <div class="summary"><code>clock_opt -from final_opto</code> in ICC2 for post-CTS timing optimization. Covers hold-violation fixing with delay buffers, setup recovery via cell sizing, and <code>report_qor</code> to check WNS/TNS across all scenarios after CTS optimization.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic32_PostCTS_optimization/Topic32_PostCTS_optimization.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic32_PostCTS_optimization/Topic32_PostCTS_optimization.html</a></td>
+        </tr>
+    </tbody>
+</table>
+
+<!-- ===================== PNR — Route ===================== -->
+<h2>PnR — Route <span class="tool-badge badge-icc2">ICC2</span></h2>
+
+<table>
+    <thead>
+        <tr><th>#</th><th>Topic &amp; Synopsys Content</th><th>S3 URL</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td class="num">33</td>
+            <td class="name">Antenna Effect &amp; Fixes
+                <div class="summary">Antenna violation fixing in ICC2: <code>route_opt -antenna</code> and automatic antenna diode insertion via <code>insert_antenna_diodes</code>. Covers how ICC2 detects antenna ratio violations using the antenna rule deck and fixes them through diode insertion or wire jumper rerouting.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic33_Antenna_Effect_and_fixes/Topic33_antenna_effect_and_fixes.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic33_Antenna_Effect_and_fixes/Topic33_antenna_effect_and_fixes.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">34</td>
+            <td class="name">Routing
+                <div class="summary"><code>route_auto</code> in ICC2 for global + track assignment + detail routing. Covers <code>-max_routing_layer</code>, <code>-min_routing_layer</code> options, NDR application on signal nets, and <code>report_routing_rules</code> / <code>check_routes</code> for DRC-clean routing verification in ICC2.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic34_Routing/routing.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic34_Routing/routing.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">35</td>
+            <td class="name">Post-Route Optimization
+                <div class="summary"><code>route_opt</code> in ICC2 for post-route timing and DRC fixing. Covers ECO routing, via optimization (<code>-effort high</code>), SI-aware optimization (<code>-si</code>), and <code>report_qor</code> / <code>report_timing</code> to verify setup, hold, and DRC cleanliness after <code>route_opt</code>.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic35_PostRoute_optimization/post_route_opt_complete.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic35_PostRoute_optimization/post_route_opt_complete.html</a></td>
+        </tr>
+    </tbody>
+</table>
+
+<!-- ===================== PNR — Chip Finish ===================== -->
+<h2>PnR — Chip Finish <span class="tool-badge badge-icc2">ICC2</span></h2>
+
+<table>
+    <thead>
+        <tr><th>#</th><th>Topic &amp; Synopsys Content</th><th>S3 URL</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td class="num">36</td>
+            <td class="name">Standard Cell Filler Insertion
+                <div class="summary"><code>add_std_cell_filler</code> in ICC2 to insert filler cells between standard cells for N-well continuity and metal density. Covers <code>-lib_cell</code> selection by width, <code>-connect_to_power/ground</code> options, and verifying gap closure with <code>check_legality</code>.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic36_Standard+Cell+Filler+Insertion/Topic36_Standard+Cell+Filler+Insertion.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic36_Standard+Cell+Filler+Insertion/Topic36_Standard+Cell+Filler+Insertion.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">37</td>
+            <td class="name">PNR Outputs
+                <div class="summary">ICC2 output generation: <code>write_gds</code> (layout for tapeout), <code>write_verilog</code> (post-route netlist with PG), <code>write_sdf</code> (delay annotation for simulation), <code>write_parasitics</code> (SPEF for signoff STA), and <code>save_block</code> for the ICC2 design database checkpoint.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic37_PNR_outputs/Topic36_PNR_outputs.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic37_PNR_outputs/Topic36_PNR_outputs.html</a></td>
+        </tr>
+    </tbody>
+</table>
+
+<!-- ===================== PNR — Signoff ===================== -->
+<h2>PnR — Signoff <span class="tool-badge badge-icc2">ICC2</span></h2>
+
+<table>
+    <thead>
+        <tr><th>#</th><th>Topic &amp; Synopsys Content</th><th>S3 URL</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td class="num">38</td>
+            <td class="name">Dummy Metal Fill
+                <div class="summary">Metal fill insertion in ICC2 using <code>create_stdcell_filler</code> and StarRC-based density analysis. Covers ICC2 <code>-metal_fill</code> options, density window checks, and how the fill GDS output from ICC2 is passed to Calibre for DRC sign-off verification.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic38_Dummy_metal_fill/Topic38_dummy_metal_fill.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic38_Dummy_metal_fill/Topic38_dummy_metal_fill.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">39</td>
+            <td class="name">RC Extraction
+                <div class="summary">StarRC (Synopsys) integration with ICC2 for parasitic extraction. Covers <code>extract_rc</code> in ICC2, StarRC runset configuration, SPEF output (<code>.spef</code>) consumed by PrimeTime for signoff STA, and how different RC corners are extracted for MMMC analysis.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic39_RC_extraction/Topic39_rc_extraction.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic39_RC_extraction/Topic39_rc_extraction.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">40</td>
+            <td class="name">ECO Flow
+                <div class="summary">Engineering Change Order (ECO) flow in ICC2: <code>eco_add_buffer</code>, <code>eco_swap_cells</code>, <code>eco_route</code> for incremental changes post-signoff. Covers functional ECO (netlist changes) and timing ECO (cell sizing) without full re-run of the ICC2 flow.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic40_ECO_flow/Topic40_eco_flow.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic40_ECO_flow/Topic40_eco_flow.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">41</td>
+            <td class="name">Spare Cells &amp; Metal-Only ECO
+                <div class="summary">Spare cell insertion in ICC2 using <code>insert_spare_cells</code> for post-tapeout metal-only ECO. Covers how ICC2 places spare gate clusters at regular intervals and how metal-only ECO rewires spare cells to implement logic changes without diffusion mask changes.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic41_spare_cells/Topic41_spare_cells_and_metal_only_eco.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic41_spare_cells/Topic41_spare_cells_and_metal_only_eco.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">42</td>
+            <td class="name">Physical Verification
+                <div class="summary">ICC2 in-design DRC/LVS checks via <code>verify_drc</code> and <code>verify_lvs</code> (Calibre integration). Covers the signoff PV flow: ICC2 exports GDS → Calibre runs DRC/LVS/antenna → violations fed back into ICC2 for ECO fixing before tapeout.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic42_physical_verification/Topic42_physical_verification.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic42_physical_verification/Topic42_physical_verification.html</a></td>
+        </tr>
+        <tr>
+            <td class="num">43</td>
+            <td class="name">EMIR Analysis
+                <div class="summary">Electromigration and IR-drop (EMIR) analysis using Synopsys RedHawk/Voltus integrated with ICC2. Covers <code>read_power_rail_analysis_result</code>, how ICC2 exports the power network for RedHawk analysis, and using EMIR results to fix PG grid violations before tapeout.</div>
+            </td>
+            <td class="url"><a href="https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic43_EMIR_analysis/Topic43_EMIR.html" target="_blank">https://semicon-prod-files.s3.ap-south-1.amazonaws.com/PD-domain/PD+Theory/PNR/Version1/Topic43_EMIR_analysis/Topic43_EMIR.html</a></td>
+        </tr>
+    </tbody>
+</table>
+
+</body>
+</html>
