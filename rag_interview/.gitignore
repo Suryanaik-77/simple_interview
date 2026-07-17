@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .env
 diag.py
+query.py
+cmds.py

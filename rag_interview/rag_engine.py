@@ -194,6 +194,21 @@ class RAGEngine:
                 break
         return results
 
+    def get_section(self, lab_name, heading):
+        """
+        Return the full section text for a (lab_name, heading) by concatenating
+        all sibling sub-chunks that share that header, in original order.
+        """
+        parts = [c["content"] for c in self.chunks
+                 if c["lab_name"] == lab_name and c["heading"] == heading]
+        # De-duplicate overlapping splitter regions while preserving order.
+        seen, out = set(), []
+        for p in parts:
+            if p not in seen:
+                seen.add(p)
+                out.append(p)
+        return "\n".join(out)
+
 
 if __name__ == "__main__":
     eng = RAGEngine.load_or_build()

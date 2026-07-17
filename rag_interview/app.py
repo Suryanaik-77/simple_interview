@@ -12,6 +12,7 @@ Then open http://localhost:8100
 """
 
 import os
+import json
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -24,7 +25,9 @@ from rag_engine import RAGEngine
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
-CHAT_MODEL = "gpt-4.1-mini"
+CHAT_MODEL = "gpt-4.1-mini"       # final answer
+VERIFY_MODEL = "gpt-4.1-mini"     # small verifier agent
+RETRIEVE_K = 8                    # retrieve wide, then verify + expand
 
 app = FastAPI(title="Lab RAG")
 templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
@@ -34,11 +37,26 @@ engine = RAGEngine.load_or_build()
 _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 SYSTEM_PROMPT = (
-    "You are a helpful assistant for VLSI lab testcases. Answer the user's "
-    "question using ONLY the provided context sections. If the answer is not "
-    "in the context, say you don't have that information. Be concise and "
-    "technical. When you use a fact, cite the source section like [1], [2] "
-    "matching the numbered context blocks."
+    "You are a precise assistant for VLSI lab testcases. Follow these rules:\n"
+    "1. Answer using ONLY the provided context sections — never outside "
+    "knowledge.\n"
+    "2. If the user names a specific lab/testcase, only use sections from that "
+    "same lab. If none of the context is from the lab they asked about, reply "
+    "that the information is not available for that lab.\n"
+    "3. Do NOT accept a false premise. If the context does not support what the "
+    "question assumes (e.g. a file or step that isn't there), say it is not "
+    "present rather than describing it from general knowledge.\n"
+    "4. Be concise and technical. Cite facts as [1], [2] matching the numbered "
+    "context blocks."
+)
+
+VERIFY_PROMPT = (
+    "You select which retrieved sections are actually relevant to the user's "
+    "question. Consider the specific lab/testcase the user names. Return STRICT "
+    "JSON: {\"relevant\": [<indices>]}. Include an index only if that section "
+    "genuinely helps answer THIS question for the lab asked about. If the user "
+    "names a lab and a section is from a different lab, exclude it. If nothing "
+    "is relevant, return an empty list."
 )
 
 
@@ -46,6 +64,33 @@ class AskRequest(BaseModel):
     question: str
     lab_name: str | None = None
     k: int = 5
+
+
+def _verify_relevant(question, hits):
+    """Small agent: pick indices of hits that truly answer the question."""
+    listing = "\n".join(
+        f"{i}. [lab: {h['lab_name']} | section: {h['heading']}] "
+        f"{h['content'][:220]}"
+        for i, h in enumerate(hits)
+    )
+    try:
+        resp = _client.chat.completions.create(
+            model=VERIFY_MODEL,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": VERIFY_PROMPT},
+                {"role": "user",
+                 "content": f"Question: {question}\n\nSections:\n{listing}"},
+            ],
+        )
+        data = json.loads(resp.choices[0].message.content)
+        idxs = [int(i) for i in data.get("relevant", [])
+                if isinstance(i, (int, float)) and 0 <= int(i) < len(hits)]
+        return idxs
+    except Exception:
+        # On any failure, fall back to the top-3 retrieved chunks.
+        return list(range(min(3, len(hits))))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -62,37 +107,56 @@ def api_labs():
 
 @app.post("/api/ask")
 def api_ask(req: AskRequest):
-    hits = engine.search(req.question, k=req.k, lab_name=req.lab_name)
+    # 1. Retrieve wide (precise sub-chunks).
+    hits = engine.search(req.question, k=max(req.k, RETRIEVE_K),
+                         lab_name=req.lab_name)
     if not hits:
         return {"answer": "No lab content is indexed.", "sources": []}
 
-    context = "\n\n".join(
-        f"[{i + 1}] ({h['lab_name']} :: {h['heading']})\n{h['content']}"
-        for i, h in enumerate(hits)
-    )
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": f"Context sections:\n\n{context}\n\nQuestion: {req.question}",
-        },
-    ]
-    resp = _client.chat.completions.create(
-        model=CHAT_MODEL, messages=messages, temperature=0.2
-    )
-    answer = resp.choices[0].message.content
+    # 2. Verifier agent: keep only the sub-chunks that truly match.
+    keep = _verify_relevant(req.question, hits)
+    if not keep:
+        return {
+            "answer": "I don't have that information in the lab content for "
+                      "the lab you asked about.",
+            "sources": [],
+        }
 
-    sources = [
-        {
-            "n": i + 1,
+    # 3. Expand each winning sub-chunk back to its FULL section (all sibling
+    #    chunks sharing the same lab+heading), de-duplicated in order.
+    sections, seen = [], set()
+    for i in keep:
+        h = hits[i]
+        key = (h["lab_name"], h["heading"])
+        if key in seen:
+            continue
+        seen.add(key)
+        sections.append({
             "lab_name": h["lab_name"],
             "heading": h["heading"],
             "source": h["source"],
             "score": round(h["score"], 3),
-            "content": h["content"],
-        }
-        for i, h in enumerate(hits)
-    ]
+            "content": engine.get_section(h["lab_name"], h["heading"]),
+        })
+
+    # 4. Final answer from the reassembled full sections.
+    context = "\n\n".join(
+        f"[{n + 1}] ({s['lab_name']} :: {s['heading']})\n{s['content']}"
+        for n, s in enumerate(sections)
+    )
+    resp = _client.chat.completions.create(
+        model=CHAT_MODEL,
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",
+             "content": f"Context sections:\n\n{context}\n\n"
+                        f"Question: {req.question}"},
+        ],
+    )
+    answer = resp.choices[0].message.content
+
+    sources = [{"n": n + 1, **s} for n, s in enumerate(sections)]
     return {"answer": answer, "sources": sources}
 
 
