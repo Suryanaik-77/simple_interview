@@ -2977,6 +2977,16 @@ def stream_answer(data: dict):
         pacing = f"\nPHASE: {phase} | Turn: {turn}"
         if topics_covered:
             pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
+        # Turn-aware ending control — the model won't reliably self-count, so tell it
+        # explicitly where it stands relative to the 8-question minimum.
+        q_asked = len(session.get("conversation", []))
+        if q_asked < 8:
+            pacing += f"\nProgress: {q_asked} questions asked so far. Do NOT end yet — the minimum is 8 questions."
+        else:
+            pacing += (f"\nProgress: {q_asked} questions asked (past the 8-question minimum). "
+                       "If the candidate has been weak, unsure, or giving vague/incomplete/wrong answers, "
+                       "END NOW: give one short closing line and include [END_INTERVIEW]. "
+                       "Continue only if they are clearly strong and worth probing further.")
         messages.append({"role": "user", "content": answer + pacing})
 
         # Stream LLM tokens, buffer into sentences
@@ -3038,7 +3048,7 @@ def stream_answer(data: dict):
                     if not voice_only_hold:
                         ui_text = _clean_for_tts(sentence)
                         if ui_text:
-                            yield f"data: {json.dumps({'type': 'token', 'content': ui_text})}\n\n"
+                            yield f"data: {json.dumps({'type': 'token', 'content': ui_text + ' '})}\n\n"
                     else:
                         log.info(f"[Stream] Voice-only (hidden from UI): \"{sentence[:60]}\"")
                     token_hold = []
@@ -3075,7 +3085,7 @@ def stream_answer(data: dict):
             if not _is_voice_only(sentence):
                 ui_text = _clean_for_tts(sentence)
                 if ui_text:
-                    yield f"data: {json.dumps({'type': 'token', 'content': ui_text})}\n\n"
+                    yield f"data: {json.dumps({'type': 'token', 'content': ui_text + ' '})}\n\n"
             token_hold = []
             # Flush any pending TTS first
             for evt in _flush_tts():
