@@ -31,6 +31,10 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 CHAT_MODEL = "deepseek-v4-flash"     # final answer
 VERIFY_MODEL = "deepseek-v4-flash"   # small verifier agent
 RETRIEVE_K = 8                       # retrieve wide, then verify + expand
+# Only offer a clarify when retrieval is actually confident. Legit lab questions
+# score ~0.55-0.65 cosine; off-topic/nonsense scores <0.2. Below this we skip
+# clarify and let verify/answer say the content isn't present.
+MIN_CLARIFY_SCORE = 0.40
 
 app = FastAPI(title="Lab RAG")
 templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
@@ -242,7 +246,7 @@ def api_ask(req: AskRequest):
     #    Cadence / stage / guided-vs-challenge values from the filenames); only
     #    fall back to the LLM clarify for subtler within-facet ambiguity. The UI
     #    renders the options as buttons.
-    if req.allow_clarify:
+    if req.allow_clarify and hits[0]["score"] >= MIN_CLARIFY_SCORE:
         clar = _facet_clarify(req.question, hits)
         if clar:
             return {
@@ -253,7 +257,12 @@ def api_ask(req: AskRequest):
                 "option_values": clar["option_values"],
                 "sources": [],
             }
-        if len({h["lab_name"] for h in hits}) > 1:
+        # LLM clarify only for MEANINGFUL within-provider variant ambiguity
+        # (e.g. logic- vs physical-aware synthesis) — NOT guided-vs-challenge of
+        # the same variant, which we answer directly from the guided page.
+        variants = {(h.get("facets") or {}).get("variant") for h in hits}
+        variants.discard(None)
+        if len(variants) > 1:
             clar = _clarify_needed(req.question, hits)
             if clar:
                 return {
