@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guided Testcase: ICC2 Floorplan — tile</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        code { color: #333; }
+        .step-list li ul li,
+        .step-list li ol li {
+            counter-increment: none;
+            list-style-type: disc;
+            padding: 4px 0;
+            margin: 4px 0;
+            background: none;
+            border-left: none;
+            border-radius: 0;
+            position: static;
+        }
+        .step-list li ul li::before,
+        .step-list li ol li::before {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Scroll progress bar is created dynamically by interactive.js -->
+
+    <header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Guided Testcase: ICC2 Floorplanning — tile</h1>
+        <div class="lab-meta">
+            <div class="meta-item">
+                <span>&#127968; <a href="../PNR-SNPS-FP.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Guided Testcase</span>
+            </div>
+            <div class="meta-item"><span>&#128203; Type: Guided Exercise</span></div>
+            <div class="meta-item"><span>&#128336; Estimated Time: 90-120 minutes</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Problem Statement -->
+    <div class="content-box">
+        <div class="test-case-header">
+            <h2>Problem Statement</h2>
+            <span class="test-case-type type-guided">GUIDED</span>
+        </div>
+        <div class="section-content">
+            <p>You will perform the complete <strong>Floorplan</strong> stage in ICC2 for the <strong>tile</strong> processor core. Starting from the initialized design block saved in the Design Init stage, you will size the die, place ports, import macro placement, build a full power distribution network, insert physical-only cells, and verify the result using five quality reports.</p>
+        </div>
+    </div>
+
+    <!-- Step-by-Step -->
+    <div class="content-box">
+        <h2 class="section-title">&#128196; Floorplan — Step-by-Step Command Explanation</h2>
+        <p style="color: #555; margin-bottom: 20px;">Below is a complete walkthrough of every command you will write into <code>../scripts/script.tcl</code>. Follow the workflow below: write your commands into the script in a separate editor, source the script inside ICC2, then exit.</p>
+
+        <ul class="step-list">
+
+            <!-- Step 1: Navigate and Launch -->
+            <li>
+                <h3>Navigate to TC-PNR-SNPS-FP-GD-001 and Launch ICC2</h3>
+                <p>You have already set up the lab directory structure using the provided setup guidelines. The required input files are now available in the testcase directory. With the lab environment ready, proceed with the following steps.</p>
+                <p style="margin-top: 10px;">Navigate to the testcase directory and launch ICC2 using the Makefile:</p>
+                <pre class="code-block">cd ~/pd/labs/PNR-SNPS-FP/TC-PNR-SNPS-FP-GD-001
+make all</pre>
+                <p style="margin-top: 15px;">This starts an interactive <code>icc2_shell</code> session. ICC2 is now waiting for commands — do not type anything yet.</p>
+
+                <p>Open <code>../scripts/script.tcl</code> in a new editor window directly from the shell using <code>sh gvim</code>:</p>
+                <pre class="code-block">sh gvim ../scripts/script.tcl &amp;</pre>
+                <p style="margin-top: 10px;">Write each command into the script as you follow the steps below. Once all commands are written, source the script from inside <code>icc2_shell</code>:</p>
+                <pre class="code-block">source ../scripts/script.tcl</pre>
+                <p style="margin-top: 10px;">Observe what each command does as it runs — read the output carefully to understand the effect of each step before moving to the next.</p>
+            </li>
+
+            <!-- Step 2: open_lib + open_block -->
+            <li>
+                <h3>Open the Design Library and Load the Init Block</h3>
+                <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                    <li><strong><code>open_lib</code></strong> — opens the NDM container on disk. ICC2 re-reads the technology file and all NDM reference library links stored inside it (standard cells + SRAM macros).</li>
+                    <li><strong><code>open_block init_design.design</code></strong> — loads the named block from the NDM. This restores the exact design state (netlist, MMMC, timing) saved at the end of Design Init.</li>
+                </ul>
+                <pre class="code-block">open_lib ../inputs/tile.ndm
+open_block init_design.design</pre>
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Expected output:</strong> ICC2 prints <code>Information: Loading library file '...tile.ndm' (FILE-007)</code> followed by loading messages for each NDM reference library. If you get an error about a missing block, the Design Init lab was not completed — run it first and save the block.
+                </div>
+            </li>
+
+            <!-- Step 3: Routing Directions -->
+            <li>
+                <h3>Set Metal Layer Routing Directions and Ignored Layers</h3>
+                <p>Defines the preferred routing direction for each metal layer. ICC2 uses these to organize routing tracks and check wire direction violations. These must be set before initializing the floorplan so the router knows which layers are horizontal or vertical when building the site and track grid.</p>
+                <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                    <li><strong>M1, M3, M5, M7, M9 → Horizontal:</strong> These layers carry wires left-to-right. M1 horizontal rails carry VDD/VSS to standard cells; odd signal layers route horizontally.</li>
+                    <li><strong>M2, M4, M6, M8, AP → Vertical:</strong> Even layers and the AP (aluminum pad) layer run vertically.</li>
+                    <li>Alternating H/V directions between adjacent layers maximizes routing density and minimizes layer crossings.</li>
+                </ul>
+
+                <pre class="code-block">set_attribute [get_layers {M1 M3 M5 M7 M9}] routing_direction horizontal
+set_attribute [get_layers {M2 M4 M6 M8 AP}] routing_direction vertical</pre>
+
+                <p style="margin-top: 15px;"><strong><code>set_ignored_layers</code></strong> restricts signal routing to M1–M9. Layers outside this range (below M1 or above M9) will not be used by the router.</p>
+                <pre class="code-block">set_ignored_layers -min_routing_layer M1 -max_routing_layer M9</pre>
+            </li>
+
+            <!-- Step 4: initialize_floorplan -->
+            <li>
+                <h3>Initialize the Floorplan (<code>initialize_floorplan</code>)</h3>
+                <p>This command creates the die boundary, core area, site rows, and routing track grid. Everything physical in the design lives inside the canvas this command creates.</p>
+
+                <table style="width:100%; border-collapse: collapse; margin: 15px 0; font-size:0.95em;">
+                    <thead>
+                        <tr style="background: #2c3e50; color: #fff;">
+                            <th style="padding:10px 14px; text-align:left; width:40%;">Option</th>
+                            <th style="padding:10px 14px; text-align:left;">Meaning</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>-side_ratio {1 1}</code></td>
+                            <td style="padding:9px 14px;">Core aspect ratio (Width : Height). <code>{1 1}</code> produces a square core. Choose based on how macros fit and which edges have more routing demand.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:9px 14px;"><code>-core_offset {0.84 0.9}</code></td>
+                            <td style="padding:9px 14px;">Gap between the core boundary and the die boundary. Format: <code>{left/right  top/bottom}</code> in µm. These small offsets (0.5–2 µm at block level) prevent DRC violations when two blocks abut at the chip level.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>-core_utilization 0.7</code></td>
+                            <td style="padding:9px 14px;">70% of the core area will be occupied by standard cells + macros. The remaining 30% provides routing channels, space for clock tree buffers, and margin for timing fixes during placement. Starting at 70% is industry standard for complex designs.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <pre class="code-block">initialize_floorplan -side_ratio {1 1} -core_offset {0.84 0.9} -core_utilization 0.7</pre>
+
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Expected output:</strong><br>
+                    <code>Creating core...</code><br>
+                    <code>Core utilization ratio = 70.01%</code><br>
+                    <code>Creating site array... Creating routing tracks...</code><br>
+                    <code>Initializing floorplan completed.</code><br><br>
+                    The minor difference (70.01% vs 70.0%) is normal — ICC2 rounds to the nearest legal site boundary. The core dimensions are computed automatically from total cell area and the utilization target.
+                </div>
+            </li>
+
+            <!-- Step 5: Pin Guide + place_pins -->
+            <li>
+                <h3>Place Design Ports (<code>create_pin_guide</code> + <code>place_pins</code>)</h3>
+                <p>Ports are the interface between the tile block and the outside world. They must be placed on the die boundary on legal routing tracks before placement begins.</p>
+
+                <p style="margin-top: 12px;"><strong><code>create_pin_guide</code></strong> defines a rectangular region on the die boundary where ports will be placed. ICC2 restricts all port placement to inside this region.</p>
+                <ul style="margin-left: 25px; margin-top: 8px; line-height: 2.0;">
+                    <li><code>-boundary {{1022.3100 1081.7450} {383.7500 1151.3750}}</code> — two corners of the guide rectangle on the die periphery (in µm). These coordinates define a region on the top edge of the tile block where all ports will be placed.</li>
+                    <li><code>-layers {M6}</code> — place ports on Metal 6. M6 is a vertical layer that provides low-resistance block boundary connections with less congestion than lower metals.</li>
+                    <li><code>-name O</code> — name for this guide object. <code>[get_ports *]</code> applies it to all ports.</li>
+                </ul>
+
+                <pre class="code-block">create_pin_guide -boundary {{1022.3100 1081.7450} {383.7500 1151.3750}} \
+    -layers {M6} -name O [get_ports *]</pre>
+
+                <p style="margin-top: 15px;"><strong><code>place_pins</code></strong> automatically places all ports inside the guide on legal M6 routing tracks.</p>
+                <pre class="code-block">place_pins -ports [get_ports *]</pre>
+
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Expected output:</strong> <code>Information: Starting 'place_pins' (FLW-8000)</code> ... <code>Information: Ending 'place_pins' (FLW-8001)</code> with <code>Number of pins created: 1635</code>. A warning about relaxed pin spacing (DPPA-004/DPPA-379) is normal for dense port designs — ICC2 relaxed the inter-pin spacing constraint to fit all 1635 ports.
+                </div>
+            </li>
+
+            <!-- Step 5: read_def -->
+            <li>
+                <h3>Import Macro Placement from DEF (<code>read_def</code>)</h3>
+                <p>Reads the macro placement DEF file. This file specifies the exact X/Y coordinates and orientation of all 18 SRAM macros in the tile design. After this command, all macros appear at fixed locations inside the ICC2 canvas.</p>
+                <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                    <li>Macros placed via DEF get status <code>FIXED</code> — ICC2 will not move them during standard cell placement.</li>
+                    <li>Macro placement quality matters: poor macro placement creates routing bottlenecks, hot spots, and timing issues downstream.</li>
+                    <li>Good macro placement keeps SRAMs near the logic that accesses them and leaves clear routing channels between macro clusters.</li>
+                </ul>
+                <p style="margin-top: 12px;">The script checks for the DEF file before reading it. If the file is missing, the script exits with a warning rather than silently continuing with no macro placement:</p>
+                <pre class="code-block">set user_floorplan_file ../inputs/floorplan.def
+if {[file exists $user_floorplan_file]} {
+     puts "MyInfo: Souring floorplan file $user_floorplan_file"
+     read_def $user_floorplan_file
+} else {
+    puts "MyInfo: No floorplan file exists $user_floorplan_file"
+    return
+}</pre>
+
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Expected output:</strong> <code>MyInfo: Souring floorplan file ../inputs/floorplan.def</code> followed by DEF reading messages ending with <code>COMPONENTS: 18/18</code> — confirming all 18 SRAM macros were loaded. After <code>read_def</code>, verify in the GUI (<code>start_gui</code>) that all macros are inside the core area with no overlaps and clear routing corridors between macro groups.
+                </div>
+            </li>
+
+            <!-- Step 6: Boundary Cells -->
+            <li>
+                <h3>Insert Boundary Cells (Endcaps)</h3>
+                <p>Endcap cells are physical-only cells (no logic) placed at the left and right ends of every standard cell row. They serve two purposes:</p>
+                <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                    <li><strong>Well Proximity Effect (WPE) mitigation:</strong> During ion implantation, transistors near N-well edges shift their threshold voltage (Vth). Endcaps absorb this effect, shielding functional cells at row ends from unpredictable Vth variation and timing shifts.</li>
+                    <li><strong>DRC compliance:</strong> Satisfy well termination design rules at row boundaries required by the foundry.</li>
+                </ul>
+
+                <table style="width:100%; border-collapse: collapse; margin: 15px 0; font-size:0.95em;">
+                    <thead>
+                        <tr style="background: #2c3e50; color: #fff;">
+                            <th style="padding:10px 14px; text-align:left; width:40%;">Command</th>
+                            <th style="padding:10px 14px; text-align:left;">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>set_boundary_cell_rules<br>-left_boundary_cell &lt;lib/cell&gt;<br>-right_boundary_cell &lt;lib/cell&gt;<br>-prefix ENDCAP</code></td>
+                            <td style="padding:9px 14px;">Registers the left and right endcap cell types from the HVT library. The <code>-prefix</code> sets the instance name prefix in the netlist. Must be called before <code>compile_boundary_cells</code>.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:9px 14px;"><code>compile_boundary_cells</code></td>
+                            <td style="padding:9px 14px;">Inserts endcap cells at both ends of every standard cell row in the core. ICC2 automatically determines the correct orientation (normal/flipped) for each row.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>check_boundary_cells</code></td>
+                            <td style="padding:9px 14px;">Verifies that all rows have valid boundary cells at both ends. Reports any missing or incorrectly placed endcaps.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <pre class="code-block">set_boundary_cell_rules \
+    -left_boundary_cell  tcbn28hpcplusbwp40p140hvt/BOUNDARY_LEFTBWP40P140 \
+    -right_boundary_cell tcbn28hpcplusbwp40p140hvt/BOUNDARY_RIGHTBWP40P140 \
+    -prefix ENDCAP
+compile_boundary_cells
+check_boundary_cells</pre>
+
+                <div class="info-card" style="margin-top: 12px;">
+                    ICC2 T-2022 prints a deprecation warning for <code>compile_boundary_cells</code> — this is harmless. The command works correctly. The future replacement is <code>compile_targeted_boundary_cells</code>.
+                </div>
+            </li>
+
+            <!-- Step 7: PG Nets and Ports -->
+            <li>
+                <h3>Create Power/Ground Nets and Block-Level Ports</h3>
+                <p>Before the power grid can be built, ICC2 must know which nets carry power and ground. These are declared as special PG net types, and matching block-level ports are created.</p>
+
+                <table style="width:100%; border-collapse: collapse; margin: 15px 0; font-size:0.95em;">
+                    <thead>
+                        <tr style="background: #2c3e50; color: #fff;">
+                            <th style="padding:10px 14px; text-align:left; width:42%;">Command</th>
+                            <th style="padding:10px 14px; text-align:left;">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>create_net -power VDD</code></td>
+                            <td style="padding:9px 14px;">Creates the VDD net and marks it as a power net. Power nets are treated differently by the PG router — they are not subject to signal routing DRC rules.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:9px 14px;"><code>create_net -ground VSS</code></td>
+                            <td style="padding:9px 14px;">Creates the VSS net and marks it as ground.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>create_port -port_type power -direction in VDD</code></td>
+                            <td style="padding:9px 14px;">Creates a block-level VDD power port — the physical connection point where power enters the tile block from the chip level.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:9px 14px;"><code>create_port -port_type ground -direction in VSS</code></td>
+                            <td style="padding:9px 14px;">Creates the VSS ground port.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>connect_pg_net -net VDD [get_ports VDD]</code></td>
+                            <td style="padding:9px 14px;">Connects the VDD port to the VDD net, establishing the top-level entry point for power into the block.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:9px 14px;"><code>connect_pg_net -net VDD<br>[get_pins -physical_context */VDD]</code></td>
+                            <td style="padding:9px 14px;">Connects VDD pins of all cells to the VDD net. <code>-physical_context</code> ensures physically-placed macro pins are included. A separate call handles <code>*/VDDM</code> pins used by some ARM SRAM macros.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>connect_pg_net -net VSS<br>[get_pins -physical_context */VSS]</code></td>
+                            <td style="padding:9px 14px;">Same for all VSS pins across the entire design.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <pre class="code-block">create_net -power VDD
+create_net -ground VSS
+create_port -port_type power -direction in VDD
+create_port -port_type ground -direction in VSS
+connect_pg_net -net VDD [get_ports VDD]
+connect_pg_net -net VSS [get_ports VSS]
+
+connect_pg_net -net VDD [get_pins -physical_context */VDD]
+connect_pg_net -net VDD [get_pins -physical_context */VDDM]
+connect_pg_net -net VSS [get_pins -physical_context */VSS]</pre>
+            </li>
+
+            <!-- Step 8: App Options -->
+            <li>
+                <h3>Configure PG Routing App Options</h3>
+                <p>These app options tune the PG router to handle SRAM macro keepout margins correctly:</p>
+
+                <table style="width:100%; border-collapse: collapse; margin: 15px 0; font-size:0.95em;">
+                    <thead>
+                        <tr style="background: #2c3e50; color: #fff;">
+                            <th style="padding:10px 14px; text-align:left; width:55%;">App Option</th>
+                            <th style="padding:10px 14px; text-align:left;">Why it is set</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>plan.pgroute.treat_fat_blockage_as_fat_metal false</code></td>
+                            <td style="padding:9px 14px;">ARM SRAMs create large keepout margins. By default ICC2 treats these as fat metal, enforcing wide DRC spacing that creates false violations. Setting this to <code>false</code> disables that behavior.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:9px 14px;"><code>plan.pgroute.via_site_threshold 1</code><br><code>plan.pgcheck.via_site_threshold 1</code></td>
+                            <td style="padding:9px 14px;">Prevents PG vias from being inserted at sites where only a partial overlap exists with a macro boundary. Without this, vias near macro edges cause DRC violations during signoff.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <pre class="code-block">set_app_options -name plan.pgroute.treat_fat_blockage_as_fat_metal -value false
+set_app_options -name plan.pgroute.via_site_threshold -value 1
+set_app_options -name plan.pgcheck.via_site_threshold -value 1</pre>
+            </li>
+
+            <!-- Step 9: Power Plan -->
+            <li>
+                <h3>Build the Power Distribution Network (<code>source power_plan.tcl</code>)</h3>
+                <p>Sources the power planning script that builds the complete multi-layer power grid — from M1 standard cell rails up to M9 top-level power trunks, with inter-layer vias connecting every level.</p>
+
+                <pre class="code-block">source -e -v ../inputs/power_plan.tcl</pre>
+
+                <p style="margin-top: 15px; margin-bottom: 10px;"><strong>What each section of <code>power_plan.tcl</code> does:</strong></p>
+
+                <table style="width:100%; border-collapse: collapse; margin: 10px 0; font-size:0.92em;">
+                    <thead>
+                        <tr style="background: #2c3e50; color: #fff;">
+                            <th style="padding:9px 12px; text-align:left; width:22%;">Layer / Step</th>
+                            <th style="padding:9px 12px; text-align:left; width:38%;">Key Commands</th>
+                            <th style="padding:9px 12px; text-align:left;">What it does</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:8px 12px;"><strong>Routing blockages on macros</strong></td>
+                            <td style="padding:8px 12px;"><code>create_keepout_margin -type routing_blockage -layers {M1 M4 M5}</code></td>
+                            <td style="padding:8px 12px;">Creates routing blockages on M1, M4, and M5 around every macro keepout margin. Prevents the PG router from placing power wires over restricted macro boundary zones.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:8px 12px;"><strong>Disable auto vias</strong></td>
+                            <td style="padding:8px 12px;"><code>set_app_options -name plan.pgroute.disable_via_creation -value true</code></td>
+                            <td style="padding:8px 12px;">Suppresses automatic via insertion during <code>compile_pg</code>. All vias are created explicitly at the end, giving full control over via types and locations.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:8px 12px;"><strong>M1 rails</strong></td>
+                            <td style="padding:8px 12px;"><code>create_pg_std_cell_conn_pattern M1_rails -layers {M1} -rail_width 0.15</code><br><code>set_pg_strategy M1_stg -core</code><br><code>compile_pg -strategies M1_stg</code></td>
+                            <td style="padding:8px 12px;">Lays horizontal M1 VDD and VSS rails through every standard cell row. Width = 0.15 µm (minimum for this layer). VDD and VSS rails alternate between adjacent rows to match standard cell library pin layout.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:8px 12px;"><strong>M4/M5 fine mesh</strong></td>
+                            <td style="padding:8px 12px;"><code>create_pg_mesh_pattern M4M5_pattern</code><br><code>set_pg_strategy ... -blockage {macros: all}</code><br><code>compile_pg</code></td>
+                            <td style="padding:8px 12px;">Fine-pitch PG mesh: M4 vertical (0.15 µm wide, 7 µm pitch) and M5 horizontal (0.15 µm wide, 7 µm pitch). Mesh is blocked over macros so it does not route through SRAM internal areas. This mesh collects current from M1 rails and feeds it up to M6/M7.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:8px 12px;"><strong>M6/M7 mid-level stripes</strong></td>
+                            <td style="padding:8px 12px;"><code>create_pg_mesh_pattern M6M7_pattern</code><br><code>set_pg_strategy ... -core</code><br><code>compile_pg</code></td>
+                            <td style="padding:8px 12px;">Medium stripes: M6 vertical (0.5 µm wide, 7 µm pitch) and M7 horizontal (0.5 µm wide, 7 µm pitch). Wider than M4/M5 to carry more current over longer distances. These distribute power from the M8/M9 trunks down into the M4/M5 mesh.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:8px 12px;"><strong>M8/M9 power trunks</strong></td>
+                            <td style="padding:8px 12px;"><code>create_pg_mesh_pattern M8toM9</code><br><code>set_pg_strategy top_pg -design_boundary</code><br><code>compile_pg</code></td>
+                            <td style="padding:8px 12px;">Wide top-level trunks: M9 horizontal (3 µm wide, 7.3 µm pitch) and M8 vertical (3 µm wide). These carry the full chip supply current from external pads into the grid. <code>-design_boundary</code> extends stripes to the die edge for chip-level power connections.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:8px 12px;"><strong>Vias M9→M4</strong></td>
+                            <td style="padding:8px 12px;"><code>create_pg_vias -from_layers M9 -to_layers M8</code><br>(repeated for each adjacent pair: M8/M7, M7/M6, M6/M5, M5/M4)</td>
+                            <td style="padding:8px 12px;">Creates default inter-layer vias connecting adjacent metal layers from M9 down to M4. Standard minimum-size via types are adequate at these upper levels where spacing is generous.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:8px 12px;"><strong>Vias M4→M1 (custom rules)</strong></td>
+                            <td style="padding:8px 12px;"><code>set_pg_via_master_rule via1_rule -contact_code VIA12_1cut -via_array_dimension {1 1}</code><br><code>create_pg_vias -from_layers M4 -to_layers M1 -via_masters {via1_rule via2_rule via3_rule}</code></td>
+                            <td style="padding:8px 12px;">Uses explicitly defined 1×1 single-cut via rules for M4→M3→M2→M1. Single-cut vias are required at lower layers where tight M4/M5 mesh pitch leaves limited room for wider via arrays.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:8px 12px;"><strong>Vias over macro pins (M4→M6)</strong></td>
+                            <td style="padding:8px 12px;"><code>set_pg_via_master_rule via4_macro_rule -via_array_dimension {3 1}</code><br><code>create_pg_vias -from_types macro_pin -from_layers M4 -to_types stripe -to_layers M6</code></td>
+                            <td style="padding:8px 12px;">Creates 3×1 via arrays from SRAM macro PG pins (on M4) up to the M6 stripes. The larger array improves contact reliability and current-carrying capacity on macro PG pin connections.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Expected log messages:</strong><br>
+                    <code>USER_INFO: ####---Start of PG insertion---####</code><br>
+                    <code>USER_INFO: ####---End of PG insertion---####</code><br>
+                    These <code>puts</code> markers in the script confirm the PG section ran. If a <code>compile_pg</code> call fails, check for missing net connections from Step 7 or overlapping keepout regions.
+                </div>
+            </li>
+
+            <!-- Step 10: Tap Cells -->
+            <li>
+                <h3>Insert Well-Tap Cells (<code>create_tap_cells</code>)</h3>
+                <p>Well-tap cells tie the N-well to VDD and the P-substrate to VSS throughout the core. This prevents <strong>latch-up</strong> — a destructive failure mode in CMOS.</p>
+
+                <div class="info-card" style="margin-bottom: 15px;">
+                    <strong>Why latch-up happens:</strong> CMOS contains parasitic P-N-P-N structures (two BJTs). Noise injection can forward-bias a BJT junction (&gt;0.7V), triggering positive feedback and creating a low-resistance VDD-to-VSS short — potentially destroying the chip. Well-tap cells reverse-bias these junctions, preventing the trigger condition. The substrate has non-zero resistance, so taps must be spaced close enough that noise cannot build up sufficient voltage between a transistor and its nearest tap. TSMC 28nm rule: &le;30 µm between any transistor and its nearest tap.
+                </div>
+
+                <table style="width:100%; border-collapse: collapse; margin: 15px 0; font-size:0.95em;">
+                    <thead>
+                        <tr style="background: #2c3e50; color: #fff;">
+                            <th style="padding:10px 14px; text-align:left; width:38%;">Option</th>
+                            <th style="padding:10px 14px; text-align:left;">Meaning</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>-lib_cell tcbn28hpcplusbwp40p140hvt/TAPCELLBWP40P140</code></td>
+                            <td style="padding:9px 14px;">The tap cell from the HVT library. This cell contains N-well and P-substrate contact structures with VDD/VSS connections but no logic.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:9px 14px;"><code>-distance 30</code></td>
+                            <td style="padding:9px 14px;">Maximum allowed spacing between adjacent tap cells in µm. Matches TSMC 28nm foundry rule.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>-no_1x</code></td>
+                            <td style="padding:9px 14px;">Avoids inserting single-height tap cells, which can have incompatible well connections with adjacent standard cells in this library.</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:9px 14px;"><code>-pattern stagger</code></td>
+                            <td style="padding:9px 14px;">Inserts taps in a staggered (checkerboard) pattern — offset by half the pitch between alternating rows. This gives more uniform tap coverage than a straight column pattern.</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding:9px 14px;"><code>-prefix Welltap</code></td>
+                            <td style="padding:9px 14px;">Instance name prefix in the netlist (e.g., <code>Welltap_0001</code>).</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:9px 14px;"><code>-skip_fixed_cells</code></td>
+                            <td style="padding:9px 14px;">Do not insert taps where a fixed cell (macro, endcap) already occupies the target site.</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <pre class="code-block">create_tap_cells \
+    -lib_cell tcbn28hpcplusbwp40p140hvt/TAPCELLBWP40P140 \
+    -distance 30 \
+    -no_1x \
+    -pattern stagger \
+    -prefix Welltap \
+    -skip_fixed_cells</pre>
+            </li>
+
+            <!-- Step 11: Reconnect PG + Remove Floating Wires -->
+            <li>
+                <h3>Reconnect PG Nets and Remove Floating Wires</h3>
+                <p>Run <code>connect_pg_net</code> again after tap cell insertion to update ICC2's internal connectivity model to include the VDD/VSS pins of the newly inserted tap cells. Then run <code>remove_objects [check_pg_connectivity]</code> to delete any floating PG wire stubs before saving the checkpoint.</p>
+                <pre class="code-block">connect_pg_net -net VDD [get_pins -physical_context */VDD]
+connect_pg_net -net VSS [get_pins -physical_context */VSS]
+remove_objects [check_pg_connectivity]</pre>
+                <div class="info-card" style="margin-top: 10px;">
+                    <code>check_pg_connectivity</code> returns a collection of floating wire objects. Passing it to <code>remove_objects</code> deletes the dangling stubs in one step. This must be done before <code>save_block</code> — floating wires can cause spurious DRC violations in downstream stages.
+                </div>
+            </li>
+
+            <!-- Step 12: save_block -->
+            <li>
+                <h3>Save the Floorplan Checkpoint (<code>save_block</code>)</h3>
+                <p>Creates a named snapshot of the completed floorplan inside <code>tile.ndm</code>. The block name <code>floorplan</code> identifies this checkpoint. The Placement stage will open this block to continue the PnR flow.</p>
+                <pre class="code-block">save_block -as floorplan</pre>
+                <div class="info-card" style="margin-top: 10px;">
+                    <strong>Expected:</strong> <code>Information: Overwriting block 'floorplan.design' in library 'tile.ndm'.</code> (or "Creating" on first run).
+                </div>
+            </li>
+
+            <!-- Step 13: Reports -->
+            <li>
+                <h3>Generate Floorplan Quality Reports</h3>
+                <p>Run all five checks and save reports to the <code>reports/</code> directory:</p>
+                <pre class="code-block">check_pg_drc              &gt; ../reports/check_pg_drc.rpt
+check_pg_missing_vias     &gt; ../reports/check_pg_missing_vias.rpt
+check_pg_connectivity     &gt; ../reports/check_pg_connectivity.rpt
+check_legality -cells [get_cells -filter "physical_status==fixed"] &gt; ../reports/check_legality.rpt
+check_pin_placement -self  &gt; ../reports/pin_placement.rpt
+exit</pre>
+
+                <p style="margin-top: 20px; font-weight: bold; font-size: 1.05em;">How to Read Each Report:</p>
+
+                <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 15px; margin: 15px 0; border-radius: 4px;">
+                    <h4 style="color: #2c3e50; margin-bottom: 8px;">1. check_pg_drc.rpt — Power Grid DRC</h4>
+                    <p><strong>Checks:</strong> Spacing and width violations in all PG wires and vias. Any location where power/ground geometry violates the foundry technology rules.</p>
+                    <p style="margin-top: 8px;"><strong>Pass:</strong> <code>No errors found.</code></p>
+                    <p style="margin-top: 8px;"><strong>Common failures and fixes:</strong></p>
+                    <ul style="margin-left: 20px; margin-top: 4px; line-height: 1.9;">
+                        <li>PG stripe too close to macro boundary → adjust keepout margin layers in power_plan.tcl.</li>
+                        <li>Via at partial overlap site → check <code>via_site_threshold</code> app options.</li>
+                        <li>Width violation on a newly added stripe → adjust <code>-width</code> in <code>create_pg_mesh_pattern</code>.</li>
+                    </ul>
+                    <pre class="code-block" style="font-size:0.9em; margin-top: 10px;">No errors found.</pre>
+                </div>
+
+                <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 15px; margin: 15px 0; border-radius: 4px;">
+                    <h4 style="color: #2c3e50; margin-bottom: 8px;">2. check_pg_missing_vias.rpt — Missing PG Vias</h4>
+                    <p><strong>Checks:</strong> Locations where two overlapping PG metal layers exist but no via was inserted. Missing vias increase resistance in the power path and reduce IR-drop margin.</p>
+                    <p style="margin-top: 8px;"><strong>Pass:</strong> <code>Number of missing vias: 0</code> for both VDD and VSS.</p>
+                    <p style="margin-top: 8px;"><strong>If missing vias exist:</strong> Check that the via creation commands at the end of power_plan.tcl cover the relevant layer pair. Re-run <code>create_pg_vias</code> for the missing layer transition.</p>
+                    <pre class="code-block" style="font-size:0.9em; margin-top: 10px;">Check net VDD vias...   Number of missing vias: 0
+Check net VSS vias...   Number of missing vias: 0</pre>
+                </div>
+
+                <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 15px; margin: 15px 0; border-radius: 4px;">
+                    <h4 style="color: #2c3e50; margin-bottom: 8px;">3. check_pg_connectivity.rpt — PG Connectivity</h4>
+                    <p><strong>Checks:</strong> Whether macros, standard cells, and pads are connected to the power grid. Counts floating (disconnected) elements per net.</p>
+                    <p style="margin-top: 8px;"><strong>Pass condition (blocking):</strong> <code>Number of floating hard macros: 0</code> — all SRAMs must be PG-connected.</p>
+                    <p style="margin-top: 8px;"><strong>Floating standard cells are expected</strong> at this stage — they are not yet placed and cannot connect to the grid. This count will drop to 0 after routing.</p>
+                    <p style="margin-top: 8px;"><strong>After check_pg_connectivity:</strong> Run <code>remove_objects [check_pg_connectivity]</code> to remove floating PG wire stubs identified by the check.</p>
+                    <pre class="code-block" style="font-size:0.9em; margin-top: 10px;">Number of Macro Cells: 18
+Number of floating hard macros: 0   ← Must be 0
+Number of floating std cells:   336471  ← Expected at floorplan stage</pre>
+                </div>
+
+                <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 15px; margin: 15px 0; border-radius: 4px;">
+                    <h4 style="color: #2c3e50; margin-bottom: 8px;">4. check_legality.rpt — Cell Legality</h4>
+                    <p><strong>Checks:</strong> Whether all fixed cells (macros, endcaps, tap cells) are legally placed. Checks site alignment, overlaps, keep-out margins, and region assignments.</p>
+                    <p style="margin-top: 8px;"><strong>Pass:</strong> <code>check_legality succeeded.</code> with <code>TOTAL 0 Violations.</code></p>
+                    <p style="margin-top: 8px;"><strong>Common violations:</strong></p>
+                    <ul style="margin-left: 20px; margin-top: 4px; line-height: 1.9;">
+                        <li><em>Two objects overlap</em> → two macros at overlapping DEF coordinates.</li>
+                        <li><em>A cell is not aligned with a site</em> → macro placed at non-integer site pitch coordinate in DEF.</li>
+                        <li><em>A cell is in the wrong region</em> → macro placed outside the core boundary.</li>
+                    </ul>
+                    <pre class="code-block" style="font-size:0.9em; margin-top: 10px;">TOTAL 0 Violations.
+check_legality succeeded.</pre>
+                </div>
+
+                <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 15px; margin: 15px 0; border-radius: 4px;">
+                    <h4 style="color: #2c3e50; margin-bottom: 8px;">5. pin_placement.rpt — Port Placement</h4>
+                    <p><strong>Checks:</strong> Whether all block-level ports are on legal routing tracks, on the correct metal layer, within the die boundary, and non-overlapping.</p>
+                    <p style="margin-top: 8px;"><strong>Pass:</strong> <code>No violation has been found</code> with total violations = 0.</p>
+                    <p style="margin-top: 8px;"><strong>Violation types:</strong> Missing Pins (port declared but not placed), Pin Short (two ports overlap), Technology Spacing (port violates min-spacing rule).</p>
+                    <pre class="code-block" style="font-size:0.9em; margin-top: 10px;">No violation has been found
+Total Violations: 0</pre>
+                </div>
+            </li>
+
+        </ul>
+    </div>
+
+    <!-- Success Criteria -->
+    <div class="content-box">
+        <h2 class="section-title">&#9989; Success Criteria</h2>
+        <div class="validation-box">
+            <h4 style="margin-bottom: 15px; color: #0c5460;">Floorplan is complete and correct when ALL of the following pass:</h4>
+            <ul style="margin-left: 20px; line-height: 2.2; color: #0c5460;">
+                <li><code>check_pg_drc.rpt</code> → <strong>"No errors found."</strong></li>
+                <li><code>check_pg_missing_vias.rpt</code> → <strong>"Number of missing vias: 0"</strong> for VDD and VSS</li>
+                <li><code>check_pg_connectivity.rpt</code> → <strong>"Number of floating hard macros: 0"</strong></li>
+                <li><code>check_legality.rpt</code> → <strong>"check_legality succeeded."</strong> with 0 violations</li>
+                <li><code>pin_placement.rpt</code> → <strong>"No violation has been found"</strong></li>
+            </ul>
+            <div class="info-card" style="margin-top: 15px;">
+                Floating standard cell counts in <code>check_pg_connectivity</code> do not block floorplan sign-off. Only floating <strong>hard macros</strong> are a blocking issue.
+            </div>
+        </div>
+    </div>
+
+    <!-- Validation -->
+    <div class="content-box">
+        <h2 class="section-title">&#128269; Validation &amp; Verification</h2>
+        <div class="section-content">
+            <p>After your ICC2 session exits, run <code>make verify</code> from the testcase directory. This automatically checks all five reports and the ICC2 log, then reports a PASS or FAIL:</p>
+            <pre class="code-block">make verify</pre>
+            <p style="margin-top: 12px;">A PASS result confirms your floorplan meets all required quality criteria and posts the result to the lab dashboard.</p>
+        </div>
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128218; Knowledge Assessment Quiz</h2>
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. After <code>check_pg_connectivity</code> you see <em>336,918 floating standard cells</em> on VDD but <em>0 floating hard macros</em>. What is your conclusion?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Critical failure — re-run <code>connect_pg_net</code> with a wider filter to connect all cells before proceeding.</li>
+                    <li data-correct="true">Floorplan passes. Floating standard cells are expected at this stage (cells not yet placed). Only 0 floating hard macros is required for sign-off.</li>
+                    <li data-correct="false">The M1 rails were not created — standard cells have no VDD connection point.</li>
+                    <li data-correct="false">The power grid only covers macros; a second power grid for standard cells is needed.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> At floorplan stage, standard cells have no physical placement yet, so their PG pins cannot touch the grid. The count of floating standard cells drops to 0 after placement and routing. Hard macros (SRAMs) must be PG-connected at floorplan stage because their pins are already physically placed at fixed coordinates.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. You add a new SRAM macro to the design. After re-running <code>power_plan.tcl</code>, <code>check_pg_drc</code> reports spacing violations near the new macro. What is the most likely root cause?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">The M1 rail width of 0.15 µm is insufficient for the new macro's current requirement.</li>
+                    <li data-correct="true">The routing blockage for the new macro's keepout margin was not created before <code>compile_pg</code>, so PG wires route inside the macro's restricted zone.</li>
+                    <li data-correct="false">The new SRAM NDM was not added to the reference library list in <code>create_lib</code>.</li>
+                    <li data-correct="false">The tap cells are too close to the new macro boundary, causing spacing violations.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> The first step in power_plan.tcl creates routing blockages on M1, M4, and M5 around each macro's existing keepout margin. A new macro needs its keepout margin defined first; otherwise the PG router has no knowledge of the restricted zone and may place stripes or vias inside it, causing DRC violations.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. <code>check_legality</code> reports <em>"A cell is not aligned with a site"</em> for one of the SRAMs. What is the most likely cause?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">The SRAM NDM does not define a site — regenerate it from the memory compiler.</li>
+                    <li data-correct="true">The SRAM's X/Y coordinate in the DEF file is not an integer multiple of the site pitch — snap the coordinate to the nearest legal site.</li>
+                    <li data-correct="false">The macro was placed with orientation N but the row requires orientation FN.</li>
+                    <li data-correct="false">The core utilization is too high and there is no room for the SRAM at that location.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Every cell in ICC2 must be placed at coordinates that are exact multiples of the site dimensions (e.g., x-pitch = 0.084 µm in 28nm). If the DEF file specifies a coordinate like X=100.031 µm where the nearest legal site is at 100.044 µm, the cell is off-grid and the legality check fails. Fix the DEF coordinate to snap to the site grid.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. Why does the power planning script use 3 µm wide stripes on M8/M9 but only 0.15 µm wide wires on M4/M5?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Upper layers have minimum width rules that require 3 µm; lower layers have a 0.15 µm minimum.</li>
+                    <li data-correct="false">Thinner wires on M4/M5 reduce coupling capacitance to signal wires on adjacent layers.</li>
+                    <li data-correct="true">M8/M9 carry the full chip supply current and must meet electromigration (EM) current density limits; M4/M5 carry only local currents to small cell clusters and can be narrow.</li>
+                    <li data-correct="false">M8/M9 are reserved for clock routing so the PG stripes must be wide enough to leave room for signal routes.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Electromigration limits current density to ~1.5–2.5 mA/µm² for copper. M8/M9 top-level trunks carry the aggregate current of the entire chip, so they must be wide (3 µm) to keep current density within the EM limit. M4/M5 mesh wires connect to small local cell clusters, carrying only a fraction of the total current, so 0.15 µm is sufficient.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Next Step -->
+    <div class="content-box">
+        <h2 class="section-title">&#127881; Next Step</h2>
+        <div class="section-content">
+            <p>Outstanding work completing the guided floorplan for the <strong>tile</strong> design!</p>
+            <p style="margin-top: 12px;">You have walked through every command in the ICC2 floorplan flow — sizing the die, placing ports, importing macro placement, building the power distribution network, inserting physical-only cells, and verifying all five quality reports.</p>
+            <p style="margin-top: 12px;">&#128640; You are now ready to apply these concepts independently. In the Challenge Testcase, you will perform the complete floorplan flow for <strong>iguana_soc</strong> — a full SoC design — without step-by-step guidance. Use the commands and checks you have learned here as your blueprint.</p>
+        </div>
+        <div class="nav-buttons">
+            <a href="../PNR-SNPS-FP.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+            <a href="../TC-PNR-SNPS-FP-CH-001/TC-PNR-SNPS-FP-CH-001.html" class="btn btn-success">Continue to Challenge Testcase &#8594;</a>
+        </div>
+    </div>
+
+</div>
+
+    <script>
+        function copyCode(btn) {
+            const container = btn.closest('.code-container');
+            const codeBlock = container.querySelector('.code-block');
+            const text = codeBlock.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                btn.textContent = '\u2713 Copied!';
+                btn.style.background = '#28a745';
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                    btn.style.background = '#374151';
+                }, 2000);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('pre.code-block').forEach(function (pre) {
+                if (pre.closest('.code-container')) return;
+                const container = document.createElement('div');
+                container.className = 'code-container';
+                const btn = document.createElement('button');
+                btn.className = 'copy-button';
+                btn.textContent = 'Copy';
+                btn.setAttribute('onclick', 'copyCode(this)');
+                pre.parentNode.insertBefore(container, pre);
+                container.appendChild(btn);
+                container.appendChild(pre);
+                pre.style.margin = '0';
+                pre.style.background = 'transparent';
+                pre.style.boxShadow = 'none';
+                pre.style.borderRadius = '0';
+            });
+        });
+    </script>
+    <script src="../common/interactive.js"></script>
+</body>
+</html>

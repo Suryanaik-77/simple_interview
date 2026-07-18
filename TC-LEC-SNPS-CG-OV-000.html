@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LEC-SNPS-CG: RTL-to-Gate Equivalence Check (Clock Gating) — Formality</title>
+    <link rel="stylesheet" href="common/styles.css">
+    <style>
+        .btn-check-answer {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 9px 24px;
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, opacity 0.2s;
+            letter-spacing: 0.02em;
+        }
+        .btn-check-answer:hover:not(:disabled) { background: #1d4ed8; }
+        .btn-check-answer:disabled { opacity: 0.45; cursor: not-allowed; }
+        .quiz-options li.selected {
+            background: #eff6ff;
+            border-left: 4px solid #2563eb;
+            color: #1e3a8a;
+        }
+    </style>
+</head>
+<body>
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">LEC-SNPS-CG: RTL-to-Gate Logic Equivalence Check with Clock Gating (Synopsys Formality)</h1>
+            <div class="lab-meta">
+                <div class="meta-item"><span>&#128218; Course: Physical Design</span></div>
+                <div class="meta-item"><span>&#128295; Tool: Synopsys Formality (fm_shell)</span></div>
+                <div class="meta-item"><span>&#9201; Duration: 3&ndash;5 hours</span></div>
+                <div class="meta-item"><span>&#127919; Difficulty: Intermediate</span></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <!-- Learning Objectives -->
+        <div class="content-box">
+            <h2 class="section-title">&#127919; Learning Objectives</h2>
+            <div class="section-content">
+                <p>By the end of this lab, you will be able to:</p>
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                    <li>Understand the RTL-to-gate logic equivalence checking (LEC) flow using Synopsys Formality</li>
+                    <li>Load SVF files and explain how they guide Formality through synthesis transformations</li>
+                    <li>Configure clock gate verification attributes to correctly handle ICG cells in the design</li>
+                    <li>Diagnose and fix LEC failures caused by missing verification attributes</li>
+                    <li>Interpret Formality equivalence reports (<code>passing_points</code>, <code>failing_points</code>, <code>unmatched_points</code>)</li>
+                    <li>Write a complete Formality LEC script independently</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Prerequisites -->
+        <div class="content-box">
+            <h2 class="section-title">&#128295; Prerequisites</h2>
+            <div class="section-content">
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                    <li><strong>RTL Fundamentals:</strong> Understanding of Verilog module hierarchy, flip-flops, and clock gating cells (ICG)</li>
+                    <li><strong>Synthesis Flow:</strong> Familiarity with how synthesis transforms RTL into a gate-level netlist and produces an SVF file</li>
+                    <li><strong>Tcl Scripting:</strong> Ability to read and write basic Formality Tcl commands</li>
+                    <li><strong>Library Concepts:</strong> Understanding of <code>.db</code> technology library files and why Formality needs them to recognize cell models</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Theory -->
+        <div class="content-box">
+            <h2 class="section-title">&#128218; Theory and Background</h2>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 12px;">What is RTL-to-Gate LEC?</h3>
+                <p>
+                    After synthesis, the gate-level netlist must be logically equivalent to the original RTL.
+                    Logic Equivalence Checking (LEC) formally proves this equivalence by comparing
+                    the Boolean function at every register output and primary output between the two representations.
+                    Unlike simulation, LEC is exhaustive &mdash; it proves equivalence for all possible input combinations.
+                </p>
+            </div>
+
+            <div class="section" style="margin-top: 20px;">
+                <h3 style="color: #667eea; margin-bottom: 12px;">The Synopsys Verification File (SVF)</h3>
+                <p>
+                    During synthesis, Design Compiler and Genus automatically write an SVF file recording every
+                    structural transformation they performed: register renaming, constant propagation, sequential
+                    optimizations, and clock gating insertion. Formality reads this file before matching compare
+                    points so it knows how to correlate renamed or restructured logic between the two designs.
+                    Without the SVF, Formality relies on name matching alone and may fail on transformed logic.
+                </p>
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Key rule:</strong> Always load the SVF with <code>set_svf</code> before any
+                    <code>read_verilog</code> command. Loading it after reading the designs has no effect.
+                </div>
+            </div>
+
+            <div class="section" style="margin-top: 20px;">
+                <h3 style="color: #667eea; margin-bottom: 12px;">Clock Gate Verification Attributes</h3>
+                <p>
+                    When synthesis inserts Integrated Clock Gating (ICG) cells, the gate-level netlist contains
+                    latch-based enable logic that does not exist in the RTL. Formality must be told how to
+                    interpret these structures so it can correctly map the RTL enable signal to the ICG cell output.
+                    Three attributes control this:
+                </p>
+                <ul style="margin-left: 20px; margin-top: 10px; line-height: 2;">
+                    <li>
+                        <code>set verification_clock_gate_reverse_gating true</code> &mdash;
+                        tells Formality to <em>reverse</em> the clock gating transformation when matching,
+                        so the ICG cell in the implementation is mapped back to the original RTL enable logic.
+                        <strong>This is the most critical attribute.</strong> Without it, every ICG-gated register
+                        appears as an unmatched point and verification fails.
+                    </li>
+                    <li>
+                        <code>set verification_clock_gate_hold_mode low</code> &mdash;
+                        specifies the hold phase of the clock gating latch (active-low). Must match the ICG
+                        cell type used in the PDK.
+                    </li>
+                    <li>
+                        <code>set verification_clock_gate_edge_analysis true</code> &mdash;
+                        enables edge-sensitive analysis of gated clocks for more accurate mapping.
+                    </li>
+                </ul>
+                <div class="info-card" style="margin-top: 12px; background: #fff3cd; border-left: 4px solid #ffc107;">
+                    <strong>Common failure:</strong> Omitting <code>verification_clock_gate_reverse_gating</code>
+                    produces <em>Verification FAILED</em> with a large number of failing points at the outputs
+                    of ICG-gated registers. The Formality log will contain messages like
+                    <code>FMR_ELAB-115</code> or unmatched sequential compare points.
+                </div>
+            </div>
+
+            <div class="section" style="margin-top: 20px;">
+                <h3 style="color: #667eea; margin-bottom: 12px;">Formality Flow Overview</h3>
+                <p>A complete RTL-to-gate Formality run follows these steps in order:</p>
+                <ol style="margin-left: 20px; margin-top: 10px; line-height: 2;">
+                    <li>Set global verification attributes (clock gate settings, <code>synopsys_auto_setup</code>)</li>
+                    <li>Load SVF with <code>set_svf</code></li>
+                    <li>Read reference design (RTL) with <code>read_verilog -r</code></li>
+                    <li>Set reference top: <code>set_top r:/WORK/&lt;module&gt;</code></li>
+                    <li>Read technology libraries with <code>read_db</code></li>
+                    <li>Read implementation (gate-level netlist) with <code>read_verilog -i</code></li>
+                    <li>Set implementation top: <code>set_top -auto</code></li>
+                    <li>Match compare points: <code>match</code></li>
+                    <li>Prove equivalence: <code>verify</code></li>
+                    <li>Generate reports</li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. What does <code>set verification_clock_gate_reverse_gating true</code> tell Formality to do?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">Remove all clock gating cells from the gate-level netlist before verification.</li>
+                        <li onclick="selectOption(this)" data-correct="true">Reverse the clock gating transformation so ICG cells in the implementation are mapped back to the original RTL enable logic for correct comparison.</li>
+                        <li onclick="selectOption(this)">Insert clock gating cells into the RTL reference design to match the implementation.</li>
+                        <li onclick="selectOption(this)">Disable clock gating analysis entirely and treat gated registers as ungated.</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> This attribute instructs Formality to undo the clock gating insertion during matching, correlating each ICG-gated register in the netlist back to its RTL flip-flop with enable logic.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. Why must the SVF be loaded with <code>set_svf</code> before any <code>read_verilog</code> command?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">Because <code>read_verilog</code> automatically reads the SVF from the same directory.</li>
+                        <li onclick="selectOption(this)">Because Formality checks the SVF file permissions at startup and rejects it if loaded later.</li>
+                        <li onclick="selectOption(this)" data-correct="true">Because the SVF must be active before designs are read so Formality can apply SVF-guided transformations during the read and elaboration phases.</li>
+                        <li onclick="selectOption(this)">Because the SVF contains the file paths for the RTL source files that <code>read_verilog</code> needs.</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Formality processes SVF directives during design reading and elaboration. Loading the SVF after <code>read_verilog</code> means those transformations are not applied, causing match failures on renamed or restructured logic.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. Formality reports <em>Verification FAILED</em> with many failing points at register outputs. The most likely cause is:</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">The RTL filelist is missing one source file.</li>
+                        <li onclick="selectOption(this)">The technology <code>.db</code> library was not loaded.</li>
+                        <li onclick="selectOption(this)" data-correct="true">The <code>verification_clock_gate_reverse_gating</code> attribute is missing, so ICG-gated registers cannot be matched.</li>
+                        <li onclick="selectOption(this)">The <code>set_top</code> command used the wrong module name.</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> When <code>verification_clock_gate_reverse_gating</code> is absent, Formality cannot correlate ICG cells in the implementation to RTL enables, producing failures at every clock-gated register output.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. What is the purpose of the <code>match</code> command in the Formality flow?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">It runs formal equivalence proof between all compare points.</li>
+                        <li onclick="selectOption(this)">It checks whether the RTL and netlist have the same number of flip-flops.</li>
+                        <li onclick="selectOption(this)" data-correct="true">It pairs each RTL compare point (register output, primary output) with its corresponding gate-level counterpart, guided by the SVF and name matching.</li>
+                        <li onclick="selectOption(this)">It reads the SVF and applies all recorded synthesis transformations to the reference design.</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> <code>match</code> performs the compare-point pairing step. Only after a successful match can <code>verify</code> perform the formal proof on each paired point.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Lab Structure -->
+        <div class="content-box">
+            <h2 class="section-title">&#128202; Lab Structure</h2>
+            <div class="section-content">
+                <table style="width:100%; border-collapse: collapse; margin-top: 12px;">
+                    <thead>
+                        <tr style="background:#f3f4f6;">
+                            <th style="padding:10px; border:1px solid #d1d5db; text-align:left;">Testcase</th>
+                            <th style="padding:10px; border:1px solid #d1d5db; text-align:left;">Type</th>
+                            <th style="padding:10px; border:1px solid #d1d5db; text-align:left;">Focus</th>
+                            <th style="padding:10px; border:1px solid #d1d5db; text-align:left;">Difficulty</th>
+                            <th style="padding:10px; border:1px solid #d1d5db; text-align:left;">Est. Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding:10px; border:1px solid #d1d5db;"><a href="TC-LEC-SNPS-CG-GD-001/TC-LEC-SNPS-CG-GD-001.html">TC-GD-001</a></td>
+                            <td style="padding:10px; border:1px solid #d1d5db;"><span class="test-case-type type-guided">GUIDED</span></td>
+                            <td style="padding:10px; border:1px solid #d1d5db;">Debug missing clock gate attribute — aes_cipher_top</td>
+                            <td style="padding:10px; border:1px solid #d1d5db;">&#11088;&#11088; Medium</td>
+                            <td style="padding:10px; border:1px solid #d1d5db;">60&ndash;90 min</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:10px; border:1px solid #d1d5db;"><a href="TC-LEC-SNPS-CG-CH-001/TC-LEC-SNPS-CG-CH-001.html">TC-CH-001</a></td>
+                            <td style="padding:10px; border:1px solid #d1d5db;"><span class="test-case-type type-independent">INDEPENDENT</span></td>
+                            <td style="padding:10px; border:1px solid #d1d5db;">Write complete Formality script — aes_cipher_top</td>
+                            <td style="padding:10px; border:1px solid #d1d5db;">&#11088;&#11088;&#11088; Hard</td>
+                            <td style="padding:10px; border:1px solid #d1d5db;">90&ndash;120 min</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="TC-LEC-SNPS-CG-GD-001/TC-LEC-SNPS-CG-GD-001.html" class="btn btn-primary">Start Testcase 1 (Guided) &rarr;</a>
+                <a href="TC-LEC-SNPS-CG-CH-001/TC-LEC-SNPS-CG-CH-001.html" class="btn btn-secondary">Jump to Testcase 2 &rarr;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        var LAB_ID = 'LEC-SNPS-CG';
+    </script>
+    <script src="common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function() {
+            var scrollProgress = document.getElementById('scrollProgress');
+            var scrolled = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100;
+            if (scrollProgress) scrollProgress.style.width = scrolled + '%';
+        });
+
+        function selectOption(option) {
+            var qc = option.closest('.quiz-question');
+            if (qc.dataset.answered === 'true') return;
+            qc.querySelectorAll('.quiz-options li').forEach(function(o) { o.classList.remove('selected'); });
+            option.classList.add('selected');
+            var fb = qc.querySelector('.feedback');
+            if (fb) { fb.textContent = ''; fb.className = 'feedback'; fb.style.display = 'none'; }
+        }
+
+        function submitAnswer(button) {
+            var qc = button.closest('.quiz-question');
+            var sel = qc.querySelector('.quiz-options li.selected');
+            var fb = qc.querySelector('.feedback');
+            var ans = qc.querySelector('.answer');
+            if (!sel) {
+                fb.textContent = 'Please select an answer first.';
+                fb.className = 'feedback incorrect';
+                fb.style.display = 'block';
+                return;
+            }
+            var ok = sel.dataset.correct === 'true';
+            if (ok) {
+                sel.classList.remove('selected');
+                sel.classList.add('correct-answer');
+                fb.textContent = '\u2705 Correct!';
+                fb.className = 'feedback correct';
+                fb.style.display = 'block';
+                if (ans) ans.style.display = 'block';
+                qc.querySelectorAll('.quiz-options li').forEach(function(o) { o.style.pointerEvents = 'none'; });
+                button.disabled = true;
+                qc.dataset.answered = 'true';
+            } else {
+                sel.classList.remove('selected');
+                sel.classList.add('wrong-answer');
+                sel.style.pointerEvents = 'none';
+                fb.textContent = '\u274C Incorrect. Try again!';
+                fb.className = 'feedback incorrect';
+                fb.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challenge: Signoff STA with Tempus — tile — STA-CDN-STA</title>
+    <link rel="stylesheet" href="../common/styles.css">
+</head>
+<body>
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Challenge: Signoff STA with Tempus &mdash; tile</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#128205; <a href="../STA-CDN-STA.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 2</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#127919; Type: Challenge Assignment</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9202;&#65039; Estimated Time: 1.5-2 hours</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#11088;&#11088; Difficulty: Medium</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Challenge Problem -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Challenge Problem</h2>
+                <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+            </div>
+
+            <div class="section-content">
+                <p>You are given the same <strong>tile</strong> design inputs used in Testcase 1: a post-PnR gate-level netlist, SDC constraints, SPEF parasitics for four RC corners, and an MMMC configuration file. However, this time <strong>no Tempus script is provided</strong>. The <code>scripts/</code> directory is empty.</p>
+
+                <p style="margin-top: 20px;"><strong>Your Challenge:</strong> Using the knowledge gained from Testcase 1, write a complete <code>tempus_sta.tcl</code> script from scratch that performs a full signoff STA flow. Your script must read the design, configure OCV and SI analysis, annotate parasitics for all four RC corners, propagate clocks, generate setup and hold timing summaries, perform noise/glitch analysis, and save the timing and noise session databases.</p>
+            </div>
+        </div>
+
+        <!-- Available Inputs -->
+        <div class="content-box">
+            <h2 class="section-title">&#128193; Available Inputs</h2>
+
+            <div class="section-content">
+                <p>The following input files are available in the <code>inputs/</code> directory. Your script should reference them using relative paths (e.g., <code>../inputs/tile.pnr.v</code> since Tempus runs from the <code>WORK/</code> directory).</p>
+
+                <div class="code-container"><pre class="code-block"># Design files
+inputs/tile.pnr.v              # Post-PnR gate-level Verilog netlist
+inputs/tile.sdc                # Timing constraints (SDC)
+
+# SPEF parasitic files (4 RC corners)
+inputs/tile.rcw_125.spef       # RC worst, 125C
+inputs/tile.rcb_125.spef       # RC best, 125C
+inputs/tile.cw_-40.spef        # C worst, -40C
+inputs/tile.cb_-40.spef        # C best, -40C
+
+# MMMC configuration
+inputs/mmmc_config.tcl         # Multi-Mode Multi-Corner setup</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 15px;">Additionally, your script needs to reference the following LEF files from the PDK:</p>
+
+                <div class="code-container"><pre class="code-block"># Technology LEF
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/metal_stack/1P9M_4X2Y2R/tlef/tsmcn28_9lm4X2Y2RUTRDL.tlef
+
+# Standard cell LEFs (SVT, HVT, LVT)
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/lef/tcbn28hpcplusbwp40p140lvt.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/lef/tcbn28hpcplusbwp40p140hvt.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lef/tcbn28hpcplusbwp40p140.lef
+
+# Macro LEFs (SRAM memories)
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_1rw_128x78/lef/sram_1rw_128x78.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_data/lef/sram_l15_data.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_hmt/lef/sram_l15_hmt.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_tag/lef/sram_l15_tag.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1d_data_128x144/lef/sram_l1d_data_128x144.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1d_tag/lef/sram_l1d_tag.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1i_data_256x136/lef/sram_l1i_data_256x136.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1i_tag/lef/sram_l1i_tag.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_data/lef/sram_l2_data.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_dir/lef/sram_l2_dir.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_state/lef/sram_l2_state.lef
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_tag/lef/sram_l2_tag.lef</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Requirements -->
+        <div class="content-box">
+            <h2 class="section-title">&#128203; Requirements &amp; Deliverables</h2>
+
+            <div class="section">
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">Your script must produce the following:</h3>
+                <ul style="margin-left: 30px; line-height: 2;">
+                    <li>Script file created at <code>scripts/tempus_sta.tcl</code></li>
+                    <li><code>reports/check.timing.rpt</code> &mdash; design timing check report</li>
+                    <li><code>reports/check.annotation.rpt</code> &mdash; parasitic annotation coverage report</li>
+                    <li><code>reports/setup.analysis_summary.rpt</code> &mdash; setup timing analysis summary</li>
+                    <li><code>reports/hold.analysis_summary.rpt</code> &mdash; hold timing analysis summary</li>
+                    <li><code>reports/tile_glitch.rpt</code> &mdash; SI glitch/noise failure report</li>
+                    <li><code>reports/tile_check_noise.rpt</code> &mdash; noise check report</li>
+                    <li><code>outputs/tile_session_timing.db</code> &mdash; saved timing session database</li>
+                    <li><code>outputs/tile_session_noise.db</code> &mdash; saved noise session database</li>
+                </ul>
+            </div>
+
+            <div class="section" style="margin-top: 20px;">
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">Your script must perform these analysis steps:</h3>
+                <ul style="margin-left: 30px; line-height: 2;">
+                    <li>Read the MMMC configuration and LEF physical data</li>
+                    <li>Read the gate-level netlist and initialize the design</li>
+                    <li>Configure OCV timing analysis with CPPR</li>
+                    <li>Enable SI delay and glitch analysis settings</li>
+                    <li>Annotate SPEF parasitics for all 4 RC corners</li>
+                    <li>Propagate clocks on all constraint modes</li>
+                    <li>Run <code>update_timing</code> for full timing update</li>
+                    <li>Generate setup and hold timing summary reports</li>
+                    <li>Perform noise/glitch analysis with <code>update_glitch</code></li>
+                    <li>Save timing and noise session databases</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Recommended Workflow -->
+        <div class="content-box">
+            <h2 class="section-title">&#128260; Recommended Workflow</h2>
+
+            <div class="section-content">
+                <div class="code-container"><pre class="code-block"># 1. Navigate to testcase2 directory
+cd TC-STA-CDN-STA-CH-001/
+
+# 2. Review the available inputs
+ls inputs/
+
+# 3. Study the MMMC config to understand corners and views
+cat inputs/mmmc_config.tcl
+
+# 4. Create your Tempus script
+vi scripts/tempus_sta.tcl
+
+# 5. Ensure output directories exist
+ls reports/ outputs/ WORK/ logs/
+
+# 6. Run the flow
+make run
+
+# 7. Check logs for errors
+cat logs/tempus_sta.log | grep -i error
+
+# 8. Verify results
+make verify</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Hints -->
+        <div class="content-box">
+            <h2 class="section-title">&#128161; Hints</h2>
+
+            <div class="section-content">
+                <details style="margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <summary style="cursor: pointer; font-weight: bold; color: #2c3e50;">Hint 1 &mdash; Reading the MMMC config and physical data</summary>
+                    <p style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                        Tempus uses <code>read_mmmc</code> to load the multi-mode multi-corner configuration, and <code>read_physical -lef</code> to load technology and cell LEF files. The MMMC config defines library sets, RC corners, delay corners, constraint modes, and analysis views. Look at what RC corner names are defined in <code>mmmc_config.tcl</code> &mdash; you will need those exact names when annotating SPEF files.
+                    </p>
+                </details>
+
+                <details style="margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <summary style="cursor: pointer; font-weight: bold; color: #2c3e50;">Hint 2 &mdash; SI analysis settings must be configured before reading SPEFs</summary>
+                    <p style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                        Signal integrity analysis in Tempus requires several <code>set_db</code> commands to enable SI delay calculation, glitch propagation, and related features. These settings must be in place <strong>before</strong> you read SPEF files with <code>read_spef</code>. The key database attributes to configure include <code>delaycal_enable_si</code>, <code>si_delay_separate_on_data</code>, <code>si_enable_glitch_propagation</code>, and several others related to waveform modeling and glitch thresholds.
+                    </p>
+                </details>
+
+                <details style="margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <summary style="cursor: pointer; font-weight: bold; color: #2c3e50;">Hint 3 &mdash; Clock propagation and timing update sequence</summary>
+                    <p style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                        Before calling <code>update_timing</code>, you must propagate clocks. This involves setting the interactive constraint mode to cover both setup and hold modes, then using <code>set_propagated_clock</code> on the clock sources. After propagation, reset the interactive constraint mode and then run a full timing update. Only after <code>update_timing</code> completes can you generate meaningful timing reports. For noise analysis, <code>update_glitch</code> must be called after the timing update.
+                    </p>
+                </details>
+            </div>
+        </div>
+
+        <!-- Success Criteria -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Success Criteria</h2>
+
+            <div class="validation-box">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Check</th>
+                            <th>Expected File</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>check_timing</td>
+                            <td><code>reports/check.timing.rpt</code></td>
+                            <td>Design timing checks generated successfully</td>
+                        </tr>
+                        <tr>
+                            <td>annotation</td>
+                            <td><code>reports/check.annotation.rpt</code></td>
+                            <td>Parasitic annotation coverage report exists</td>
+                        </tr>
+                        <tr>
+                            <td>setup_summary</td>
+                            <td><code>reports/setup.analysis_summary.rpt</code></td>
+                            <td>Setup timing analysis summary generated</td>
+                        </tr>
+                        <tr>
+                            <td>hold_summary</td>
+                            <td><code>reports/hold.analysis_summary.rpt</code></td>
+                            <td>Hold timing analysis summary generated</td>
+                        </tr>
+                        <tr>
+                            <td>glitch_report</td>
+                            <td><code>reports/tile_glitch.rpt</code></td>
+                            <td>SI glitch/noise failure report generated</td>
+                        </tr>
+                        <tr>
+                            <td>noise_check</td>
+                            <td><code>reports/tile_check_noise.rpt</code></td>
+                            <td>Noise check report generated</td>
+                        </tr>
+                        <tr>
+                            <td>timing_db</td>
+                            <td><code>outputs/tile_session_timing.db</code></td>
+                            <td>Timing session database saved</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#129514; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After your script runs successfully and all reports are generated, use the automated verification command to validate your results.</p>
+
+                <div class="code-container"><pre class="code-block">make verify</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 10px;">All seven checks must show <strong>PASS</strong> for the testcase to be marked successful. If any check fails, review which report or output file is missing and update your script accordingly.</p>
+            </div>
+        </div>
+
+        <!-- Knowledge Assessment Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. If you forget to call <code>update_timing -full</code> before generating timing summary reports, what happens?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">Tempus automatically runs an incremental timing update before each report command.</li>
+                        <li onclick="checkAnswer(this, false)">The reports are generated normally but with slightly less accurate results.</li>
+                        <li onclick="checkAnswer(this, true)">The timing reports will contain incomplete or stale timing data because the timing graph has not been fully propagated with the annotated parasitics and propagated clocks.</li>
+                        <li onclick="checkAnswer(this, false)">Tempus will throw a fatal error and refuse to generate any reports.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> Without a full timing update, the timing graph does not reflect the annotated SPEF parasitics and propagated clock latencies. Reports generated in this state will have incomplete or incorrect timing data, leading to misleading signoff results.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. The MMMC config defines four RC corners: <code>rcworst_125</code>, <code>rcbest_125</code>, <code>cworst_m40</code>, and <code>cbest_m40</code>. Why must the <code>-rc_corner</code> argument in <code>read_spef</code> match these names exactly?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">It is just a naming convention &mdash; any name will work as long as it is consistent.</li>
+                        <li onclick="checkAnswer(this, true)">The RC corner name links the SPEF parasitics to the correct delay corner and analysis view defined in the MMMC config, ensuring each view uses the right parasitic data for timing calculation.</li>
+                        <li onclick="checkAnswer(this, false)">Tempus uses the RC corner name to locate the SPEF file on disk automatically.</li>
+                        <li onclick="checkAnswer(this, false)">The names must match because Tempus checks them against the QRC tech file headers.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> Each delay corner in the MMMC config references a specific RC corner. When you annotate a SPEF file to an RC corner by name, Tempus associates those parasitics with all delay corners and analysis views that use that RC corner, ensuring accurate timing calculations per PVT condition.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. You enable <code>set_db timing_analysis_type ocv</code> and <code>set_db timing_analysis_cppr both</code>. What would happen to hold timing results if you set CPPR to <code>none</code> instead?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">Hold violations would disappear because CPPR only affects setup analysis.</li>
+                        <li onclick="checkAnswer(this, false)">There would be no difference because OCV mode does not interact with CPPR.</li>
+                        <li onclick="checkAnswer(this, true)">Hold timing would become pessimistic because common clock path reconvergence would not be removed, reporting artificial hold violations that do not exist in silicon.</li>
+                        <li onclick="checkAnswer(this, false)">Hold timing would become optimistic, hiding real violations.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> CPPR (Common Path Pessimism Removal) eliminates the artificial pessimism that arises in OCV analysis when the same clock path segment is derated differently for launch and capture. Without CPPR, the tool over-reports hold violations that would not occur in actual silicon.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. Your script saves two session databases: <code>tile_session_timing.db</code> and <code>tile_session_noise.db</code>. Why are two separate saves necessary rather than one at the end?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">Tempus can only store one type of analysis per database file due to file format limitations.</li>
+                        <li onclick="checkAnswer(this, true)">The first save captures the timing state after <code>update_timing</code> and before noise analysis modifies the timing graph. The second save captures the state after <code>update_glitch</code> with SI noise data included. This lets you reload either the pure timing or the noise-annotated session independently.</li>
+                        <li onclick="checkAnswer(this, false)">The second save overwrites the first, so only the noise database actually persists.</li>
+                        <li onclick="checkAnswer(this, false)">Two databases are needed because setup and hold analyses cannot coexist in the same file.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> Saving before and after noise analysis preserves two distinct analysis states. The timing-only database can be reloaded for timing ECO work without noise effects, while the noise database includes glitch and crosstalk data needed for SI signoff. This is standard practice in signoff STA flows.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Summary -->
+        <div class="content-box">
+            <h2 class="section-title">&#128640; Summary</h2>
+            <div class="section-content">
+                <p>
+                    In this independent exercise, you demonstrated the ability to write a complete Tempus signoff STA script from scratch. You had to understand the full flow: MMMC setup, physical data loading, design initialization, OCV and SI configuration, parasitic annotation, clock propagation, timing analysis, and noise analysis.
+                </p>
+
+                <p>
+                    Writing STA scripts from scratch is a critical skill for signoff engineers. In real projects, you will often need to customize the STA flow for different design blocks, add new analysis views, or integrate ECO loops &mdash; all of which require a deep understanding of each step in the Tempus flow.
+                </p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../TC-STA-CDN-STA-GD-001/TC-STA-CDN-STA-GD-001.html" class="btn btn-back">&larr; Back to Testcase 1</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../STA-CDN-STA.html" class="btn btn-secondary">Back to Lab Home &rarr;</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const LAB_ID = '28';
+        const TESTCASE_NUM = '2';
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        // Copy code functionality
+        function copyCode(button) {
+            const codeBlock = button.parentElement.querySelector('code');
+            const text = codeBlock.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2000);
+            });
+        }
+
+        function checkAnswer(option, isCorrect) {
+            const parent = option.parentElement;
+            const questionContainer = parent.parentElement;
+            const feedback = questionContainer.querySelector('.feedback');
+            const answer = questionContainer.querySelector('.answer');
+
+            if (isCorrect) {
+                const options = parent.querySelectorAll('li');
+                options.forEach(opt => opt.style.pointerEvents = 'none');
+
+                option.classList.add('correct-answer');
+                feedback.textContent = "Correct!";
+                feedback.className = "feedback correct";
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+            } else {
+                option.style.pointerEvents = 'none';
+
+                option.classList.add('wrong-answer');
+                feedback.textContent = "Incorrect. Try again.";
+                feedback.className = "feedback incorrect";
+                feedback.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

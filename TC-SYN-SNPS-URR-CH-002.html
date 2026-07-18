@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testcase 3: Challenge Assignment &mdash; Synthesis and Linking Lab</title>
+    <link rel="stylesheet" href="../common/styles.css">
+</head>
+<body>
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Testcase 3: Tile Design with Hierarchical Dependencies (Challenge)</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#127968; <a href="../SYN-SNPS-URR.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 3</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128203; Type: Challenge Assignment</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201;&#65039; Estimated Time: 120-180 minutes</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#11088;&#11088;&#11088; Difficulty: Hard</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Problem Statement -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Advanced Challenge Problem</h2>
+                <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+            </div>
+
+            <div class="section-content">
+                <p>You are tasked with synthesizing a Tile design. The initial synthesis attempt reveals numerous unresolved references.</p>
+
+                <p style="margin-top: 20px;"><strong>Your Challenge:</strong> Fix all linking issues and achieve successful synthesis of the complete tile design with zero warnings.</p>
+            </div>
+
+            <div class="warning-card" style="margin-top: 20px;">
+                <strong>&#9888;&#65039; Complexity Warning:</strong> This testcase is significantly more complex than the previous ones. You may need to iterate multiple times, fixing issues layer by layer as deeper dependencies are revealed.
+            </div>
+        </div>
+
+        <!-- Requirements -->
+        <div class="content-box">
+            <h2 class="section-title">&#128203; Requirements &amp; Deliverables</h2>
+
+            <div class="section">
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">Resolve Linking &amp; Environment Dependencies</h3>
+
+                <ul style="margin-left: 30px; line-height: 2;">
+                    <li>Locate all missing source files causing LINK-5 warnings.</li>
+                    <li>Ensure that the link_library variable in your synthesis script correctly references the required memory macro and standard cell databases (.db files).</li>
+                    <li>Update the synthesis script to include all necessary files.</li>
+                    <li>Ensure the design links successfully with zero LINK-5 warnings and no unresolved reference errors.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Recommended Workflow -->
+        <div class="content-box">
+            <h2 class="section-title">&#128295; Recommended Workflow</h2>
+
+            <div class="section-content">
+                <p>Navigate to the testcase directory to begin working on Testcase 3.</p>
+
+                <pre class="code-block">cd ~/pd/labs/SYN-SNPS-URR/TC-SYN-SNPS-URR-CH-002/
+make all</pre>
+            </div>
+        </div>
+
+        <!-- Success Criteria -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Success Criteria</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Target</th>
+                        <th>How to Verify</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Linking Status</td>
+                        <td>0 LINK warnings</td>
+                        <td>Check synthesis log for "Elaboration completed"</td>
+                    </tr>
+                    <tr>
+                        <td>Library Check</td>
+                        <td>All Macros Resolved</td>
+                        <td>link_library must contain all .db files</td>
+                    </tr>
+                    <tr>
+                        <td>UID-341 Warning</td>
+                        <td>Resolved</td>
+                        <td>No UID-341 warnings in synthesis log</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Validation Instructions -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After completing your fixes and running the synthesis flow, use the automated verification command to validate your results.</p>
+
+                <pre class="code-block">make verify</pre>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. How many RTL source files were missing and needed to be added to the filelist?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">3 files</li>
+                        <li onclick="checkAnswer(this, true)">6 files</li>
+                        <li onclick="checkAnswer(this, false)">9 files</li>
+                        <li onclick="checkAnswer(this, false)">10 files</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> There were 6 RTL source files missing that caused LINK-5 warnings.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. How many macro library databases (.db files) were missing from the link path?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">1 macro library</li>
+                        <li onclick="checkAnswer(this, true)">3 macro libraries</li>
+                        <li onclick="checkAnswer(this, false)">6 macro libraries</li>
+                        <li onclick="checkAnswer(this, false)">7 macro libraries</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The design required 3 additional macro libraries to be resolved successfully in the synthesis environment.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. Which synthesis variable must be updated to include these missing macro libraries?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">search_path</li>
+                        <li onclick="checkAnswer(this, true)">link_library &amp; target_library</li>
+                        <li onclick="checkAnswer(this, false)">synthetic_library</li>
+                        <li onclick="checkAnswer(this, false)">rtl_files</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The link_library variable is used by Design Compiler to resolve standard cells and memory macros during the linking phase.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. In a complex hierarchical design like this Tile, why might you need to iterate multiple times to fix all references?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">The tool limits you to fixing one error per run.</li>
+                        <li onclick="checkAnswer(this, true)">Fixing top-level missing files can reveal deeper missing sub-module dependencies that weren't visible initially.</li>
+                        <li onclick="checkAnswer(this, false)">The synthesis script randomly deletes paths during execution.</li>
+                        <li onclick="checkAnswer(this, false)">You need to reboot the server between each library update.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Hierarchical designs hide deeper dependencies until the parent modules are successfully parsed and elaborated. You often have to peel back the design layer by layer!</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#127881; Lab Complete!</h2>
+            <div class="section-content">
+                <p>Great job completing the quiz and the advanced challenge for <strong>Testcase 3</strong>!</p>
+
+                <p>In this final independent exercise, you successfully tackled a complex Tile design with deep hierarchical dependencies.</p>
+
+                <p>&#128640; You have now mastered the critical linking phase of synthesis in Design Compiler. You are ready to apply these debugging skills to real-world Physical Design projects.</p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../TC-SYN-SNPS-URR-CH-001/TC-SYN-SNPS-URR-CH-001.html" class="btn btn-back">&#8592; Back to Testcase 2</a>
+                <a href="../SYN-SNPS-URR.html" class="btn btn-success">Return to Lab Home</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="../common/interactive.js"></script>
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        function checkAnswer(option, isCorrect) {
+            const parent = option.parentElement;
+            const questionContainer = parent.parentElement;
+            const feedback = questionContainer.querySelector('.feedback');
+            const answer = questionContainer.querySelector('.answer');
+
+            if (isCorrect) {
+                const options = parent.querySelectorAll('li');
+                options.forEach(opt => opt.style.pointerEvents = 'none');
+
+                option.classList.add('correct-answer');
+                feedback.textContent = "\u2705 Correct!";
+                feedback.className = "feedback correct";
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+            } else {
+                option.style.pointerEvents = 'none';
+                option.classList.add('wrong-answer');
+                feedback.textContent = "\u274C Incorrect. Try again.";
+                feedback.className = "feedback incorrect";
+                feedback.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

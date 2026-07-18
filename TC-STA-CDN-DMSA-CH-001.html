@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challenge: DMSA Based ECO Generation with Tempus — tile — STA-CDN-DMSA</title>
+    <link rel="stylesheet" href="../common/styles.css">
+</head>
+<body>
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Challenge: DMSA Based ECO Generation with Tempus &mdash; tile</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>📍 <a href="../STA-CDN-DMSA.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 2</span>
+                </div>
+                <div class="meta-item">
+                    <span>🎯 Type: Independent Challenge</span>
+                </div>
+                <div class="meta-item">
+                    <span>⏱️ Estimated Time: 60-90 minutes</span>
+                </div>
+                <div class="meta-item">
+                    <span>⭐⭐ Difficulty: Medium</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Challenge Problem -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Challenge Problem</h2>
+                <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+            </div>
+            <div class="section-content">
+                <p>You have completed lab-28 (Signoff STA with Tempus) and generated a timing database (<code>tile_session_timing.db</code>) for the tile design. A <code>path_group.tcl</code> script is provided in the <code>scripts/</code> directory that defines path groups (r2r, r2o, i2o, i2r, m2r, r2m) and sets the <code>$selected_groups</code> variable. Your task is to write a complete Tempus DMSA ECO optimization script from scratch.</p>
+
+                <div class="info-card" style="margin-top: 15px; border-left: 4px solid #667eea; background-color: #f1f4ff;">
+                    <strong>Remember:</strong> Your script starts by loading the timing database from Lab 28 using
+                    <code>read_db ../inputs/tile_session_timing.db</code>. This single command restores the complete
+                    timing environment &mdash; all libraries, parasitics, clocks, constraints, and computed timing
+                    data across every PVT corner. No additional input file reading is needed after this step.
+                </div>
+
+                <p style="margin-top: 20px;"><strong>Your Challenge:</strong> Create <code>scripts/tempus_dmsa.tcl</code> that reads the timing database, sources the path groups, performs setup/hold/DRV optimization in the correct sequence, generates final timing summary reports, and writes out the ECO script for back-annotation into the physical design. You must produce all required output files without referring to the guided solution from Testcase 1.</p>
+            </div>
+        </div>
+
+        <!-- Available Inputs -->
+        <div class="content-box">
+            <h2 class="section-title">📁 Available Inputs</h2>
+            <div class="section-content">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Location</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>tile_session_timing.db</code></td>
+                            <td><code>inputs/</code></td>
+                            <td>Timing database from lab-28 (auto-linked by <code>make check-env</code>)</td>
+                        </tr>
+                        <tr>
+                            <td><code>path_group.tcl</code></td>
+                            <td><code>scripts/</code></td>
+                            <td>Defines path groups and sets <code>$selected_groups</code> variable</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Requirements & Deliverables -->
+        <div class="content-box">
+            <h2 class="section-title">📋 Requirements &amp; Deliverables</h2>
+            <div class="section">
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">Script and Output Requirements</h3>
+                <ul style="margin-left: 30px; line-height: 2;">
+                    <li>Create a complete Tempus DMSA ECO script at <code>scripts/tempus_dmsa.tcl</code></li>
+                    <li>Generate <code>SETUP_eco.db</code> in <code>outputs/</code> after setup optimization</li>
+                    <li>Generate <code>HOLD_eco.db</code> in <code>outputs/</code> after hold optimization</li>
+                    <li>Generate <code>DRV_eco.db</code> in <code>outputs/</code> after DRV optimization</li>
+                    <li>Generate <code>eco.tcl</code> in <code>outputs/</code> (Innovus-format ECO script)</li>
+                    <li>Generate <code>setup.final_summary.rpt</code> in <code>reports/</code></li>
+                    <li>Generate <code>hold.final_summary.rpt</code> in <code>reports/</code></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Recommended Workflow -->
+        <div class="content-box">
+            <h2 class="section-title">🔄 Recommended Workflow</h2>
+            <div class="section-content">
+                <p>Navigate to the testcase directory and verify the environment is ready:</p>
+                <div class="code-container"><pre class="code-block">cd ~/pd/labs/lab-29-signoff-eco-tempus-dmsa/testcase2
+make check-env</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 15px;">Review the provided path group script to understand the available variables:</p>
+                <div class="code-container"><pre class="code-block">cat scripts/path_group.tcl</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 15px;">Create your DMSA ECO script. Your script needs to handle: CPU configuration, reading the timing DB, sourcing path groups, running three optimization phases, generating reports, and writing the ECO output.</p>
+                <div class="code-container"><pre class="code-block">vi scripts/tempus_dmsa.tcl</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 15px;">Run the flow and verify:</p>
+                <div class="code-container"><pre class="code-block">make run
+make verify</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Hints -->
+        <div class="content-box">
+            <h2 class="section-title">💡 Hints</h2>
+            <details style="margin-bottom: 15px;">
+                <summary style="cursor: pointer; font-weight: bold; color: #667eea;">Hint 1 — Optimization Sequence</summary>
+                <p style="margin-top: 10px; padding-left: 15px;">The order of optimization phases matters significantly. Setup optimization must run first because it establishes the baseline timing. Hold optimization comes next since hold fixes must not violate setup constraints. DRV optimization runs last to clean up any remaining design rule violations. Each phase uses <code>opt_signoff</code> with the appropriate flag (<code>-setup</code>, <code>-hold</code>, or <code>-drv</code>) and should include <code>-update_timing</code> to refresh the timing graph after each pass.</p>
+            </details>
+            <details style="margin-bottom: 15px;">
+                <summary style="cursor: pointer; font-weight: bold; color: #667eea;">Hint 2 — Path Group Configuration</summary>
+                <p style="margin-top: 10px; padding-left: 15px;">After sourcing <code>path_group.tcl</code>, the variable <code>$selected_groups</code> contains the list of all defined path groups. Use <code>set_db opt_signoff_include_setup_path_groups</code> and <code>set_db opt_signoff_include_hold_path_groups</code> to tell the optimizer which path groups to target. Before each optimization phase, configure <code>opt_signoff_eco_file_prefix</code> and <code>opt_signoff_write_eco_opt_db</code> to control where intermediate ECO files and databases are written.</p>
+            </details>
+        </div>
+
+        <!-- Success Criteria -->
+        <div class="content-box">
+            <h2 class="section-title">✅ Success Criteria</h2>
+            <div class="validation-box">
+                <h4>All checks must pass for successful completion:</h4>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li><code>outputs/SETUP_eco.db</code> exists after setup optimization</li>
+                    <li><code>outputs/HOLD_eco.db</code> exists after hold optimization</li>
+                    <li><code>outputs/DRV_eco.db</code> exists after DRV optimization</li>
+                    <li><code>outputs/eco.tcl</code> exists (Innovus-format ECO commands)</li>
+                    <li><code>reports/setup.final_summary.rpt</code> exists with timing summary</li>
+                    <li><code>reports/hold.final_summary.rpt</code> exists with timing summary</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Validation & Verification -->
+        <div class="content-box">
+            <h2 class="section-title">🧪 Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After your script completes successfully, run the automated verification to check all required outputs and post your result to the dashboard:</p>
+                <div class="code-container"><pre class="code-block">make verify</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Knowledge Assessment Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">🧠 Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. Why must setup optimization be performed before hold optimization in a DMSA ECO flow?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">A. Setup optimization runs faster and should always go first for efficiency.</li>
+                        <li onclick="checkAnswer(this, false)">B. Hold optimization requires the SETUP_eco.db file as direct input.</li>
+                        <li onclick="checkAnswer(this, true)">C. Hold fixes (buffer insertions) can degrade setup timing, so setup must be closed first to establish a stable baseline before hold corrections are applied.</li>
+                        <li onclick="checkAnswer(this, false)">D. The Tempus tool enforces this order and will error out if hold is run first.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> Setup optimization establishes the timing baseline. Hold fixes typically insert buffers or delay cells that add delay on paths, which can worsen setup slack. By closing setup first, the optimizer ensures that subsequent hold fixes do not create new setup violations.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. What is the purpose of the <code>-update_timing</code> flag in the <code>opt_signoff</code> command?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">A. It forces the tool to rewrite the timing database to disk after optimization.</li>
+                        <li onclick="checkAnswer(this, true)">B. It incrementally updates the timing graph after ECO changes so subsequent optimization phases work with accurate timing data.</li>
+                        <li onclick="checkAnswer(this, false)">C. It updates the SDC constraints file with the latest clock definitions.</li>
+                        <li onclick="checkAnswer(this, false)">D. It triggers a full timing signoff analysis and generates a timing report automatically.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> The <code>-update_timing</code> flag ensures the in-memory timing graph is refreshed after each optimization pass. Without it, subsequent phases would optimize based on stale timing data, potentially making incorrect or suboptimal ECO decisions.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. What does <code>set_db opt_signoff_allow_multiple_incremental true</code> enable in the DMSA ECO flow?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">A. It allows multiple Tempus instances to run in parallel on different corners.</li>
+                        <li onclick="checkAnswer(this, false)">B. It permits the tool to read multiple timing databases simultaneously.</li>
+                        <li onclick="checkAnswer(this, false)">C. It enables the tool to generate multiple ECO scripts for different PVT corners.</li>
+                        <li onclick="checkAnswer(this, true)">D. It allows running multiple successive incremental optimization passes (setup, hold, DRV) within the same session without resetting the ECO state.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> By default, Tempus may restrict incremental optimization to a single pass. Setting this attribute to true allows the flow to chain setup, hold, and DRV optimizations sequentially in one session, with each pass building on the ECO changes from the previous one.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. Why is the ECO output written in Innovus format using <code>write_eco -format innovus</code>?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">A. Innovus format is the only format Tempus supports for ECO export.</li>
+                        <li onclick="checkAnswer(this, false)">B. Innovus format produces smaller file sizes compared to other ECO formats.</li>
+                        <li onclick="checkAnswer(this, true)">C. The ECO changes must be applied back in the physical implementation tool (Innovus) to update the placed-and-routed design with the timing fixes.</li>
+                        <li onclick="checkAnswer(this, false)">D. Innovus format includes detailed timing reports alongside the ECO commands.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> Tempus performs timing analysis and determines what logic changes (cell swaps, buffer insertions) are needed, but the physical implementation of those changes happens in Innovus. The ECO script in Innovus format contains commands that Innovus can directly execute to modify the placed-and-routed netlist.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Next Step -->
+        <div class="content-box">
+            <h2 class="section-title">🚀 Next Step</h2>
+            <div class="section-content">
+                <p>By completing this independent challenge, you have demonstrated the ability to author a Tempus DMSA ECO script from scratch, understanding the correct optimization sequence, path group configuration, and output generation required for a complete signoff ECO flow.</p>
+                <p style="margin-top: 10px;">Return to the Lab Home page to review the overall lab objectives or revisit Testcase 1 for reference.</p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../TC-STA-CDN-DMSA-GD-001/TC-STA-CDN-DMSA-GD-001.html" class="btn btn-back">← Back to Testcase 1</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete</button>
+                <a href="../STA-CDN-DMSA.html" class="btn btn-secondary">Back to Lab Home</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        var LAB_ID       = '29';
+        var TESTCASE_NUM = '2';
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        function checkAnswer(option, isCorrect) {
+            const parent    = option.parentElement;
+            const container = parent.parentElement;
+            const feedback  = container.querySelector('.feedback');
+            const answer    = container.querySelector('.answer');
+
+            if (isCorrect) {
+                const options = parent.querySelectorAll('li');
+                options.forEach(opt => opt.style.pointerEvents = 'none');
+
+                option.classList.add('correct-answer');
+                feedback.textContent = 'Correct!';
+                feedback.className   = 'feedback correct';
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+            } else {
+                option.style.pointerEvents = 'none';
+
+                option.classList.add('wrong-answer');
+                feedback.textContent = 'Incorrect. Try again.';
+                feedback.className   = 'feedback incorrect';
+                feedback.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

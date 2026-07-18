@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guided: Physical-Aware Synthesis with DC — tile — SYN-SNPS-PS</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        .step-list li ul li { counter-increment: none; border-left: none; background: transparent; padding: 4px 0; margin: 4px 0; }
+        .step-list li ul li::before { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Guided: Physical-Aware Synthesis with DC &mdash; tile</h1>
+            <div class="lab-meta">
+                <div class="meta-item"><span>&#128205; <a href="../SYN-SNPS-PS.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 1</span></div>
+                <div class="meta-item"><span>&#127919; Type: Guided Exercise</span></div>
+                <div class="meta-item"><span>&#9201; Estimated Time: 90&ndash;120 minutes</span></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Problem Statement</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                <p>
+                    You have a physical-aware synthesis script at
+                    <code>scripts/dc_syn_physical_ndm.tcl</code> for the <strong>tile</strong> design.
+                    Walk through every command below, understand what it does and why, then run the
+                    script and verify the outputs.
+                </p>
+            </div>
+        </div>
+
+        <!-- Steps -->
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Step-by-Step: Understanding the Script</h2>
+
+            <ul class="step-list">
+
+                <!-- Step 1 -->
+                <li>
+                    <h3>Navigate and Launch</h3>
+                    <div class="code-container"><pre class="code-block">cd ~/pd/labs/lab-31-physical-aware-synthesis-dc/testcase1
+make run</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">This launches DC NXT in topographical mode. Open <code>scripts/dc_syn_physical_ndm.tcl</code> in a separate editor and follow along.</p>
+                </li>
+
+                <!-- Step 2 -->
+                <li>
+                    <h3>Initialize Design Library and Design Name</h3>
+                    <div class="code-container"><pre class="code-block">define_design_lib work -path ./WORK
+set design_name tile</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>define_design_lib work -path ./WORK</code> &mdash; sets the working library directory for intermediate compiled data.</li>
+                        <li><code>set design_name tile</code> &mdash; stores the top-level module name in a variable for reuse throughout the script.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 3 -->
+                <li>
+                    <h3>Set Library Search Paths</h3>
+                    <div class="code-container"><pre class="code-block">set search_path [list . \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lib/ccs \
+  /proj1/proj_pd/tile/piton_mv/piton_rtl/design/include \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_1rw_128x78/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_data/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_hmt/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_tag/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1d_data_128x144/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1d_tag/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1i_data_256x136/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1i_tag/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_data/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_dir/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_state/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_tag/lib ]</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">Tells DC where to find <code>.db</code> files. Includes CCS timing library directories for all three Vt flavors (SVT, LVT, HVT), the RTL include-header path, and all 14 SRAM macro timing model directories.</p>
+                </li>
+
+                <!-- Step 4 -->
+                <li>
+                    <h3>Set Target and Link Libraries</h3>
+                    <div class="code-container"><pre class="code-block">set target_library [list \
+  tcbn28hpcplusbwp40p140lvtssg0p81vm40c_ccs.db \
+  tcbn28hpcplusbwp40p140ssg0p81vm40c_ccs.db \
+  tcbn28hpcplusbwp40p140hvtssg0p81vm40c_ccs.db]
+
+set link_library [list * \
+  tcbn28hpcplusbwp40p140ssg0p81vm40c_ccs.db \
+  tcbn28hpcplusbwp40p140hvtssg0p81vm40c_ccs.db \
+  tcbn28hpcplusbwp40p140lvtssg0p81vm40c_ccs.db \
+  sram_1rw_128x78_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l15_data_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l15_hmt_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l15_tag_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l1d_data_128x144_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l1d_tag_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l1i_data_256x136_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l1i_tag_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l2_data_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l2_dir_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l2_state_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l2_tag_ssg_cworstt_0p81v_0p81v_m40c.db]</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>target_library</code> &mdash; standard cells DC can pick during technology mapping (LVT, SVT, HVT at SSG 0.81V &minus;40&deg;C).</li>
+                        <li><code>link_library</code> &mdash; everything in target_library plus all 14 SRAM macro timing models. The leading <code>*</code> includes cells already in memory. SRAM macros are hard IP &mdash; they go in link_library only because DC cannot synthesize logic inside them.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 5 -->
+                <li>
+                    <h3>Create the NDM Physical Library</h3>
+                    <p>This is the first step unique to physical synthesis. It creates the physical database DC uses during SPG compilation:</p>
+                    <div class="code-container"><pre class="code-block">create_lib \
+  -technology /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/metal_stack/1P9M_4X2Y2R/tf/tsmcn28_9lm4X2Y2RUTRDL.tf \
+  -ref_libs { \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_1rw_128x78/ndm/sram_1rw_128x78.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_data/ndm/sram_l15_data.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_hmt/ndm/sram_l15_hmt.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_tag/ndm/sram_l15_tag.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1d_data_128x144/ndm/sram_l1d_data_128x144.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1d_tag/ndm/sram_l1d_tag.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1i_data_256x136/ndm/sram_l1i_data_256x136.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1i_tag/ndm/sram_l1i_tag.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_data/ndm/sram_l2_data.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_dir/ndm/sram_l2_dir.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_state/ndm/sram_l2_state.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_tag/ndm/sram_l2_tag.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/ndm/tcbn28hpcplusbwp40p140hvt.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/ndm/tcbn28hpcplusbwp40p140lvt.ndm \
+    /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/ndm/tcbn28hpcplusbwp40p140.ndm \
+  } $design_name.ndm</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>-technology</code> &mdash; the TSMC 28nm technology file defining the 9-layer metal stack, via rules, and design rules.</li>
+                        <li><code>-ref_libs</code> &mdash; NDM reference libraries for all SRAM macros and all three standard cell Vt flavors (HVT, LVT, SVT). Each NDM contains cell dimensions, pin locations, and obstruction layers.</li>
+                        <li><code>$design_name.ndm</code> &mdash; the output NDM database DC creates and updates during synthesis.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 6 -->
+                <li>
+                    <h3>Check Library and Load TLU+ Parasitic Models</h3>
+                    <div class="code-container"><pre class="code-block">check_library
+
+set_tlu_plus_files \
+  -max_tluplus /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/metal_stack/1P9M_4X2Y2R/tluplus/cln28hpc+_1p09m+ut-alrdl_4x2y2r_cworst_T.tluplus</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>check_library</code> &mdash; verifies that all libraries loaded correctly and no cells are missing from the NDM or timing databases.</li>
+                        <li><code>set_tlu_plus_files -max_tluplus</code> &mdash; loads the worst-case RC extraction table (cworst corner). This replaces wire-load models with real parasitic data from the foundry process, enabling accurate wire delay estimation during SPG.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 7 -->
+                <li>
+                    <h3>Set SVF Path</h3>
+                    <div class="code-container"><pre class="code-block">set_svf ./$design_name.synthesis.svf</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">Records all design transformations (cell swaps, logic restructuring) to a Setup Verification File. Formality reads this SVF downstream for Logic Equivalence Checking (LEC) to prove the netlist is functionally identical to the RTL.</p>
+                </li>
+
+                <!-- Step 8 -->
+                <li>
+                    <h3>Set Compile Variables</h3>
+                    <div class="code-container"><pre class="code-block">set compile_filter_prune_seq_cells false
+set_app_var compile_seqmap_propagate_constants true
+set_app_var hdlin_check_no_latch true
+set_app_var hdlin_vrlg_std 2001
+
+set hdlin_autoread_verilog_extensions {.v}
+set hdlin_autoread_systemverilog_extensions {.sv}
+set hdlin_autoread_vhdl_extensions {.vhdl}</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>compile_seqmap_propagate_constants true</code> &mdash; optimizes away registers whose outputs are always constant.</li>
+                        <li><code>hdlin_check_no_latch true</code> &mdash; warns if the RTL infers unintended latches.</li>
+                        <li>The autoread extensions define which file suffixes DC recognizes when reading from directories.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 9 -->
+                <li>
+                    <h3>Read RTL, Elaborate, Link, and Check Design</h3>
+                    <div class="code-container"><pre class="code-block">source ../inputs/Filelist.tcl
+analyze -format {verilog} $RTL_SOURCE_FILES
+
+elaborate $design_name
+
+current_design $design_name
+link
+
+check_design -no_warnings
+check_design -multiple_designs > ../reports/initial.check_design</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>source ../inputs/Filelist.tcl</code> &mdash; loads the filelist which sets <code>$RTL_SOURCE_FILES</code> to all Verilog source paths.</li>
+                        <li><code>analyze</code> &mdash; parses every Verilog file. Syntax errors are caught here.</li>
+                        <li>
+                            <code>elaborate $design_name</code> &mdash; builds the complete design hierarchy
+                            starting from the top module <code>tile</code>. DC connects all sub-modules
+                            together and resolves parameters. If any instantiated module is missing, you will
+                            see an unresolved reference error here. Once elaborate succeeds, the full design
+                            is ready for constraints and compilation.
+                        </li>
+                        <li><code>current_design</code> + <code>link</code> &mdash; sets the active design context to <code>tile</code> and binds all cell references in the netlist to their timing models in the loaded libraries. Any unlinked cell will cause incorrect timing analysis.</li>
+                        <li><code>check_design</code> &mdash; runs structural sanity checks (unconnected ports, multi-driven nets, combinational loops) before constraints are applied. The report is saved for comparison with the post-compile check.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 10 -->
+                <li>
+                    <h3>Restrict Cell Usage</h3>
+                    <div class="code-container"><pre class="code-block">set dont_use_cell_list [get_lib_cells { */*LVT */*D0* */CK* */*D18* */*D20* */*D24*}]
+set_dont_use [get_lib_cells $dont_use_cell_list]
+set_attribute [get_lib_cells */*CKLNQD8BWP40P140LVT*] dont_use false</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li>The glob pattern blocks LVT cells (high leakage), strength-0 drive cells, clock buffer/inverter cells, and oversized drive-strength cells.</li>
+                        <li><code>set_attribute ... dont_use false</code> &mdash; selectively re-enables the <code>CKLNQD8BWP40P140LVT</code> integrated clock gate cell so it can be used for ICG insertion during compilation.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 11 -->
+                <li>
+                    <h3>Configure Clock Gating (ICG Insertion)</h3>
+                    <p>
+                        In a digital design, the clock network is the biggest source of dynamic power &mdash;
+                        it toggles every cycle even when registers are not changing value. An
+                        <strong>Integrated Clock Gate (ICG)</strong> cell sits between the clock source and a
+                        group of registers. When those registers are idle, the ICG shuts off their clock,
+                        eliminating wasted switching power. This typically saves 20&ndash;40% of total clock power.
+                    </p>
+                    <div class="code-container"><pre class="code-block">set_app_var compile_clock_gating_through_hierarchy true
+set timing_separate_clock_gating_group TRUE
+
+set_clock_gating_style \
+    -sequential_cell latch \
+    -max_fanout 64 \
+    -minimum_bitwidth 4 \
+    -positive_edge_logic integrated:CKLNQD8BWP40P140LVT \
+    -control_point before \
+    -control_signal scan_enable \
+    -num_stages 3
+
+identify_clock_gating
+
+set_app_var compile_delete_unloaded_sequential_cells true</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li>Clock gating is allowed across hierarchical boundaries so sub-module registers can also be gated.</li>
+                        <li>The ICG cell used is <code>CKLNQD8BWP40P140LVT</code> (the LVT cell we re-enabled in the previous step). Each ICG can gate up to 64 registers, and a register bank must be at least 4 bits wide to qualify.</li>
+                        <li><code>identify_clock_gating</code> scans the elaborated design and marks all eligible register groups for ICG insertion during compilation.</li>
+                        <li>Unloaded flip-flops (outputs driving nothing) are automatically removed to save power.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 12 - SDC with motivation -->
+                <li>
+                    <h3>Apply Timing Constraints (SDC)</h3>
+                    <div class="code-container"><pre class="code-block">source ../inputs/tile.sdc</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">
+                        This loads the complete timing constraints &mdash; clock definitions, input/output delays,
+                        false paths, and multi-cycle paths. The SDC is the backbone of timing closure: without
+                        correct constraints, every report from this point on is meaningless.
+                    </p>
+                    <div class="info-card" style="margin-top: 12px; border-left: 4px solid #ff9800; background-color: #fff8f0;">
+                        <strong>&#127775; Want to truly own this step?</strong> If you have not yet completed the
+                        <strong>Check Timing lab (Lab 03)</strong>, now is the perfect time. That lab teaches you
+                        how to debug every warning that appears when you run <code>check_timing</code> right after
+                        sourcing the SDC &mdash; missing clocks, unconstrained endpoints, missing input/output
+                        delays. Engineers who master check_timing can confidently write SDCs from scratch and
+                        catch constraint bugs before they waste hours on a bad synthesis run. Complete it and
+                        come back here &mdash; you will understand this step at a much deeper level.
+                    </div>
+                </li>
+
+                <!-- Step 13 -->
+                <li>
+                    <h3>Set Routing Layers and Extract Floorplan</h3>
+                    <div class="code-container"><pre class="code-block">set_preferred_routing_direction -layers {M1 M3 M5 M7 M9} -direction horizontal
+set_preferred_routing_direction -layers {M2 M4 M6 M8} -direction vertical
+set_ignored_layers -min_routing_layer M1 -max_routing_layer M7
+report_ignored_layers
+
+extract_physical_constraints ../inputs/new_fp.def.gz</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>set_preferred_routing_direction</code> &mdash; odd metals horizontal, even metals vertical. Guides wire-length estimation during SPG.</li>
+                        <li><code>set_ignored_layers</code> &mdash; restricts signal routing to M1&ndash;M7. Upper metals (M8&ndash;M9) are reserved for power distribution.</li>
+                        <li><code>extract_physical_constraints ../inputs/new_fp.def.gz</code> &mdash; <strong>the key step that makes synthesis physically aware</strong>. DC reads the compressed floorplan DEF and loads die boundary, core area, placement blockages, and pre-placed macro positions. After this, DC can estimate real wire lengths based on the physical layout.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 14 -->
+                <li>
+                    <h3>Pre-Compile Timing Check and Path Grouping</h3>
+                    <div class="code-container"><pre class="code-block">check_timing > ../reports/check_timing_bf_compile.rpt
+
+group_path -from [all_registers -clock_pins] -to [all_registers -data_pins] -name r2r
+group_path -from [all_registers -clock_pins] -to [all_outputs]              -name r2o
+group_path -from [all_inputs]                -to [all_outputs]              -name i2o
+group_path -from [all_inputs]                -to [all_registers -data_pins] -name i2r
+group_path -from [get_pins -hierarchical *CLK*] -to [all_registers -data_pins] -name m2r
+group_path -from [all_registers -clock_pins] -to [get_pins -of [all_macro_cells]] -name r2m</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>check_timing</code> &mdash; verifies all clock domains are constrained and no endpoints are missing timing intent. Always run this before compilation to catch SDC issues early.</li>
+                        <li><code>group_path</code> &mdash; partitions all timing paths into named groups so DC optimizes and reports each category separately:
+                            <ul style="margin-left: 20px; margin-top: 4px; list-style-type: circle;">
+                                <li><strong>r2r</strong> &mdash; register to register (most common and usually most critical)</li>
+                                <li><strong>r2o</strong> &mdash; register to output port</li>
+                                <li><strong>i2o</strong> &mdash; input to output (pure combinational)</li>
+                                <li><strong>i2r</strong> &mdash; input to register</li>
+                                <li><strong>m2r</strong> &mdash; SRAM macro clock pin to register (memory read paths)</li>
+                                <li><strong>r2m</strong> &mdash; register to SRAM macro (memory write paths)</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <!-- Step 15 -->
+                <li>
+                    <h3>SPG Compilation</h3>
+                    <div class="code-container"><pre class="code-block">compile_ultra -gate_clock -spg</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>-gate_clock</code> &mdash; inserts ICG cells as configured earlier.</li>
+                        <li><code>-spg</code> (Synthesis with Physical Guidance) &mdash; activates placement-aware optimization. DC uses the loaded floorplan and TLU+ parasitic models to estimate real wire delays during cell mapping and logic restructuring.</li>
+                    </ul>
+                    <div class="info-card" style="margin-top: 12px; border-left: 4px solid #FA9600; background-color: #fff8f0;">
+                        <strong>Runtime note:</strong> SPG compilation of the tile design takes several hours.
+                        Monitor progress in the log.
+                    </div>
+                </li>
+
+                <li>
+                    <h3>Uniquify and Apply Naming Rules</h3>
+                    <div class="code-container"><pre class="code-block">set_app_var uniquify_naming_style "$design_name%s_%d"
+uniquify -force
+
+define_name_rules verilog -case_insensitive
+change_names -rules verilog -hierarchy -verbose > ../reports/change_names.rpt</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>uniquify -force</code> &mdash; creates unique copies of modules instantiated more than once so each instance can be independently optimized.</li>
+                        <li><code>change_names -rules verilog</code> &mdash; ensures all names are legal Verilog identifiers and case-insensitive unique, required by downstream simulators and PnR tools.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <h3>Write Outputs</h3>
+                    <div class="code-container"><pre class="code-block">set_app_var verilogout_higher_designs_first true
+set_app_var verilogout_no_tri true
+write -format verilog -hierarchy -output ../outputs/$design_name.v
+write -format ddc -hierarchy -output ../outputs/$design_name.synthesis.ddc
+write_sdc -version 1.7 -nosplit ../outputs/$design_name.synthesis.sdc
+
+set_svf -off</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>write -format verilog</code> &mdash; gate-level netlist (<code>tile.v</code>) for place-and-route handoff.</li>
+                        <li><code>write -format ddc</code> &mdash; DC session checkpoint (<code>tile.synthesis.ddc</code>) that can be reloaded for incremental reporting.</li>
+                        <li><code>write_sdc</code> &mdash; post-synthesis SDC (<code>tile.synthesis.sdc</code>) that includes derived clocks from ICG insertion. Use this file (not the input SDC) for place-and-route.</li>
+                        <li><code>set_svf -off</code> &mdash; stops recording transformations to the SVF file.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <h3>Generate Post-Compile Reports</h3>
+                    <div class="code-container"><pre class="code-block">check_design -multiple_designs   > ../reports/check_design
+check_timing                     > ../reports/check_timing
+
+report_qor                       > ../reports/qor
+report_timing -delay max -max_paths 10 -nosplit \
+  -path full_clock_expanded -nets -transition_time -input_pins \
+                                 > ../reports/timing-max
+report_area -hierarchy -physical -nosplit > ../reports/area
+
+report_constraint -all_violators -nosplit > ../reports/constraint_violators
+report_design                    > ../reports/design_attributes
+
+report_clock_gating -multi_stage -verbose -gated -ungated > ../reports/clock_gating
+report_net_fanout -threshold 32  > ../reports/high_fanout_nets
+report_port -verbose -nosplit    > ../reports/port
+report_hierarchy -nosplit        > ../reports/hierarchy
+report_resources -hierarchy      > ../reports/resources
+report_area -designware          > ../reports/designware
+analyze_datapath                 > ../reports/datapath</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">
+                        Start with <code>qor</code> &mdash; it shows WNS, TNS, and violating path counts per group.
+                        Because SPG uses real wire estimates, QoR numbers should correlate well with post-PnR results.
+                        Check <code>clock_gating</code> to verify ICG insertion counts.
+                    </p>
+                </li>
+
+            </ul>
+        </div>
+
+        <!-- Report Analysis: Before vs After Compile -->
+        <div class="content-box">
+            <h2 class="section-title">&#128202; Understanding the Reports: Before vs After Compile</h2>
+
+            <h3 style="color: #667eea; margin-bottom: 12px;">check_timing Before Compile</h3>
+            <p>
+                Before compilation, the design is still in RTL-elaborated form. The <code>check_timing</code>
+                report at this stage shows many unconstrained endpoints &mdash; latches, control registers,
+                and scheduling state machines that do not have direct clock constraints in the SDC:
+            </p>
+            <div class="code-container"><pre class="code-block">Information: Checking generated_clocks...
+
+Information: Checking loops...
+Warning: timing loops detected. (TIM-209)
+
+Information: Checking no_input_delay...
+
+Information: Checking unconstrained_endpoints...
+
+Warning: The following end-points are not constrained for maximum delay.
+
+End point
+---------------
+g_sparc_core.core/sparc0/ifu/ifu/swl/esl_thr_sched/esl_fsm/rtsm/esl_rtsm_fcl_nextthr_bf_reg[0]/data_in
+g_sparc_core.core/sparc0/ifu/ifu/swl/esl_thr_sched/esl_fsm/rtsm/esl_rtsm_fcl_nextthr_bf_reg[1]/data_in
+g_sparc_core.core/sparc0/ifu/ifu/swl/esl_thr_sched/esl_fsm/state_f_reg[0]/synch_enable
+...
+(60+ unconstrained endpoints including LSU store buffer, FPU pipeline, and multiplier registers)
+
+Information: Checking pulse_clock_cell_type...
+Information: Checking no_driving_cell...
+Information: Checking partial_input_delay...
+1</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            <p style="margin-top: 10px;">
+                This is expected. Many of these endpoints belong to internal control logic (thread scheduling
+                FSMs, store buffer valid bits, FPU pipeline active flags) that are intentionally unconstrained
+                in the SDC because they operate as control state machines outside the main data timing paths.
+                The tool also detects timing loops from the thread scheduler feedback logic and breaks them
+                automatically.
+            </p>
+
+            <h3 style="color: #667eea; margin-bottom: 12px; margin-top: 30px;">check_timing After Compile</h3>
+            <p>
+                After compilation, most of the unconstrained endpoints disappear. DC optimizes away dead
+                logic, merges registers, and resolves the control paths. The post-compile report is
+                dramatically cleaner:
+            </p>
+            <div class="code-container"><pre class="code-block">Information: Checking generated_clocks...
+
+Information: Checking loops...
+
+Information: Checking no_input_delay...
+
+Information: Checking unconstrained_endpoints...
+
+Warning: The following end-points are not constrained for maximum delay.
+
+End point
+---------------
+g_sparc_core_core_sparc0_ifu_ifu_swl_esl_thr_sched_esl_fsm_rtsm_esl_rtsm_fcl_nextthr_bf_reg_0_/D
+g_sparc_core_core_sparc0_ifu_ifu_swl_esl_thr_sched_esl_fsm_rtsm_esl_rtsm_fcl_nextthr_bf_reg_1_/D
+
+Information: Checking pulse_clock_cell_type...
+Information: Checking no_driving_cell...
+Information: Checking partial_input_delay...
+1</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            <p style="margin-top: 10px;">
+                Only <strong>2 endpoints</strong> remain unconstrained. These are the
+                <code>esl_rtsm_fcl_nextthr_bf</code> latches &mdash; they belong to the
+                <strong>round-trip scheduling state machine (RTSM)</strong> inside the OpenPiton thread
+                scheduler. These latches are used as control storage for thread scheduling decisions and
+                intentionally operate outside the main clock timing domain. They are not data-path registers
+                and do not need setup/hold constraints. This is expected and can be safely waived.
+            </p>
+
+            <h3 style="color: #667eea; margin-bottom: 12px; margin-top: 30px;">QoR Report (report_qor)</h3>
+            <p>
+                The complete <code>report_qor</code> output shows timing, cell count, area, and design rule
+                results. Study the full report below:
+            </p>
+            <div class="code-container"><pre class="code-block">****************************************
+Report : qor
+Design : tile
+****************************************
+
+  Timing Path Group '**clock_gating_default**'
+  -----------------------------------
+  Levels of Logic:              10.00
+  Critical Path Length:          0.38
+  Critical Path Slack:          -0.25
+  Critical Path Clk Period:      1.70
+  Total Negative Slack:        -32.60
+  No. of Violating Paths:      284.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'i2o'
+  -----------------------------------
+  Levels of Logic:              15.00
+  Critical Path Length:          0.50
+  Critical Path Slack:          -0.35
+  Critical Path Clk Period:      1.70
+  Total Negative Slack:       -188.62
+  No. of Violating Paths:      767.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'm2r'
+  -----------------------------------
+  Levels of Logic:              26.00
+  Critical Path Length:          1.64
+  Critical Path Slack:          -0.31
+  Critical Path Clk Period:      1.70
+  Total Negative Slack:       -260.79
+  No. of Violating Paths:     1586.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'r2m'
+  -----------------------------------
+  Levels of Logic:              48.00
+  Critical Path Length:          1.61
+  Critical Path Slack:          -0.35
+  Critical Path Clk Period:      1.70
+  Total Negative Slack:       -144.14
+  No. of Violating Paths:      645.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'r2o'
+  -----------------------------------
+  Levels of Logic:              15.00
+  Critical Path Length:          0.52
+  Critical Path Slack:          -0.35
+  Critical Path Clk Period:      1.70
+  Total Negative Slack:       -242.71
+  No. of Violating Paths:      789.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'r2r'
+  -----------------------------------
+  Levels of Logic:              17.00
+  Critical Path Length:          0.83
+  Critical Path Slack:          -0.35
+  Critical Path Clk Period:      1.70
+  Total Negative Slack:      -3124.10
+  No. of Violating Paths:    27940.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+
+  Cell Count
+  -----------------------------------
+  Hierarchical Cell Count:       3099
+  Hierarchical Port Count:      12396
+  Leaf Cell Count:             330494
+  Buf/Inv Cell Count:           40190
+  Buf Cell Count:                7252
+  Inv Cell Count:               32938
+  CT Buf/Inv Cell Count:            8
+  Combinational Cell Count:    226763
+  Sequential Cell Count:       103731
+  Macro Count:                     18
+  -----------------------------------
+
+
+  Area
+  -----------------------------------
+  Combinational Area:   149593.499424
+  Noncombinational Area:
+                        205832.967547
+  Buf/Inv Area:          16711.758012
+  Total Buffer Area:          6828.82
+  Total Inverter Area:        9882.94
+  Macro/Black Box Area: 539183.156250
+  Net Area:                  0.000000
+  -----------------------------------
+  Cell Area:            894609.623221
+  Design Area:          894609.623221
+
+
+  Design Rules
+  -----------------------------------
+  Total Number of Nets:        335821
+  Nets With Violations:           240
+  Max Trans Violations:            75
+  Max Cap Violations:              48
+  Max Fanout Violations:          154
+  -----------------------------------
+
+
+  Design  WNS: 0.35  TNS: 3809.72  Number of Violating Paths: 30763
+
+  Design (Hold)  WNS: 0.00  TNS: 0.00  Number of Violating Paths: 0</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            <p style="margin-top: 10px;">
+                The key number to watch is the <strong>r2r</strong> (register-to-register) critical path slack
+                of &minus;0.35 ns. This means the most critical r2r path misses the 1.70 ns clock period by
+                0.35 ns. At synthesis stage with SPG, this level of violation is acceptable &mdash;
+                place-and-route will further optimize placement and close these paths. The QoR from physical
+                synthesis is much more predictive of final PnR results than logic synthesis would be.
+            </p>
+        </div>
+
+        <!-- Success Criteria -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Success Criteria</h2>
+            <div class="validation-box">
+                <h4>&#9989; All of the following must pass:</h4>
+                <ul style="margin-left: 20px; margin-top: 10px; list-style-type: disc;">
+                    <li><code>outputs/tile.v</code> &mdash; gate-level netlist exists</li>
+                    <li><code>outputs/tile.synthesis.ddc</code> &mdash; design database exists</li>
+                    <li><code>outputs/tile.synthesis.sdc</code> &mdash; post-synthesis SDC exists</li>
+                    <li><strong>QoR check:</strong> r2r critical path slack &ge; &minus;0.35 ns</li>
+                    <li><strong>check_timing:</strong> post-compile report matches the reference (only 2 RTSM latch endpoints expected)</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After the script completes, run:</p>
+                <div class="code-container"><pre class="code-block">make verify</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                <p style="margin-top: 10px;">
+                    This runs a verification script that checks: output files exist, r2r slack meets the
+                    threshold, and the post-compile check_timing report matches the expected reference.
+                </p>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. What does <code>extract_physical_constraints</code> do?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">It writes the netlist into a DEF file for PnR.</li>
+                        <li onclick="checkAnswer(this, true)">It loads the early floorplan DEF into DC so the tool can estimate real wire lengths based on placement geometry during SPG compilation.</li>
+                        <li onclick="checkAnswer(this, false)">It defines the clock constraints from the floorplan file.</li>
+                        <li onclick="checkAnswer(this, false)">It verifies that the DEF matches the netlist.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The floorplan DEF gives DC die boundary, macro positions, and placement context. After this, SPG can estimate actual wire distances instead of using statistical models.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. Why is TLU+ loaded for physical synthesis but not for logic synthesis?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">TLU+ contains standard cell timing arcs.</li>
+                        <li onclick="checkAnswer(this, true)">TLU+ provides RC extraction tables from the foundry process, giving DC accurate wire delay estimates based on routing distance instead of inaccurate wire-load models.</li>
+                        <li onclick="checkAnswer(this, false)">TLU+ is needed to generate the SVF file.</li>
+                        <li onclick="checkAnswer(this, false)">TLU+ defines clock constraints.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Wire-load models are statistical guesses. TLU+ tables model the actual parasitic R and C of each metal layer, enabling DC to compute realistic wire delays during SPG.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. What does the <code>-spg</code> flag add to compilation?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">Scan path generation for DFT.</li>
+                        <li onclick="checkAnswer(this, false)">It disables clock gating.</li>
+                        <li onclick="checkAnswer(this, true)">It activates Synthesis with Physical Guidance &mdash; DC uses the loaded floorplan and TLU+ data to estimate wire delays during cell mapping and optimization.</li>
+                        <li onclick="checkAnswer(this, false)">It writes a placed DEF as output.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> SPG makes DC placement-aware. Without it, DC uses wire-load models even if a floorplan was loaded.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. Why should the post-synthesis SDC be used for PnR instead of the input SDC?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">The input SDC is deleted by DC after synthesis.</li>
+                        <li onclick="checkAnswer(this, true)">Synthesis inserts ICG cells that create new derived clocks not present in the original SDC. The post-synthesis SDC captures these additions.</li>
+                        <li onclick="checkAnswer(this, false)">The post-synthesis SDC is in a compressed format.</li>
+                        <li onclick="checkAnswer(this, false)">DC requires it for the SVF file.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> ICG insertion creates new clock signals. The post-synthesis SDC includes these derived clocks so PnR has the complete timing picture.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../SYN-SNPS-PS.html" class="btn btn-back">&larr; Back to Lab Home</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../TC-SYN-SNPS-PS-CH-001/TC-SYN-SNPS-PS-CH-001.html" class="btn btn-success">Continue to Testcase 2 &rarr;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = '31';
+        const TESTCASE_NUM = '1';
+        function copyCode(btn) {
+            var text = btn.closest('.code-container').querySelector('.code-block').textContent.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    btn.textContent = 'Copied!';
+                    setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+                });
+            } else {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;top:-9999px;opacity:0;';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(ta);
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+            }
+        }
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function () {
+            var p = document.getElementById('scrollProgress');
+            p.style.width = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100 + '%';
+        });
+        function checkAnswer(el, isCorrect) {
+            var q = el.closest('.quiz-question');
+            if (q.querySelector('.correct-answer')) return;
+            q.querySelectorAll('.quiz-options li').forEach(function(o) { o.classList.remove('selected','wrong-answer'); });
+            var fb = q.querySelector('.feedback'), ans = q.querySelector('.answer');
+            if (isCorrect) {
+                el.classList.add('correct-answer');
+                fb.className = 'feedback correct'; fb.textContent = '\u2705 Correct! Well done.';
+                fb.style.display = 'block'; if (ans) ans.style.display = 'block';
+            } else {
+                el.classList.add('wrong-answer');
+                fb.className = 'feedback incorrect'; fb.textContent = '\u274C Incorrect. Try again!';
+                fb.style.display = 'block'; if (ans) ans.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

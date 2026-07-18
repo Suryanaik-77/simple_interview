@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guided: PrimeTime STA — tile — STA-SNPS-STA</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        .step-list li ul li { counter-increment: none; border-left: none; background: transparent; padding: 4px 0; margin: 4px 0; }
+        .step-list li ul li::before { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Guided: PrimeTime STA &mdash; tile</h1>
+            <div class="lab-meta">
+                <div class="meta-item"><span>&#128205; <a href="../STA-SNPS-STA.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 1</span></div>
+                <div class="meta-item"><span>&#127919; Type: Guided Exercise</span></div>
+                <div class="meta-item"><span>&#9201; Estimated Time: 4&ndash;6 hours</span></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <!-- Problem Statement -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Problem Statement</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                <p>
+                    You have 4 PrimeTime STA scripts in <code>scripts/</code>, one for each PVT corner.
+                    Each script loads the post-P&amp;R netlist, annotates a corner-specific SPEF file,
+                    sources the SDC, runs timing analysis, and generates reports.
+                </p>
+                <p style="margin-top: 12px;">
+                    The first corner <strong>SS 0.81V &minus;40&deg;C cworst</strong> is explained command-by-command
+                    below. For the remaining 3 corners, only the SPEF and library inputs that change are shown &mdash;
+                    the rest of the script structure is identical.
+                </p>
+            </div>
+        </div>
+
+        <!-- Session 1: SS 0.81V -40C cworst (FULL EXPLANATION) -->
+        <div class="content-box">
+            <h2 class="section-title">&#9881; Session 1: SS 0.81V &minus;40&deg;C cworst &mdash; Full Walkthrough</h2>
+            <p style="margin-bottom: 10px;">Script: <code>scripts/ss_81v_m40_cworst.sta.tcl</code></p>
+
+            <ul class="step-list">
+
+                <li>
+                    <h3>Navigate to the Testcase Directory</h3>
+                    <div class="code-container"><pre class="code-block">cd ~/pd/labs/lab-27-sta-pt/testcase1</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                </li>
+
+                <li>
+                    <h3>Set Library Search Paths</h3>
+                    <p>Tell PrimeTime where to find the timing library <code>.db</code> files for standard cells (SVT, LVT, HVT) and SRAM macros.</p>
+                    <div class="code-container"><pre class="code-block">set_app_var search_path [list . \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lib/ccs \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/lib/ccs \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/lib/ccs \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_1rw_128x78/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_data/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_hmt/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l15_tag/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1d_data_128x144/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1d_tag/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1i_data_256x136/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l1i_tag/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_data/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_dir/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_state/lib \
+  /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/tile_mems/sram_l2_tag/lib]</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">
+                        The <code>search_path</code> lists directories where PrimeTime looks for <code>.db</code>
+                        files referenced in <code>link_library</code>. This includes CCS timing libraries for all
+                        three Vt flavors (SVT, LVT, HVT) at the SSG 0.81V &minus;40&deg;C corner, plus SRAM macro
+                        timing models.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Set Link Library (SSG 0.81V &minus;40&deg;C)</h3>
+                    <p>Specify the exact <code>.db</code> files for this corner. These are the slow-slow-ground libraries at 0.81V and &minus;40&deg;C.</p>
+                    <div class="code-container"><pre class="code-block">set_app_var link_library [list * \
+  tcbn28hpcplusbwp40p140ssg0p81vm40c_ccs.db \
+  tcbn28hpcplusbwp40p140lvtssg0p81vm40c_ccs.db \
+  tcbn28hpcplusbwp40p140hvtssg0p81vm40c_ccs.db \
+  sram_1rw_128x78_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l15_data_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l15_hmt_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l15_tag_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l1d_data_128x144_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l1d_tag_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l1i_data_256x136_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l1i_tag_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l2_data_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l2_dir_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l2_state_ssg_cworstt_0p81v_0p81v_m40c.db \
+  sram_l2_tag_ssg_cworstt_0p81v_0p81v_m40c.db]</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">
+                        The <code>*</code> at the start tells PrimeTime to also search already-loaded libraries.
+                        The SSG (slow-slow-ground) libraries model the slowest transistor behavior &mdash; this is
+                        the worst-case corner for setup timing analysis.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Set PrimeTime Analysis Variables</h3>
+                    <div class="code-container"><pre class="code-block">set enable_recovery_removal_arcs true
+set_app_var timing_remove_clock_reconvergence_pessimism true
+set_app_var timing_update_status_level high
+set_app_var report_default_significant_digits 3
+set_app_var timing_enable_max_capacitance_set_case_analysis true</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>enable_recovery_removal_arcs</code> &mdash; enables checking of recovery and removal timing arcs (async reset/set timing).</li>
+                        <li><code>timing_remove_clock_reconvergence_pessimism</code> &mdash; removes extra pessimism when the same clock reaches both launch and capture flip-flops through different paths (CRPR).</li>
+                        <li><code>timing_update_status_level high</code> &mdash; provides detailed progress messages during timing updates.</li>
+                        <li><code>report_default_significant_digits 3</code> &mdash; sets report precision to 3 decimal places.</li>
+                        <li><code>timing_enable_max_capacitance_set_case_analysis</code> &mdash; enables max capacitance DRC checks even on pins with case analysis constants.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <h3>Read the Post-P&amp;R Netlist</h3>
+                    <div class="code-container"><pre class="code-block">read_verilog ../inputs/tile_pnr.v
+current_design tile
+link_design</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>read_verilog</code> &mdash; reads the gate-level netlist produced by place-and-route.</li>
+                        <li><code>current_design tile</code> &mdash; sets the top-level design to <code>tile</code>.</li>
+                        <li><code>link_design</code> &mdash; resolves all cell references against the loaded libraries. If any cell is missing from <code>link_library</code>, this will report errors.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <h3>Enable Signal Integrity Analysis and Read SPEF</h3>
+                    <div class="code-container"><pre class="code-block">set_app_var si_enable_analysis true
+set_app_var read_parasitics_load_locations true
+read_parasitics -format spef -keep_capacitive_coupling ../inputs/spef.spef.ss_0p81v_m40c_cworst</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>si_enable_analysis true</code> &mdash; enables signal integrity (crosstalk) analysis. PrimeTime will compute crosstalk-induced delay changes on victim nets.</li>
+                        <li><code>read_parasitics_load_locations true</code> &mdash; reads X/Y coordinate data from the SPEF for more accurate analysis.</li>
+                        <li><code>read_parasitics -format spef -keep_capacitive_coupling</code> &mdash; loads the SPEF file for this corner. The <code>-keep_capacitive_coupling</code> flag preserves coupling capacitances between nets, which is needed for SI analysis. The SPEF file <code>spef.spef.ss_0p81v_m40c_cworst</code> contains parasitics extracted at the cworst (capacitance worst) condition.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <h3>Set Operating Conditions and Source SDC</h3>
+                    <div class="code-container"><pre class="code-block">set_operating_conditions -analysis_type on_chip_variation -library [get_libs *]
+source ../inputs/tile.sdc</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>set_operating_conditions -analysis_type on_chip_variation</code> &mdash; enables OCV (On-Chip Variation) analysis. PrimeTime will apply different derating to launch and capture paths to model within-die variations.</li>
+                        <li><code>source ../inputs/tile.sdc</code> &mdash; loads the timing constraints (clock definitions, I/O delays, false paths, etc.).</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <h3>Update Timing</h3>
+                    <div class="code-container"><pre class="code-block">update_timing</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">
+                        Triggers a full timing update. PrimeTime computes arrival times, required times, and slack
+                        for every timing path using the loaded libraries, SPEF parasitics, and SDC constraints.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Set Report Directory Variables</h3>
+                    <div class="code-container"><pre class="code-block">set mode func
+set stage eco
+set extraction cworst
+set transistor ss
+set voltage 0p81v
+set temperature m40c
+
+set mse_str "${mode}${stage}_${extraction}"
+set pvt_str "${transistor}_${voltage}_${temperature}"
+
+sh mkdir -p ../reports/sta/${mse_str}/${pvt_str}</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">
+                        These variables build the report directory path:
+                        <code>reports/sta/funceco_cworst/ss_0p81v_m40c/</code>. All reports for this corner
+                        are saved under this directory.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Generate Check Timing and Annotated Parasitics Reports</h3>
+                    <div class="code-container"><pre class="code-block">report_annotated_parasitics -check -constant_arcs -list_not_annotated -max_nets 200 \
+  > ../reports/sta/${mse_str}/${pvt_str}/annotated
+
+check_timing -verbose > ../reports/sta/${mse_str}/${pvt_str}/checktiming</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>report_annotated_parasitics</code> &mdash; verifies that the SPEF was correctly annotated onto the design. Lists any nets that were not annotated (missing from SPEF).</li>
+                        <li><code>check_timing -verbose</code> &mdash; checks for missing timing constraints, unconstrained endpoints, and other timing intent issues. This should be clean if the SDC is complete.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <h3>Generate Timing Reports</h3>
+                    <div class="code-container"><pre class="code-block">report_timing -group [get_path_groups *] -pba_mode exhaustive \
+  -inp -net -trans -cap -nos -derate -crosstalk_delta \
+  -delay max -max_paths 100 \
+  > ../reports/sta/${mse_str}/${pvt_str}/timing-max
+
+report_timing -group [get_path_groups *] -pba_mode exhaustive \
+  -inp -net -trans -cap -nos -derate -crosstalk_delta \
+  -delay min -max_paths 100 \
+  > ../reports/sta/${mse_str}/${pvt_str}/timing-min</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>-pba_mode exhaustive</code> &mdash; uses path-based analysis for most accurate results (considers path-specific derating instead of graph-based).</li>
+                        <li><code>-delay max</code> &mdash; reports setup (max delay) paths. <code>-delay min</code> reports hold (min delay) paths.</li>
+                        <li><code>-crosstalk_delta</code> &mdash; includes crosstalk-induced delay changes in the report.</li>
+                        <li><code>-max_paths 100</code> &mdash; reports the top 100 worst paths per path group.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <h3>Generate QoR, Clock, and SI Reports</h3>
+                    <div class="code-container"><pre class="code-block">report_constraint -all_violators > ../reports/sta/${mse_str}/${pvt_str}/constraints
+report_bottleneck -max_cells 40 -max_paths 100 > ../reports/sta/${mse_str}/${pvt_str}/bottleneck_timing
+report_qor -significant_digits 3 > ../reports/sta/${mse_str}/${pvt_str}/qor
+
+report_clocks -attributes -skew > ../reports/sta/${mse_str}/${pvt_str}/clocks
+report_clock_timing -type latency -verbose > ../reports/sta/${mse_str}/${pvt_str}/clock_latency
+report_clock_timing -type skew -verbose > ../reports/sta/${mse_str}/${pvt_str}/clock_skew
+
+report_si_bottleneck -cost_type delta_delay > ../reports/sta/${mse_str}/${pvt_str}/si_bottleneck_delta_delay</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8; list-style-type: disc;">
+                        <li><code>report_constraint -all_violators</code> &mdash; lists all timing and DRC violations.</li>
+                        <li><code>report_bottleneck</code> &mdash; identifies cells that appear on the most critical paths.</li>
+                        <li><code>report_qor</code> &mdash; top-level summary: WNS, TNS, violating paths count.</li>
+                        <li><code>report_clock_timing</code> &mdash; clock latency, skew, and transition reports.</li>
+                        <li><code>report_si_bottleneck</code> &mdash; identifies nets with the largest crosstalk-induced delay impact.</li>
+                    </ul>
+                </li>
+
+                <li>
+                    <h3>Save Session and Exit</h3>
+                    <div class="code-container"><pre class="code-block">file mkdir ../data/PT_SS
+save_session ../data/PT_SS/${mode}${stage}_${pvt_str}_${extraction}
+exit</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                    <p style="margin-top: 10px;">
+                        Saves the complete PrimeTime session so it can be restored later without re-running the
+                        entire flow. Useful for debugging or generating additional reports.
+                    </p>
+                </li>
+
+                <li>
+                    <h3>Run Session 1</h3>
+                    <p>From the testcase directory, launch PrimeTime with the script:</p>
+                    <div class="code-container"><pre class="code-block">cd WORK
+pt_shell -f ../scripts/ss_81v_m40_cworst.sta.tcl | tee ../reports/pt_ss_m40_cworst.log</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+                </li>
+
+            </ul>
+        </div>
+
+        <!-- How remaining sessions differ -->
+        <div class="content-box">
+            <h2 class="section-title">&#128204; What Changes Across Sessions</h2>
+            <div class="section-content">
+                <p>
+                    Each PT session targets a specific PVT corner. The script structure (read netlist, annotate
+                    parasitics, source SDC, update timing, generate reports) stays the same. What changes between
+                    sessions is the <strong>matching pair</strong> of inputs:
+                </p>
+                <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.9; list-style-type: disc;">
+                    <li><strong>Timing libraries (.db)</strong> &mdash; must match the PVT condition. Slow corners use SSG libraries (slow transistors, low voltage). Fast corners use FFG libraries (fast transistors, high voltage). The temperature in the library name must match the corner temperature.</li>
+                    <li><strong>SPEF file</strong> &mdash; must match the RC extraction condition. Slow corners use cworst/rcworst extraction (pessimistic parasitics that maximize delay). Fast corners use cbest/rcbest extraction (optimistic parasitics that minimize delay).</li>
+                </ul>
+                <p style="margin-top: 12px;">
+                    Using mismatched libraries and SPEFs (e.g., fast libraries with worst-case SPEF) produces
+                    physically meaningless results. Always verify the library PVT matches the SPEF extraction corner.
+                </p>
+            </div>
+        </div>
+
+        <!-- Session 2 -->
+        <div class="content-box">
+            <h2 class="section-title">&#9881; Session 2: SS 0.81V 125&deg;C rcworst</h2>
+            <p>Script: <code>scripts/ss_0p81v_125c_rcworst.sta.tcl</code></p>
+            <p style="margin-top: 10px;">This is the second setup corner &mdash; slow process at high temperature with RC worst parasitics. Both the libraries and SPEF change from Session 1:</p>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">Timing Libraries (.db) &mdash; SSG 0.81V 125&deg;C:</h4>
+            <p>Standard cells and SRAM macros at the slow-slow 0.81V 125&deg;C condition:</p>
+            <div class="code-container"><pre class="code-block">set_app_var link_library [list * \
+  tcbn28hpcplusbwp40p140ssg0p81v125c_ccs.db \
+  tcbn28hpcplusbwp40p140lvtssg0p81v125c_ccs.db \
+  tcbn28hpcplusbwp40p140hvtssg0p81v125c_ccs.db \
+  sram_1rw_128x78_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l15_data_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l15_hmt_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l15_tag_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l1d_data_128x144_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l1d_tag_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l1i_data_256x136_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l1i_tag_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l2_data_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l2_dir_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l2_state_ssg_cworstt_0p81v_0p81v_125c.db \
+  sram_l2_tag_ssg_cworstt_0p81v_0p81v_125c.db]</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">SPEF &mdash; rcworst extraction at 125&deg;C:</h4>
+            <div class="code-container"><pre class="code-block">read_parasitics -format spef -keep_capacitive_coupling ../inputs/spef.spef.ss_0p81v_125c_rcworst</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">Corner Variables:</h4>
+            <div class="code-container"><pre class="code-block">set extraction rcworst
+set transistor ss
+set voltage 0p81v
+set temperature 125c</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">Run:</h4>
+            <div class="code-container"><pre class="code-block">pt_shell -f ../scripts/ss_0p81v_125c_rcworst.sta.tcl | tee ../reports/pt_ss_125c_rcworst.log</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+        </div>
+
+        <!-- Session 3 -->
+        <div class="content-box">
+            <h2 class="section-title">&#9881; Session 3: FF 0.99V &minus;40&deg;C cbest</h2>
+            <p>Script: <code>scripts/ff_0p99v_m40c_cbest.sta.tcl</code></p>
+            <p style="margin-top: 10px;">This is a <strong>fast corner for hold analysis</strong>. Both the libraries and SPEF switch from slow to fast:</p>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">Timing Libraries (.db) &mdash; FFG 0.99V &minus;40&deg;C:</h4>
+            <p>Standard cells and SRAM macros at the fast-fast 0.99V &minus;40&deg;C condition:</p>
+            <div class="code-container"><pre class="code-block">set_app_var link_library [list * \
+  tcbn28hpcplusbwp40p140ffg0p99vm40c_ccs.db \
+  tcbn28hpcplusbwp40p140lvtffg0p99vm40c_ccs.db \
+  tcbn28hpcplusbwp40p140hvtffg0p99vm40c_ccs.db \
+  sram_1rw_128x78_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l15_data_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l15_hmt_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l15_tag_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l1d_data_128x144_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l1d_tag_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l1i_data_256x136_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l1i_tag_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l2_data_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l2_dir_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l2_state_ffg_cbestt_0p99v_0p99v_m40c.db \
+  sram_l2_tag_ffg_cbestt_0p99v_0p99v_m40c.db]</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">SPEF &mdash; cbest extraction at &minus;40&deg;C:</h4>
+            <div class="code-container"><pre class="code-block">read_parasitics -format spef -keep_capacitive_coupling ../inputs/spef.spef.ff_0p99v_m40c_cbest</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">Corner Variables:</h4>
+            <div class="code-container"><pre class="code-block">set extraction cbest
+set transistor ff
+set voltage 0p99v
+set temperature m40c</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">Run:</h4>
+            <div class="code-container"><pre class="code-block">pt_shell -f ../scripts/ff_0p99v_m40c_cbest.sta.tcl | tee ../reports/pt_ff_m40c_cbest.log</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+        </div>
+
+        <!-- Session 4 -->
+        <div class="content-box">
+            <h2 class="section-title">&#9881; Session 4: FF 0.99V 125&deg;C rcbest</h2>
+            <p>Script: <code>scripts/ff_0p99v_125c_rcbest.sta.tcl</code></p>
+            <p style="margin-top: 10px;">Second fast corner for hold analysis at high temperature. Libraries switch to FFG 125&deg;C, SPEF to rcbest:</p>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">Timing Libraries (.db) &mdash; FFG 0.99V 125&deg;C:</h4>
+            <p>Standard cells and SRAM macros at the fast-fast 0.99V 125&deg;C condition:</p>
+            <div class="code-container"><pre class="code-block">set_app_var link_library [list * \
+  tcbn28hpcplusbwp40p140ffg0p99v125c_ccs.db \
+  tcbn28hpcplusbwp40p140lvtffg0p99v125c_ccs.db \
+  tcbn28hpcplusbwp40p140hvtffg0p99v125c_ccs.db \
+  sram_1rw_128x78_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l15_data_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l15_hmt_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l15_tag_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l1d_data_128x144_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l1d_tag_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l1i_data_256x136_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l1i_tag_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l2_data_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l2_dir_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l2_state_ffg_cbestt_0p99v_0p99v_125c.db \
+  sram_l2_tag_ffg_cbestt_0p99v_0p99v_125c.db]</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">SPEF &mdash; rcbest extraction at 125&deg;C:</h4>
+            <div class="code-container"><pre class="code-block">read_parasitics -format spef -keep_capacitive_coupling ../inputs/spef.spef.ff_0p99v_125c_rcbest</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">Corner Variables:</h4>
+            <div class="code-container"><pre class="code-block">set extraction rcbest
+set transistor ff
+set voltage 0p99v
+set temperature 125c</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            <h4 style="margin-top: 20px; color: #2c3e50;">Run:</h4>
+            <div class="code-container"><pre class="code-block">pt_shell -f ../scripts/ff_0p99v_125c_rcbest.sta.tcl | tee ../reports/pt_ff_125c_rcbest.log</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+        </div>
+
+        <!-- What's Next: DMSA -->
+        <div class="content-box">
+            <h2 class="section-title">&#9654; Coming Up Next: DMSA</h2>
+            <div class="section-content">
+                <p>
+                    You just ran 4 corners one by one. What if you could run all of them at once and see the
+                    worst slack across every corner in a single command?
+                </p>
+                <p style="margin-top: 12px;">
+                    That is exactly what <strong>DMSA (Distributed Multi-Scenario Analysis)</strong> does.
+                    The saved sessions you generated in <code>data/PT_SS/</code> are the inputs &mdash; head
+                    over to the DMSA lab and complete it to master multi-corner signoff.
+                </p>
+            </div>
+        </div>
+
+        <!-- Success Criteria -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Success Criteria</h2>
+            <div class="validation-box">
+                <h4>&#9989; All 4 sessions must complete successfully:</h4>
+                <ul style="margin-left: 20px; margin-top: 10px; list-style-type: disc;">
+                    <li>Reports generated under <code>reports/sta/funceco_cworst/ss_0p81v_m40c/</code></li>
+                    <li>Reports generated under <code>reports/sta/funceco_rcworst/ss_0p81v_125c/</code></li>
+                    <li>Reports generated under <code>reports/sta/funceco_cbest/ff_0p99v_m40c/</code></li>
+                    <li>Reports generated under <code>reports/sta/funceco_rcbest/ff_0p99v_125c/</code></li>
+                    <li>No fatal errors in any log file</li>
+                    <li>PrimeTime sessions saved under <code>data/PT_SS/</code></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After all 4 sessions complete:</p>
+                <div class="code-container"><pre class="code-block">make verify</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. Why does each PVT corner use a different SPEF file?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">The SPEF file contains the gate-level netlist which changes per corner.</li>
+                        <li onclick="checkAnswer(this, true)">Parasitic R and C values change with temperature and extraction methodology (cworst, rcworst, cbest, rcbest), so each corner needs its own extracted parasitics.</li>
+                        <li onclick="checkAnswer(this, false)">PrimeTime requires a separate SPEF for licensing reasons.</li>
+                        <li onclick="checkAnswer(this, false)">The SPEF file contains the SDC constraints which differ per corner.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Interconnect parasitics vary with temperature and extraction conditions. Using the wrong SPEF for a corner would give inaccurate wire delays.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. What does <code>-pba_mode exhaustive</code> do in report_timing?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">It disables timing analysis to save runtime.</li>
+                        <li onclick="checkAnswer(this, true)">It uses path-based analysis which considers path-specific derating for each timing path, giving more accurate results than graph-based analysis.</li>
+                        <li onclick="checkAnswer(this, false)">It limits the report to only 1 path per group.</li>
+                        <li onclick="checkAnswer(this, false)">It enables functional simulation mode.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Path-based analysis (PBA) exhaustive mode recomputes derating for each individual path rather than using a single worst-case derate, giving tighter and more accurate slack values.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. Why is <code>si_enable_analysis</code> set to true?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">It enables scan insertion for DFT.</li>
+                        <li onclick="checkAnswer(this, false)">It allows PrimeTime to read SystemVerilog files.</li>
+                        <li onclick="checkAnswer(this, true)">It enables signal integrity (crosstalk) analysis so PrimeTime can compute delay changes caused by coupling capacitance between adjacent wires.</li>
+                        <li onclick="checkAnswer(this, false)">It is required to read SPEF files.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> With SI analysis enabled, PrimeTime uses the coupling capacitances from the SPEF to compute crosstalk-induced delay bumps on victim nets, which can cause additional timing violations.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. What does <code>timing_remove_clock_reconvergence_pessimism</code> do?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">It removes all clock constraints from the design.</li>
+                        <li onclick="checkAnswer(this, true)">It removes extra pessimism when the same clock reaches both launch and capture flip-flops through different paths (Clock Reconvergence Pessimism Removal).</li>
+                        <li onclick="checkAnswer(this, false)">It disables clock gating analysis.</li>
+                        <li onclick="checkAnswer(this, false)">It forces all clocks to have zero skew.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> CRPR removes the artificial pessimism that occurs when OCV derating is applied differently to the common clock path segment shared by launch and capture. Without CRPR, slack would be overly pessimistic.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../STA-SNPS-STA.html" class="btn btn-back">&larr; Back to Lab Home</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../TC-STA-SNPS-STA-CH-001/TC-STA-SNPS-STA-CH-001.html" class="btn btn-success">Continue to Testcase 2 &rarr;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = '27';
+        const TESTCASE_NUM = '1';
+        function copyCode(btn) {
+            var container = btn.closest('.code-container');
+            var codeBlock = container.querySelector('.code-block');
+            var text = codeBlock.textContent.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    btn.textContent = 'Copied!';
+                    setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+                });
+            } else {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;top:-9999px;opacity:0;';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(ta);
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+            }
+        }
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        function checkAnswer(el, isCorrect) {
+            var question = el.closest('.quiz-question');
+            if (question.querySelector('.correct-answer')) return;
+            var options = question.querySelectorAll('.quiz-options li');
+            var feedback = question.querySelector('.feedback');
+            var answer = question.querySelector('.answer');
+            options.forEach(function(opt) { opt.classList.remove('selected', 'quiz-option-selected', 'wrong-answer'); });
+            if (isCorrect) {
+                el.classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '\u2705 Correct! Well done.';
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+            } else {
+                el.classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '\u274C Incorrect. Try again!';
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

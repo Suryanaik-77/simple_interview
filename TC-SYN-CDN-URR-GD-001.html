@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testcase 1: Guided Exercise — Synthesis and Linking in Genus</title>
+    <link rel="stylesheet" href="../common/styles.css">
+</head>
+<body>
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Testcase 1: Missing RTL File and Library Reference (Guided)</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#127968; <a href="../SYN-CDN-URR.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / TC-SYN-CDN-URR-GD-001</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128203; Type: Guided Exercise</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201;&#65039; Estimated Time: 45&#8211;60 minutes</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Problem Statement -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Problem Statement</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                <p>You are working on synthesizing a digital design using Cadence Genus. The top-level module is <code>top_design</code>, which instantiates several hierarchical submodules.</p>
+
+                <p style="margin-top: 20px;">When you run <code>script</code>, the synthesis script executes <code>elaborate</code>, then runs <code>check_design -unresolved</code> and writes the result to <code>reports/check_design.rpt</code>. <strong>This report is your primary debug signal.</strong> Open it first after every run:</p>
+
+                <pre class="code-block">cat reports/check_design.rpt</pre>
+
+                <p style="margin-top: 15px;">The report shows a structured summary. The critical line is <code>Unresolved References</code>:</p>
+
+                <pre class="code-block"> Check Design Report (c)
+ -------------------
+
+ Summary
+ -------
+
+              Name                       Total
+----------------------------------------------
+Unresolved References                        2
+Empty Modules                                0
+Unloaded Port(s)                             0
+Unloaded Sequential Pin(s)                   0
+Unloaded Combinational Pin(s)                0
+...
+  Done Checking the design.</pre>
+
+                <p style="margin-top: 15px;">The <code>check_unresolved</code> proc reads this count, sees it is non-zero, and calls <code>exit 1</code> — stopping the flow before wasting time on <code>syn_generic</code>, <code>syn_map</code>, and <code>syn_opt</code>.</p>
+
+                <p style="margin-top: 15px;"><strong>Your task:</strong> Fix both missing references so that <code>reports/check_design.rpt</code> shows <code>Unresolved References 0</code>. One issue is a missing RTL source file; the other is a missing standard cell library. Use the log to identify which specific modules are missing, then fix and re-run.</p>
+
+                <p style="margin-top: 12px; color: #666; font-size: 0.9em;"><em>Note: During <code>elaborate</code>, Genus may also print TUI-273 warnings in the log — one per unresolved module. These are useful for identifying module names, but the structured count in <code>check_design.rpt</code> is the definitive pass/fail signal.</em></p>
+            </div>
+        </div>
+
+        <!-- Debug Flow -->
+        <div class="content-box">
+            <h2 class="section-title">&#128268; The Debug Flow: run &#8594; check_design.rpt &#8594; log &#8594; Fix</h2>
+            <div class="section-content">
+                <p>Every unresolved reference issue in Genus follows the same three-stage debug loop. Internalise this — you will use it in every synthesis run:</p>
+
+                <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 20px;">
+
+                    <div style="display: flex; align-items: flex-start; gap: 16px; background: #f1f4ff; border-radius: 8px; padding: 16px; border-left: 4px solid #667eea;">
+                        <div style="font-size: 1.5em; line-height: 1;">&#9312;</div>
+                        <div>
+                            <strong style="color: #667eea;">check_design.rpt</strong> — your primary signal
+                            <p style="margin: 6px 0 0 0; font-size: 0.95em;">After every run, open <code>reports/check_design.rpt</code> first. The script runs <code>check_design -unresolved</code> automatically after <code>elaborate</code> and writes this report. Find the line <code>Unresolved References N</code> — that number is your scoreboard. If N &gt; 0, the flow exits early. Track this number down to 0 as you fix each issue.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: flex-start; gap: 16px; background: #f1f4ff; border-radius: 8px; padding: 16px; border-left: 4px solid #667eea;">
+                        <div style="font-size: 1.5em; line-height: 1;">&#9313;</div>
+                        <div>
+                            <strong style="color: #667eea;">Log investigation</strong> — identify which modules are missing
+                            <p style="margin: 6px 0 0 0; font-size: 0.95em;">Once the report shows a non-zero count, grep the log to find the specific module names: <code>grep -i "unresolved" | logs/genus_synthesis.log</code>. Use the names to determine the fix: a plain Verilog name → add <code>.v</code> to <code>read_hdl</code>; a cell name with a vendor suffix → add <code>.lib</code> to <code>set_db link_library</code>.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: flex-start; gap: 16px; background: #f1f4ff; border-radius: 8px; padding: 16px; border-left: 4px solid #667eea;">
+                        <div style="font-size: 1.5em; line-height: 1;">&#9314;</div>
+                        <div>
+                            <strong style="color: #667eea;">Fix &amp; Re-run</strong> — one issue type at a time
+                            <p style="margin: 6px 0 0 0; font-size: 0.95em;">Apply the correct fix, then re-run <code>make run</code> and return to step &#9312; — read <code>check_design.rpt</code> again. Repeat until <code>Unresolved References</code> reaches 0.</p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis -->
+        <div class="content-box">
+            <h2 class="section-title">&#128269; Analysis</h2>
+            <div class="section-content">
+                <p>The <code>reports/check_design.rpt</code> for this testcase shows <code>Unresolved References 2</code>. Grepping the log reveals two specific missing names — one is a plain Verilog module and one is a standard cell:</p>
+
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 1.9;">
+                    <li>
+                        <strong>Missing module: <code>memory_controller</code></strong><br>
+                        The name <code>memory_controller</code> does not match any library cell naming pattern — it is a plain Verilog module name. This means its <code>.v</code> source file was never passed to <code>read_hdl</code>. The file exists on disk; it was simply omitted from <code>inputs/file_list.tcl</code>.
+                        <br><em>Fix type: add <code>memory_controller.v</code> to the <code>read_hdl</code> list.</em>
+                    </li>
+                    <li style="margin-top: 14px;">
+                        <strong>Missing cell: <code>CKBD8BWP40P140LVT</code></strong><br>
+                        The <code>BWP40P140LVT</code> suffix is a TSMC standard cell naming pattern. <code>LVT</code> means Low Threshold Voltage. The current <code>set_db link_library</code> only loads the HVT and SVT library files — the LVT library directory is missing entirely from <code>set_db init_lib_search_path</code>.
+                        <br><em>Fix type: add the LVT <code>.lib</code> path to <code>set_db init_lib_search_path</code>, <code>set_db target_library</code>, and <code>set_db link_library</code>.</em>
+                    </li>
+                </ul>
+
+                <p style="margin-top: 20px;">Both issues must be fixed before <code>check_design.rpt</code> can show <code>Unresolved References 0</code> and synthesis can proceed to <code>syn_generic</code>.</p>
+            </div>
+        </div>
+
+        <!-- Step-by-Step Solution -->
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Step-by-Step Solution</h2>
+
+            <ul class="step-list">
+
+                <!-- Step 1 -->
+                <li>
+                    <h3>Step 1 — Navigate and run the synthesis flow</h3>
+                    <p>Set up the lab and run <code>script</code> to observe the failures first-hand:</p>
+                    <pre class="code-block">cd ~/pd/labs/SYN-CDN-URR/TC-SYN-CDN-URR-GD-001</pre>
+                    <p style="margin-top: 12px;">The run will stop early. Internally, <code>script</code> calls <code>genus -files scripts/genus_syn.tcl</code>. The script reads the file list, calls <code>elaborate</code>, then runs <code>check_design -unresolved</code> which writes <code>reports/check_design.rpt</code>. The <code>check_unresolved</code> proc reads the report, sees a non-zero count, and exits with an error. Open the report to find out how many references are unresolved.</p>
+                </li>
+
+                <!-- Step 2 -->
+                <li>
+                    <h3>Step 2 — Open <code>reports/check_design.rpt</code>: read the unresolved reference count</h3>
+                    <p>The script already ran <code>check_design -unresolved</code> and wrote the report. Open it now — this is the first thing to check after every run:</p>
+                    <pre class="code-block">cat reports/check_design.rpt</pre>
+                    <p style="margin-top: 12px;">You will see the full summary table. The critical line is <code>Unresolved References</code>:</p>
+                    <pre class="code-block"> Check Design Report (c)
+ -------------------
+
+ Summary
+ -------
+
+              Name                       Total
+----------------------------------------------
+Unresolved References                        2
+Empty Modules                                0
+Unloaded Port(s)                             0
+Unloaded Sequential Pin(s)                   0
+...
+  Done Checking the design.</pre>
+                    <p style="margin-top: 12px;"><code>Unresolved References 2</code> tells you there are exactly two issues to fix. This number is your progress tracker — you will check it after every fix until it reads <code>0</code>.</p>
+                </li>
+
+                <!-- Step 3 -->
+                <li>
+                    <h3>Step 3 — Grep the log to identify the specific missing module names</h3>
+                    <p>The report told you <em>how many</em> references are unresolved. Now grep the log to find out <em>which</em> module names are missing:</p>
+                    <pre class="code-block">grep -i "unresolved" | logs/genus_synthesis.log</pre>
+                    <p style="margin-top: 12px;">Look at the module names returned to determine the fix type:</p>
+                    <pre class="code-block">memory_controller        # plain Verilog module name  →  fix: add .v to read_hdl
+CKBD8BWP40P140LVT        # TSMC cell with LVT suffix   →  fix: add LVT .lib to link_library</pre>
+                    <p style="margin-top: 12px;">The log search tells you <em>which</em> modules are missing — the report already told you <em>how many</em>.</p>
+                </li>
+
+                <!-- Step 4 -->
+                <li>
+                    <h3>Step 4 — Debug Issue 1: identify the missing RTL file</h3>
+                    <p><code>memory_controller</code> is a Verilog module name — Genus looked through all files in the <code>read_hdl</code> list and did not find a <code>module memory_controller</code> declaration. Check the current file list:</p>
+                    <pre class="code-block">cat inputs/file_list.tcl</pre>
+                    <p style="margin-top: 12px;">You will see:</p>
+                    <pre class="code-block">read_hdl {/proj1/pd/users/testcase/Bharath/AI_test/MVP_test/data_processing_unit.v \
+/proj1/pd/users/testcase/Bharath/AI_test/MVP_test/interface_controller.v \
+/proj1/pd/users/testcase/Bharath/AI_test/MVP_test/top_design.v}</pre>
+                    <p style="margin-top: 12px;"><strong>Problem identified:</strong> <code>memory_controller.v</code> is missing from the list. Verify the file exists on disk:</p>
+                    <pre class="code-block">ls /proj1/pd/users/testcase/Bharath/AI_test/MVP_test/ | grep memory_controller</pre>
+                    <p style="margin-top: 12px;">If it prints <code>memory_controller.v</code>, the file is present — it was simply omitted from <code>file_list.tcl</code>.</p>
+                </li>
+
+                <!-- Step 5 -->
+                <li>
+                    <h3>Step 5 — Fix Issue 1: add the missing file to <code>file_list.tcl</code></h3>
+                    <p>Edit <code>inputs/file_list.tcl</code> to include <code>memory_controller.v</code>:</p>
+                    <pre class="code-block">read_hdl {/proj1/pd/users/testcase/Bharath/AI_test/MVP_test/data_processing_unit.v \
+/proj1/pd/users/testcase/Bharath/AI_test/MVP_test/interface_controller.v \
+/proj1/pd/users/testcase/Bharath/AI_test/MVP_test/top_design.v \
+/proj1/pd/users/testcase/Bharath/AI_test/MVP_test/memory_controller.v}</pre>
+                    <p style="margin-top: 12px;">Save the file. On the next run, <code>elaborate</code> will find the <code>memory_controller</code> definition — the unresolved reference count in <code>reports/check_design.rpt</code> will drop by one, from 2 to 1.</p>
+                </li>
+
+            </ul>
+
+            <div class="info-card" style="margin: 20px 0; border-left: 4px solid #667eea; background-color: #f1f4ff;">
+                <p><strong>Next:</strong> With the missing RTL file fixed, we now debug Issue 2. <code>CKBD8BWP40P140LVT</code> is a standard cell name — Genus searched all <code>.lib</code> files in <code>set_db link_library</code> and did not find it. We need to add the LVT library to the script's <code>set_db</code> variables.</p>
+            </div>
+
+            <ul class="step-list">
+
+                <!-- Step 6 -->
+                <li>
+                    <h3>Step 6 — Debug Issue 2: identify the missing library</h3>
+                    <p><code>CKBD8BWP40P140LVT</code> is a <strong>Low Threshold Voltage (LVT)</strong> standard cell — identifiable by the <code>LVT</code> suffix in its name. Open the synthesis script and review the current library configuration:</p>
+                    <pre class="code-block">cat scripts/genus_syn.tcl</pre>
+                    <p style="margin-top: 12px;">The relevant section:</p>
+                    <pre class="code-block"># CURRENT CONFIGURATION (Incomplete)
+set_db init_lib_search_path [list . ../../pdk/stdcells/9T/hvt/lib/nldm \
+                                       ../../pdk/stdcells/9T/svt/lib/nldm]
+
+set_db target_library [list tcbn28hpcplusbwp40p140hvtssg0p81vm40c.lib \
+                             tcbn28hpcplusbwp40p140ssg0p81vm40c.lib]
+
+set_db link_library   [list tcbn28hpcplusbwp40p140hvtssg0p81vm40c.lib \
+                             tcbn28hpcplusbwp40p140ssg0p81vm40c.lib]</pre>
+                    <p style="margin-top: 12px;"><strong>Problem identified:</strong> The LVT library directory (<code>9T/lvt/lib/nldm</code>) is absent from <code>init_lib_search_path</code>, and the LVT <code>.lib</code> file is missing from both <code>target_library</code> and <code>link_library</code>. During <code>elaborate</code>, Genus searched only the HVT and SVT libraries — there was no LVT library loaded at all.</p>
+                </li>
+
+                <!-- Step 7 -->
+                <li>
+                    <h3>Step 7 — Fix Issue 2: add LVT library to the <code>set_db</code> variables</h3>
+                    <p>Edit <code>scripts/genus_syn.tcl</code> to add the LVT library path and <code>.lib</code> file to all three variables:</p>
+                    <pre class="code-block"># CORRECTED CONFIGURATION
+set_db init_lib_search_path [list . ../../pdk/stdcells/9T/hvt/lib/nldm \
+                                       ../../pdk/stdcells/9T/svt/lib/nldm \
+                                       ../../pdk/stdcells/9T/lvt/lib/nldm]
+
+set_db target_library [list tcbn28hpcplusbwp40p140hvtssg0p81vm40c.lib \
+                             tcbn28hpcplusbwp40p140ssg0p81vm40c.lib \
+                             tcbn28hpcplusbwp40p140lvtssg0p81vm40c.lib]
+
+set_db link_library   [list tcbn28hpcplusbwp40p140hvtssg0p81vm40c.lib \
+                             tcbn28hpcplusbwp40p140ssg0p81vm40c.lib \
+                             tcbn28hpcplusbwp40p140lvtssg0p81vm40c.lib]</pre>
+                    <p style="margin-top: 12px;">Three additions are required:</p>
+                    <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.8;">
+                        <li><code>init_lib_search_path</code> — tells Genus where to look for the LVT <code>.lib</code> file on disk</li>
+                        <li><code>target_library</code> — makes LVT cells available for gate mapping during <code>syn_map</code></li>
+                        <li><code>link_library</code> — makes LVT cell definitions visible to <code>elaborate</code> so it can resolve <code>CKBD8BWP40P140LVT</code></li>
+                    </ul>
+                </li>
+
+                <!-- Step 8 -->
+                <li>
+                    <h3>Step 8 — Re-run and confirm the report is clean</h3>
+                    <p>Both issues are now fixed. Re-run the synthesis flow:</p>
+                    <pre class="code-block">make run</pre>
+                    <p style="margin-top: 12px;">Open the report immediately after the run — this is your primary confirmation:</p>
+                    <pre class="code-block">cat reports/check_design.rpt</pre>
+                    <p style="margin-top: 8px;">The critical line must now show:</p>
+                    <pre class="code-block">Unresolved References                        0</pre>
+                    <p style="margin-top: 12px;">With the report clean, confirm the full synthesis completed:</p>
+                    <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.8;">
+                        <li>The <code>check_unresolved</code> proc prints <code>INFO: No Unresolved References. Proceeding with synthesis...</code></li>
+                        <li>Synthesis proceeds through <code>syn_generic</code> &#8594; <code>syn_map</code> &#8594; <code>syn_opt</code></li>
+                        <li>Gate-level netlist is written to <code>outputs/</code></li>
+                    </ul>
+                </li>
+
+            </ul>
+
+            <div class="validation-box">
+                <h4>&#9989; Success Criteria</h4>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li><code>reports/check_design.rpt</code> shows <code>Unresolved References 0</code></li>
+                    <li>Gate-level netlist present in <code>outputs/</code></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After completing your fixes and running the synthesis flow, use the automated verification command:</p>
+                <pre class="code-block">make verify</pre>
+                <p style="margin-top: 12px;">The verify target checks <code>reports/check_design.rpt</code> for zero unresolved references and confirms that the gate-level netlist was generated in <code>outputs/</code>. A <strong>PASS</strong> result means both issues were correctly resolved.</p>
+            </div>
+        </div>
+
+        <!-- Knowledge Assessment -->
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. After running the script then it stops early, what is the first file to open to determine how many unresolved references exist?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)"><code>logs/genus_synthesis.log</code> — grep for error messages</li>
+                        <li onclick="checkAnswer(this, true)"><code>reports/check_design.rpt</code> — read the <code>Unresolved References</code> count</li>
+                        <li onclick="checkAnswer(this, false)"><code>scripts/genus_syn.tcl</code> — review the library configuration</li>
+                        <li onclick="checkAnswer(this, false)"><code>inputs/file_list.tcl</code> — count the files in the read_hdl list</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> <code>reports/check_design.rpt</code> is the primary debug signal. The script runs <code>check_design -unresolved</code> automatically after <code>elaborate</code> and writes this structured report. The <code>Unresolved References</code> line gives you the exact count — your scoreboard. Go to the log only if you need to identify <em>which</em> specific module names are missing.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. What does the <code>Unresolved References</code> line in <code>reports/check_design.rpt</code> represent?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">The number of timing violations in the synthesized netlist.</li>
+                        <li onclick="checkAnswer(this, true)">The count of module or cell instantiations that Genus could not match to a definition in <code>read_hdl</code> or <code>set_db link_library</code> during <code>elaborate</code>.</li>
+                        <li onclick="checkAnswer(this, false)">The number of empty modules with no logic inside them.</li>
+                        <li onclick="checkAnswer(this, false)">The number of ports that are unconnected in the top-level design.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Each entry in the <code>Unresolved References</code> count represents a module or cell that was instantiated somewhere in the design hierarchy but whose definition was not found — either because the <code>.v</code> file was missing from <code>read_hdl</code>, or because the <code>.lib</code> file was missing from <code>set_db link_library</code>. This count must reach 0 before synthesis can produce a correct netlist.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. Why must the LVT library be added to <em>both</em> <code>set_db target_library</code> and <code>set_db link_library</code>?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">They are identical — updating one automatically updates the other in Genus.</li>
+                        <li onclick="checkAnswer(this, true)"><code>link_library</code> is used by <code>elaborate</code> to resolve cell references; <code>target_library</code> is used by <code>syn_map</code> to choose cells during mapping. Both must know about LVT cells for the full flow to work.</li>
+                        <li onclick="checkAnswer(this, false)">Only <code>link_library</code> is needed; <code>target_library</code> only affects hold-time optimization.</li>
+                        <li onclick="checkAnswer(this, false)">Only <code>init_lib_search_path</code> needs updating — Genus auto-populates <code>target_library</code> and <code>link_library</code> from the search path.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> <code>set_db link_library</code> makes the LVT cell definition visible to <code>elaborate</code>, resolving the TUI-273 warning. <code>set_db target_library</code> makes the LVT cell available as a mapping target during <code>syn_map</code>. Without both, either elaboration fails or the mapper cannot use LVT cells even if elaboration succeeds.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. After fixing <code>inputs/file_list.tcl</code>, why must you re-run the full synthesis flow rather than just re-running <code>check_design</code> in the existing Genus session?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">Genus requires a server reboot after every file change.</li>
+                        <li onclick="checkAnswer(this, true)"><code>elaborate</code> built the design hierarchy from the files that were loaded at that point. The new file was not included, so the hierarchy is incomplete. Re-running <code>check_design</code> in the same session still queries the stale hierarchy — you must restart Genus and re-run <code>read_hdl</code> + <code>elaborate</code> to rebuild it with the new file.</li>
+                        <li onclick="checkAnswer(this, false)">Genus automatically reloads all files whenever <code>check_design</code> is invoked.</li>
+                        <li onclick="checkAnswer(this, false)">The file list change only takes effect after the Tcl session is saved to disk.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The design hierarchy is built during <code>elaborate</code>. Any files not present when <code>elaborate</code> ran are not part of that hierarchy — no subsequent command in the same session can add them. The only way to incorporate the fix is to restart Genus and let <code>read_hdl</code> + <code>elaborate</code> re-run from scratch.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Next Step -->
+        <div class="content-box">
+            <h2 class="section-title">&#127881; Next Step</h2>
+            <div class="section-content">
+                <p>Excellent work completing the guided exercise for <strong>Testcase 1</strong>!</p>
+                <p style="margin-top: 15px;">You have now internalised the core Genus debug loop: <strong>run &#8594; check_design.rpt &#8594; log for details &#8594; fix &#8594; re-run</strong>. You diagnosed a missing RTL file (fixed via <code>read_hdl</code> file list) and a missing LVT library (fixed via <code>set_db link_library</code> and <code>target_library</code>).</p>
+                <p style="margin-top: 15px;">&#128073; Apply this exact workflow independently to the AES Cipher design in TC-SYN-CDN-URR-CH-001 — no step-by-step guidance is provided there.</p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../SYN-CDN-URR.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+                <a href="../TC-SYN-CDN-URR-CH-001/TC-SYN-CDN-URR-CH-001.html" class="btn btn-success">Continue to Challenge 1 &#8594;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = 'SYN-CDN-URR';
+        const TESTCASE_NUM = '1';
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        function checkAnswer(option, isCorrect) {
+            const parent = option.parentElement;
+            const questionContainer = parent.parentElement;
+            const feedback = questionContainer.querySelector('.feedback');
+            const answer = questionContainer.querySelector('.answer');
+
+            if (isCorrect) {
+                const options = parent.querySelectorAll('li');
+                options.forEach(opt => opt.style.pointerEvents = 'none');
+                option.classList.add('correct-answer');
+                feedback.textContent = "\u2705 Correct!";
+                feedback.className = "feedback correct";
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+            } else {
+                option.style.pointerEvents = 'none';
+                option.classList.add('wrong-answer');
+                feedback.textContent = "\u274C Incorrect. Try again.";
+                feedback.className = "feedback incorrect";
+                feedback.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

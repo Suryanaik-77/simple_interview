@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guided: Signal Net Routing — tile </title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        code { color: #333; }
+        .step-list li ul li,
+        .step-list li ol li {
+            counter-increment: none;
+            list-style-type: disc;
+            padding: 4px 0;
+            margin: 4px 0;
+            background: none;
+            border-left: none;
+            border-radius: 0;
+            position: static;
+        }
+        .step-list li ul li::before,
+        .step-list li ol li::before { display: none; }
+    </style>
+</head>
+<body>
+<!-- Scroll progress bar is created dynamically by interactive.js -->
+
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Guided: Signal Net Routing — tile</h1>
+        <div class="lab-meta">
+            <div class="meta-item">
+                <span>&#127968; <a href="../PNR-CDN-RT.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Guided</span>
+            </div>
+            <div class="meta-item"><span>&#128203; Type: Guided Exercise</span></div>
+            <div class="meta-item"><span>&#128336; Estimated Time: 60–90 minutes</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Problem Statement -->
+    <div class="content-box">
+        <div class="test-case-header">
+            <h2>Problem Statement</h2>
+            <span class="test-case-type type-guided">GUIDED</span>
+        </div>
+        <div class="section-content">
+            <p>You will perform <strong>Signal Net Routing</strong> for the <strong>tile</strong> in Cadence Innovus. Starting from the post-CTS database (<code>tile_cts.odb</code>), you will configure routing options, define and assign a Non-Default Routing Rule for clock nets, run global and detail routing, fix antenna violations, verify DRC and connectivity, and save the routed database.</p>
+            <p style="margin-top: 12px;">This guided testcase includes the complete correct routing flow. Note that the CLK_NDR_RULE must be defined before it can be assigned — this is a common ordering mistake that the Challenge Testcase tests.</p>
+        </div>
+    </div>
+
+    <!-- Step-by-Step -->
+    <div class="content-box">
+        <h2 class="section-title">&#128196; Routing — Step-by-Step Command Explanation</h2>
+
+        <ul class="step-list">
+
+            <!-- Step 1 -->
+            <li>
+                <h3>Load the Post-CTS Database</h3>
+                <pre class="code-block">cd ~/pd/labs/PNR-CDN-RT/TC-PNR-CDN-RT-GD-001
+make all</pre>
+                <p style="margin-top: 10px;">Source the routing script:</p>
+                <pre class="code-block">source ../scripts/routing.tcl</pre>
+                <p style="margin-top: 10px;">The script starts by loading the post-CTS database:</p>
+                <pre class="code-block">read_db ../inputs/tile_cts.db
+
+set design_name tile</pre>
+                <div class="info-card" style="margin-top: 10px;">
+                    <strong>Note:</strong> This testcase uses the <code>.odb</code> (OpenDB) format — Innovus's native binary database format. Both <code>.db</code> and <code>.odb</code> are valid Innovus database formats; <code>.odb</code> is more compact and faster to read/write.
+                </div>
+            </li>
+
+            <!-- Step 2 -->
+            <li>
+                <h3>Set Routing Options</h3>
+                <p>Configure three key routing engine parameters before routing begins:</p>
+                <table style="width:100%; border-collapse: collapse; margin-top: 12px; font-size: 0.95em;">
+                    <thead>
+                        <tr style="background: #2c3e50; color: #fff;">
+                            <th style="padding: 10px 14px; text-align: left; width: 55%;">Parameter</th>
+                            <th style="padding: 10px 14px; text-align: left;">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f8f9fa;"><td style="padding: 9px 14px;"><code>route_design_antenna_insertion_max_loops 10</code></td><td style="padding: 9px 14px;">Maximum iterations for antenna repair during detail routing — the router retries antenna-violating paths up to 10 times.</td></tr>
+                        <tr><td style="padding: 9px 14px;"><code>route_design_with_si_driven true</code></td><td style="padding: 9px 14px;">Enable Signal Integrity (SI) driven routing — the router avoids parallel routing patterns that cause excessive crosstalk noise on critical timing paths.</td></tr>
+                        <tr style="background: #f8f9fa;"><td style="padding: 9px 14px;"><code>route_design_concurrent_minimize_via_count_effort high</code></td><td style="padding: 9px 14px;">Minimize via count during routing with high effort — reduces net RC delay on critical paths by reducing via resistance and capacitance.</td></tr>
+                    </tbody>
+                </table>
+                <pre class="code-block" style="margin-top: 16px;">set_db route_design_antenna_insertion_max_loops 10
+set_db route_design_with_si_driven true
+set_db route_design_concurrent_minimize_via_count_effort high</pre>
+            </li>
+
+            <!-- Step 3 -->
+            <li>
+                <h3>Define the Clock NDR Rule</h3>
+                <p><strong>What it does:</strong> Creates a Non-Default Routing Rule named <code>CLK_NDR_RULE</code> that specifies wider metal and increased spacing on M4 for clock net segments. This rule must be defined before it can be assigned to any nets.</p>
+                <pre class="code-block">create_route_rule -name CLK_NDR_RULE -width {M4 0.4} -spacing {M4 0.4}</pre>
+                <div class="info-card" style="margin-top: 10px;">
+                    <strong>Why define the rule before assignment?</strong> In Innovus, NDR rules are named objects that must exist in the database before they can be referenced. The <code>assign_route_rules</code> command looks up the rule by name — if the rule does not exist yet, the assignment fails with an error. Always call <code>create_route_rule</code> before <code>assign_route_rules</code>.
+                </div>
+            </li>
+
+            <!-- Step 4 -->
+            <li>
+                <h3>Assign NDR to Clock Propagated Nets</h3>
+                <p><strong>What it does:</strong> Assigns the <code>CLK_NDR_RULE</code> to all propagated clock nets. Propagated nets are the nets that Innovus uses to physically route the clock tree — these are the nets that carry the clock signal from the source through all CTS buffers to the flip-flop clock pins.</p>
+                <pre class="code-block">assign_route_rules \
+    -non_default_rule CLK_NDR_RULE \
+    -nets [get_db [get_db clocks *] .propagated_nets]</pre>
+                <div class="info-card" style="margin-top: 10px;">
+                    <code>[get_db [get_db clocks *] .propagated_nets]</code> retrieves all nets that belong to the propagated clock network — these are the nets that will receive 2x spacing and 2x width on M4 during detail routing.
+                </div>
+            </li>
+
+            <!-- Step 5 -->
+            <li>
+                <h3>Run Global Routing (<code>route_global</code>)</h3>
+                <p><strong>What it does:</strong> Assigns all signal nets to routing channels at the G-cell (global routing cell) granularity. This step establishes the overall routing topology — which net goes through which routing region — without yet committing exact track assignments. Global routing is fast and identifies congestion hotspots before detail routing begins.</p>
+                <pre class="code-block">route_global -effort medium</pre>
+                <div class="info-card" style="margin-top: 10px;">
+                    <strong>What to check:</strong> Global routing congestion map in the Innovus GUI. Red hotspots indicate regions where more nets need routing tracks than are available — these regions may cause detail routing failures if not addressed (by adjusting placement or relaxing routing rules).
+                </div>
+            </li>
+
+            <!-- Step 6 -->
+            <li>
+                <h3>Run Detail Routing (<code>route_detail</code>)</h3>
+                <p><strong>What it does:</strong> Completes the exact wire and via assignments for every net, respecting all DRC rules (minimum width, minimum spacing, enclosure, antenna). This is the most computationally intensive step in the routing flow — it assigns every track and via to complete the physical connections.</p>
+                <pre class="code-block">route_detail -effort medium</pre>
+                <div class="info-card" style="margin-top: 10px;">
+                    <strong>What to check:</strong> DRC violation count printed at the end of <code>route_detail</code>. Zero violations is ideal but rarely achieved on the first pass for complex designs — antenna violations and a small number of DRC errors are common and are fixed in the next steps.
+                </div>
+            </li>
+
+            <!-- Step 7 -->
+            <li>
+                <h3>Fix Antenna Violations (<code>route_fix_antenna</code>)</h3>
+                <p><strong>What it does:</strong> Iteratively fixes antenna violations introduced during detail routing. For each violating net, Innovus either inserts a diode (antenna protection cell) at the gate input or modifies the routing to add a via that breaks the antenna length by jumping to a higher metal layer.</p>
+                <pre class="code-block">route_fix_antenna</pre>
+                <div class="info-card" style="margin-top: 10px;">
+                    <strong>What to check:</strong> Antenna violation count before and after — should drop to near zero. Any remaining antenna violations after <code>route_fix_antenna</code> require manual intervention (usually by increasing the max loops parameter or adjusting antenna diode availability).
+                </div>
+            </li>
+
+            <!-- Step 8 -->
+            <li>
+                <h3>Verify DRC and Connectivity</h3>
+                <pre class="code-block">verify_drc > ../reports/route_drc.rpt</pre>
+                <div class="info-card" style="margin-top: 8px; margin-bottom: 12px;">
+                    <strong>What to check:</strong> Total DRC violation count. Zero errors confirms the routed design is fully DRC-clean. Any remaining violations must be resolved before tape-out.
+                </div>
+
+                <pre class="code-block">verify_connectivity -type all > ../reports/connectivity.rpt</pre>
+                <div class="info-card" style="margin-top: 8px; margin-bottom: 12px;">
+                    <strong>What to check:</strong> No open nets (nets with unconnected pins) and no short circuits (unintended connections between different nets). Both open and short connectivity errors are critical failures.
+                </div>
+
+                <pre class="code-block">report_route_drc > ../reports/drc_summary.rpt</pre>
+                <div class="info-card" style="margin-top: 8px;">
+                    <strong>What to check:</strong> Categorized DRC summary — shows counts by rule type (spacing, width, antenna, enclosure). Use this to identify which rule categories have remaining violations.
+                </div>
+            </li>
+
+            <!-- Step 9 -->
+            <li>
+                <h3>Save the Routed Database</h3>
+                <pre class="code-block">write_db ../outputs/${design_name}_routed.db</pre>
+                <div class="info-card" style="margin-top: 10px;">
+                    The routed database is saved as <code>tile_routed.db</code>. This is the input to chip finishing (metal fill, sign-off DRC/LVS, timing sign-off with extracted parasitics).
+                </div>
+            </li>
+
+        </ul>
+    </div>
+
+    <!-- Success Criteria -->
+    <div class="content-box">
+        <h2 class="section-title">&#9989; Success Criteria</h2>
+        <div class="validation-box">
+            <h4 style="margin-bottom: 15px; color: #0c5460;">Routing is complete when ALL of the following are true:</h4>
+            <ul style="margin-left: 20px; line-height: 2.2; color: #0c5460;">
+                <li><code>CLK_NDR_RULE</code> created and assigned to all clock propagated nets before routing</li>
+                <li><code>route_global</code> completes with acceptable congestion (no overflowed G-cells)</li>
+                <li><code>route_detail</code> completes with 0 or minimal DRC violations</li>
+                <li><code>route_fix_antenna</code> resolves all antenna violations</li>
+                <li><code>../reports/route_drc.rpt</code> — 0 DRC violations</li>
+                <li><code>../reports/connectivity.rpt</code> — 0 opens, 0 shorts</li>
+                <li><code>../outputs/tile_routed.db</code> exists on disk</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Validation -->
+    <div class="content-box">
+        <h2 class="section-title">&#128270; Validation and Verification</h2>
+        <pre class="code-block">make verify</pre>
+    </div>
+
+    <!-- Complete Script Reference -->
+    <div class="content-box">
+        <h2 class="section-title">&#128196; Complete routing.tcl — Reference Script</h2>
+        <pre class="code-block"><span style="color:#75715e"># routing.tcl — Innovus Signal Net Routing
+# Design: tile  |  Tool: Cadence Innovus</span>
+
+read_db ../inputs/tile_cts.db
+
+set design_name tile
+
+<span style="color:#75715e"># Step 1: Set routing options</span>
+set_db route_design_antenna_insertion_max_loops 10
+set_db route_design_with_si_driven true
+set_db route_design_concurrent_minimize_via_count_effort high
+
+<span style="color:#75715e"># Step 2: Define CLK NDR rule BEFORE assigning it</span>
+create_route_rule -name CLK_NDR_RULE -width {M4 0.4} -spacing {M4 0.4}
+
+<span style="color:#75715e"># Step 3: Assign NDR to clock propagated nets</span>
+assign_route_rules \
+    -non_default_rule CLK_NDR_RULE \
+    -nets [get_db [get_db clocks *] .propagated_nets]
+
+<span style="color:#75715e"># Step 4: Global routing</span>
+route_global -effort medium
+
+<span style="color:#75715e"># Step 5: Detail routing</span>
+route_detail -effort medium
+
+<span style="color:#75715e"># Step 6: Antenna repair</span>
+route_fix_antenna
+
+<span style="color:#75715e"># Step 7: DRC and connectivity verification</span>
+verify_drc > ../reports/route_drc.rpt
+verify_connectivity -type all > ../reports/connectivity.rpt
+report_route_drc > ../reports/drc_summary.rpt
+
+<span style="color:#75715e"># Step 8: Save routed database</span>
+write_db ../outputs/${design_name}_routed.odb
+puts "INFO: Routing completed successfully for $design_name"</pre>
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128218; Knowledge Assessment Quiz</h2>
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. The antenna effect is a manufacturing reliability issue that occurs during chip fabrication. What is the physical mechanism that causes it?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">High current through metal wires during electrostatic discharge events damages the gate oxide of nearby transistors</li>
+                    <li data-correct="false">Thermal stress during metal deposition causes metal atoms to migrate toward transistor gates, reducing their oxide thickness</li>
+                    <li data-correct="true">During plasma etching of metal layers, ions in the plasma bombard exposed metal surfaces. Long floating metal segments act like antennas, accumulating this charge. If the accumulated charge has no other discharge path, it tunnels through the thin gate oxide of any connected transistor, permanently damaging it</li>
+                    <li data-correct="false">Voltage spikes during testing of finished wafers break down gate oxide when test vectors exercise long interconnect paths</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> During wafer fabrication, plasma etching processes are used to pattern metal layers. The plasma contains ionized particles that continuously bombard the wafer surface. A long metal wire connected only to a gate input (with no other discharge path) acts as a charge collector — it accumulates plasma charge proportional to its area. When accumulated charge density becomes too high, it discharges through the only available path: the thin gate oxide of the connected transistor. This gate oxide damage is permanent and can make the transistor non-functional, reducing manufacturing yield. Advanced nodes are more susceptible because thinner gate oxides have lower breakdown charge.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. How do routing tools detect and quantify antenna violations?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">By measuring the electrical resistance of each routed wire — high resistance indicates dangerously long antenna exposure</li>
+                    <li data-correct="false">By counting the number of vias on each net — more vias mean the signal passes through more etch steps, accumulating more charge</li>
+                    <li data-correct="true">By calculating the Antenna Ratio = Metal Area (of the floating segment below the via connecting to the gate) / Gate Oxide Area (of the connected transistor gate). If this ratio exceeds the foundry-specified limit, the net has an antenna violation</li>
+                    <li data-correct="false">By comparing wire width to minimum width rules — wires wider than 2× minimum are flagged as antenna risks due to excess charge collection area</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Antenna Ratio = Metal Area / Gate Area. The metal area represents the exposed charge-collecting surface during etching of that layer. The gate area determines how much charge can be safely absorbed before oxide breakdown. Foundries specify a maximum allowable antenna ratio for each metal layer in their process design rules. For example, if M3 has a maximum antenna ratio of 400:1, a M3 segment of 400 µm² can safely connect to a gate of 1 µm² area. Exceeding this ratio means the accumulated charge during M3 etching can damage that gate. The router checks every net's geometry against these foundry-specified limits.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. Layer jumping (layer hopping) is one of two common antenna fixing techniques. How does it reduce the antenna ratio?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Layer jumping inserts a short wire segment on M1 near the gate, providing a low-resistance ground path that drains accumulated charge safely</li>
+                    <li data-correct="false">Layer jumping reroutes the wire to a higher metal layer where the foundry permits larger antenna ratios due to thicker oxide protection</li>
+                    <li data-correct="true">Layer jumping inserts a via to a higher metal layer partway along the long wire, breaking the continuous lower-layer metal segment into a shorter segment. The charge that accumulated on the lower-layer portion before the via is now discharged through the upper layer when that layer's routing connects to a diffusion node (source/drain). The shorter lower-layer segment has less area, giving a lower antenna ratio</li>
+                    <li data-correct="false">Layer jumping routes an identical copy of the wire on a different layer in parallel, and the two copies share the accumulated charge, halving the effective antenna ratio per layer</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Metal layers are processed sequentially from M1 upward. At the moment M3 is being etched, M1 and M2 have already been connected to diffusion nodes (which provide discharge paths). By inserting a via from M3 to M4 partway along the long M3 segment — before the problematic area accumulates too much charge — the charge on that M3 segment can drain through M4 down to M2 down to M1 down to a diffusion node that was connected at a lower layer. The key constraint is that layer jumps go up (not down) because lower layers are already processed and cannot receive new vias during upper-layer etching steps.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. What are the three main stages of the routing flow, in order?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Track assignment → Global routing → Detailed routing → Search and Repair</li>
+                    <li data-correct="false">Detailed routing → Global routing → Track assignment</li>
+                    <li data-correct="true">Global routing → Track assignment → Detailed routing (followed by Search and Repair for DRC fixing)</li>
+                    <li data-correct="false">Global routing → Detailed routing → Via optimization → Track assignment</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Routing proceeds in three stages: (1) Global routing — coarse routing that assigns each net to routing regions (bins) without specifying exact wire geometry; determines routing paths and identifies congested areas; (2) Track assignment — assigns specific routing tracks (exact wire positions on each metal layer) to each global route segment, resolving track conflicts; (3) Detailed routing — performs exact wire shaping, via insertion, and DRC-clean geometry for every net. After detailed routing, Search and Repair (S&R) iteratively finds and fixes remaining DRC violations. Each stage refines the previous: global routing plans routes, track assignment places them on tracks, detail routing makes them DRC-legal.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Next Step -->
+    <div class="content-box">
+        <h2 class="section-title">&#127881; Next Step</h2>
+        <div class="section-content">
+            <p>You have completed the guided routing for <strong>tile</strong>. You configured routing options, defined and assigned an NDR clock rule, ran global and detail routing, fixed antenna violations, and verified the routed database.</p>
+            <p>&#128640; Apply these skills in the Challenge Testcase — find and fix the bug where <code>CLK_NDR_RULE</code> is referenced before it is defined, and where the minimum signal routing layer is incorrectly set to M1.</p>
+        </div>
+        <div class="nav-buttons">
+            <a href="../PNR-CDN-RT.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+            <a href="../TC-PNR-CDN-RT-CH-001/TC-PNR-CDN-RT-CH-001.html" class="btn btn-success">Continue to Challenge Testcase &#8594;</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    var LAB_ID = 'PNR-CDN-RT';
+    var TESTCASE_NUM = '1';
+
+    function copyCode(btn) {
+        const container = btn.closest('.code-container');
+        const codeBlock = container.querySelector('.code-block');
+        const text = codeBlock.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            btn.textContent = '\u2713 Copied!';
+            btn.style.background = '#28a745';
+            setTimeout(() => { btn.textContent = 'Copy'; btn.style.background = '#374151'; }, 2000);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('pre.code-block').forEach(function (pre) {
+            if (pre.closest('.code-container')) return;
+            const container = document.createElement('div');
+            container.className = 'code-container';
+            const btn = document.createElement('button');
+            btn.className = 'copy-button';
+            btn.textContent = 'Copy';
+            btn.setAttribute('onclick', 'copyCode(this)');
+            pre.parentNode.insertBefore(container, pre);
+            container.appendChild(btn);
+            container.appendChild(pre);
+            pre.style.margin = '0';
+            pre.style.background = 'transparent';
+            pre.style.boxShadow = 'none';
+            pre.style.borderRadius = '0';
+        });
+    });
+</script>
+<script src="../common/interactive.js"></script>
+</body>
+</html>

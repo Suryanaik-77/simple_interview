@@ -87,7 +87,7 @@
         <h2 class="section-title">Challenge</h2>
         <div class="info-card">
             <p>The AES cipher top design has been synthesized using Synopsys Design Compiler targeting TSMC 28nm. The synthesis run inserted clock-gating cells and produced an SVF file recording all structural transformations.</p>
-            <p style="margin-top: 0.75rem;">The <code>scripts/formality.tcl</code> file in your testcase directory is <strong>empty</strong>. You must write the complete Formality LEC script from scratch so that <code>make all</code> produces <strong>Verification SUCCEEDED</strong> and generates all six equivalence report files.</p>
+            <p style="margin-top: 0.75rem;">Your task is to run a complete Formality LEC session by typing each command interactively at the <code>fm_shell&gt;</code> prompt. Launch the tool with <code>make run</code> and drive the verification flow yourself until you achieve <strong>Verification SUCCEEDED</strong> and all six equivalence report files are generated.</p>
         </div>
         <p style="margin-top: 1rem;">Apply everything you practiced in TC-GD-001. Pay particular attention to the clock-gate attributes &#8212; all three must be set, including the one that caused the guided testcase to fail initially.</p>
     </div>
@@ -129,13 +129,13 @@
 
         <div class="info-card" style="margin-top: 1rem;">
             <strong>RTL source paths (5 files):</strong>
-            <pre style="margin-top: 0.5rem; font-size: 0.85rem; color: #374151;">/proj1/santosh/Sources/HDL/aes/aes_cipher_top.v
-/proj1/santosh/Sources/HDL/aes/aes_key_expand_128.v
-/proj1/santosh/Sources/HDL/aes/aes_rcon.v
-/proj1/santosh/Sources/HDL/aes/aes_sbox.v
-/proj1/santosh/Sources/HDL/aes/timescale.v</pre>
+            <pre class="code-block">/efs/semicon_labs_pd/designs/aes_core/aes_cipher_top.v
+/efs/semicon_labs_pd/designs/aes_core/aes_key_expand_128.v
+/efs/semicon_labs_pd/designs/aes_core/aes_rcon.v
+/efs/semicon_labs_pd/designs/aes_core/aes_sbox.v
+/efs/semicon_labs_pd/designs/aes_core/timescale.v</pre>
             <strong>Technology library .db paths (3 files, TSMC 28nm HPHP BWP35 SSG corner):</strong>
-            <pre style="margin-top: 0.5rem; font-size: 0.85rem; color: #374151;">/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lib/ccs/tcbn28hpcbwp35p140ssg0p81vm40c_ccs.db
+            <pre class="code-block">/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lib/ccs/tcbn28hpcbwp35p140ssg0p81vm40c_ccs.db
 /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/lib/ccs/tcbn28hpcbwp35p140lvtssg0p81vm40c_ccs.db
 /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/lib/ccs/tcbn28hpcbwp35p140hvtssg0p81vm40c_ccs.db</pre>
         </div>
@@ -145,7 +145,7 @@
     <div class="content-box">
         <h2 class="section-title">Requirements &amp; Deliverables</h2>
         <ul style="color:#555; line-height:2.2;">
-            <li>Write <code>scripts/formality.tcl</code> so that <code>fm_shell -f formality.tcl</code> completes without errors</li>
+            <li>Type all required commands interactively at the <code>fm_shell&gt;</code> prompt until verification completes without errors</li>
             <li>All required clock-gate verification attributes set correctly</li>
             <li>Achieve <code>Verification SUCCEEDED</code> in <code>logs/formality.log</code></li>
             <li>No lines starting with <code>Error</code> in the log</li>
@@ -160,26 +160,22 @@
         <ul class="step-list">
             <li>
                 <strong>Navigate to the challenge testcase</strong>
-                <div class="code-container"><pre class="code">cd ~/pd/labs/LEC-SNPS-CG/TC-LEC-SNPS-CG-CH-001
+                <pre class="code-block">cd ~/pd/labs/LEC-SNPS-CG/TC-LEC-SNPS-CG-CH-001
 ls inputs/
-# Expected: aes_cipher_top.v   default.svf</pre></div>
+# Expected: aes_cipher_top.v   default.svf</pre>
             </li>
             <li>
-                <strong>Write the Formality script</strong>
-                <div class="code-container"><pre class="code">vi scripts/formality.tcl</pre></div>
-                <p>Fill in all required commands in the correct order. Remember: SVF must be loaded before any <code>read_verilog</code>.</p>
-            </li>
-            <li>
-                <strong>Run Formality</strong>
-                <div class="code-container"><pre class="code">make run</pre></div>
+                <strong>Launch fm_shell interactively</strong>
+                <pre class="code-block">make run</pre>
+                <p>Type each command at the <code>fm_shell&gt;</code> prompt in the correct order. Remember: SVF must be loaded before any <code>read_verilog</code>.</p>
             </li>
             <li>
                 <strong>Inspect the log</strong>
-                <div class="code-container"><pre class="code">grep -i "verification\|error\|fail\|clock.gate" logs/formality.log</pre></div>
+                <pre class="code-block">grep -i "verification\|error\|fail\|clock.gate" logs/formality.log</pre>
             </li>
             <li>
                 <strong>Verify</strong>
-                <div class="code-container"><pre class="code">make verify</pre></div>
+                <pre class="code-block">make verify</pre>
             </li>
         </ul>
     </div>
@@ -224,7 +220,7 @@ ls inputs/
             <summary>Hint 3 &#8212; Report commands</summary>
             <div class="hint-body">
                 <p>The six report commands are:</p>
-                <pre style="font-size:0.85rem;">report_passing_points   &gt; ../reports/report_passing_points.rpt
+                <pre class="code-block">report_passing_points   &gt; ../reports/report_passing_points.rpt
 report_verify_points    &gt; ../reports/report_verify_points.rpt
 report_failing_points   &gt; ../reports/report_failing_points.rpt
 report_matched_points   &gt; ../reports/report_matched_points.rpt
@@ -253,7 +249,7 @@ report_black_boxes      &gt; ../reports/report_black_boxes.rpt</pre>
     <!-- Validation -->
     <div class="content-box">
         <h2 class="section-title">Validation &amp; Verification</h2>
-        <div class="code-container"><pre class="code">make verify</pre></div>
+        <pre class="code-block">make verify</pre>
     </div>
 
     <!-- Quiz -->

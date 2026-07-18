@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challenge: Logic-Aware Synthesis with DC Shell — SYN-SNPS-LS</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        .step-list li ul li {
+            counter-increment: none;
+            border-left: none;
+            background: transparent;
+            padding: 4px 0;
+            margin: 4px 0;
+        }
+        .step-list li ul li::before {
+            display: none;
+        }
+        details {
+            margin: 12px 0;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        details summary {
+            padding: 12px 16px;
+            background: #f3f4f6;
+            cursor: pointer;
+            font-weight: 600;
+            color: #374151;
+            user-select: none;
+        }
+        details summary:hover { background: #e5e7eb; }
+        details .hint-content {
+            padding: 16px;
+            background: white;
+            color: #555;
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Challenge: Logic-Aware Synthesis with DC Shell &mdash; iguana_soc</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#128205; <a href="../SYN-SNPS-LS.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Challenge</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#127919; Type: Independent Work</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201; Estimated Time: 90&ndash;120 minutes</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#11088;&#11088; Difficulty: Medium</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Challenge Problem -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Challenge Problem</h2>
+                <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+            </div>
+            <div class="section-content">
+                <p>
+                    You have an empty synthesis script at <code>scripts/dc_syn.tcl</code>.
+                    Your task is to write all the DC Shell commands needed to synthesize the
+                    <strong>iguana_soc</strong> open-source SoC design, then run it using <code>make run</code>.
+                </p>
+                <p style="margin-top: 12px;">
+                    Apply everything you learned in Testcase 1. The overall flow is the same &mdash;
+                    configure search paths, load libraries, read RTL, elaborate, apply constraints, compile, write outputs.
+                    However, this design is larger, uses <strong>SystemVerilog</strong>, and has
+                    <strong>six asynchronous clock domains</strong>. A few commands will have small
+                    differences that you will need to figure out.
+                </p>
+                <p style="margin-top: 12px;">
+                    No step-by-step instructions are provided. Use the design information, library paths,
+                    and hints on this page together with your Testcase 1 script as a reference.
+                </p>
+            </div>
+        </div>
+
+        <!-- Design Information -->
+        <div class="content-box">
+            <h2 class="section-title">&#128214; Design Information</h2>
+            <div class="section-content">
+                <p>
+                    <strong>iguana_soc</strong> is an open-source RISC-V SoC integrating a CVA6 application
+                    processor core, JTAG debug, USB, HyperBus, and serial-link interfaces.
+                    Unlike the tile design from Testcase 1, iguana_soc:
+                </p>
+                <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.9; list-style-type: disc;">
+                    <li>Is written in <strong>SystemVerilog</strong> (not plain Verilog)</li>
+                    <li>Has <strong>six independent asynchronous clock domains</strong></li>
+                    <li>Contains <strong>three PSRAM macro instances</strong> with their own timing models</li>
+                </ul>
+
+                <p style="margin-top: 20px;"><strong>Input files provided:</strong></p>
+                <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9; list-style-type: disc;">
+                    <li><code>inputs/iguana_soc_rtl.fl</code> &mdash; Tcl filelist that sets <code>$ver_files</code> to the RTL source paths</li>
+                    <li><code>inputs/iguana.sdc</code> &mdash; timing constraints for all six clock domains</li>
+                </ul>
+
+                <p style="margin-top: 20px;"><strong>Clock domains defined in <code>iguana.sdc</code>:</strong></p>
+                <table style="margin-top: 10px;">
+                    <thead>
+                        <tr>
+                            <th>Clock name</th>
+                            <th>Port</th>
+                            <th>Period</th>
+                            <th>Domain</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>clk_sys</code></td><td><code>clk_i</code></td><td>11.0 ns</td><td>Core, peripherals</td></tr>
+                        <tr><td><code>clk_jtg</code></td><td><code>jtag_tck_i</code></td><td>40.0 ns</td><td>JTAG debug</td></tr>
+                        <tr><td><code>clk_rtc</code></td><td><code>rtc_i</code></td><td>50.0 ns</td><td>Real-time clock</td></tr>
+                        <tr><td><code>clk_sli</code></td><td><code>slink_rcv_clk_i</code></td><td>44.0 ns</td><td>Serial link PHY</td></tr>
+                        <tr><td><code>clk_usb</code></td><td><code>usb_clk_i</code></td><td>~20.8 ns</td><td>USB PHY</td></tr>
+                        <tr><td><code>clk_hyp_rwdsi</code></td><td><code>hyper_rwds_i</code></td><td>11.0 ns</td><td>HyperBus RWDS</td></tr>
+                    </tbody>
+                </table>
+                <div class="info-card" style="margin-top: 15px;">
+                    <strong>Note on asynchronous clocks:</strong> The SDC uses
+                    <code>set_clock_groups -asynchronous</code> to tell DC Shell not to analyze timing
+                    paths crossing between these domains. Those paths are handled by CDC synchronizers in RTL.
+                    Without this command DC Shell would try to meet impossible inter-domain timing and generate
+                    misleading violations.
+                </div>
+            </div>
+        </div>
+
+        <!-- Library Paths -->
+        <div class="content-box">
+            <h2 class="section-title">&#128190; Library Paths</h2>
+            <div class="section-content">
+                <p>Use the following paths in your <code>set_search_path</code>, <code>set_target_library</code>, and <code>set_link_library</code> commands.</p>
+
+                <p style="margin-top: 18px;"><strong>Standard cell library directories (TSMC 28 nm HPHP, SSG corner, &minus;40&deg;C):</strong></p>
+                <div class="code-container"><pre class="code-block">/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/lib/ccs
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/lib/ccs
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lib/ccs</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>Standard cell <code>.db</code> filenames (for <code>set_target_library</code> and <code>set_link_library</code>):</strong></p>
+                <div class="code-container"><pre class="code-block">tcbn28hpcplusbwp40p140hvtssg0p81vm40c_ccs.db
+tcbn28hpcplusbwp40p140lvtssg0p81vm40c_ccs.db
+tcbn28hpcplusbwp40p140ssg0p81vm40c_ccs.db</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>PSRAM macro library directories (for <code>set_search_path</code>):</strong></p>
+                <div class="code-container"><pre class="code-block">../../pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/iguana_mems/TS281PSRAM2048x64M8/lib
+../../pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/iguana_mems/TS281PSRAM256x48M8/lib
+../../pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/iguana_mems/TS281PSRAM256x64M8/lib</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>PSRAM macro <code>.db</code> filenames (for <code>set_link_library</code>):</strong></p>
+                <div class="code-container"><pre class="code-block">TS281PSRAM2048x64M8_ssg_cworstt_0p81v_0p81v_m40c.db
+TS281PSRAM256x48M8_ssg_cworstt_0p81v_0p81v_m40c.db
+TS281PSRAM256x64M8_ssg_cworstt_0p81v_0p81v_m40c.db</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+
+                <div class="info-card" style="margin-top: 15px;">
+                    <strong>Reminder:</strong> Standard cell directories and PSRAM macro directories both go in
+                    <code>set_search_path</code>. Standard cell filenames go in both <code>set_target_library</code>
+                    and <code>set_link_library</code>. PSRAM macro filenames go only in <code>set_link_library</code>
+                    (along with <code>*</code>). The <code>../../pdk</code> symlink is created by <code>setup_lab.sh</code>
+                    at the lab root.
+                </div>
+            </div>
+        </div>
+
+        <!-- Requirements -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Requirements &amp; Deliverables</h2>
+            <div class="section-content">
+                <p>Your synthesis script must produce the following outputs:</p>
+                <ul style="margin-left: 20px; margin-top: 12px; line-height: 2; list-style-type: disc;">
+                    <li><code>outputs/iguana_soc_synthesis.v</code> &mdash; gate-level netlist written by <code>write_file -format verilog</code></li>
+                    <li><code>outputs/iguana_soc_synthesis.ddc</code> &mdash; design database written by <code>write_file -format ddc</code></li>
+                    <li><code>reports/report_qor.rpt</code> &mdash; quality-of-results report</li>
+                    <li><code>make verify</code> exits with OVERALL: PASS for all checks</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Recommended Workflow -->
+        <div class="content-box">
+            <h2 class="section-title">&#128203; Recommended Workflow</h2>
+            <div class="section-content">
+                <p>The lab environment is already set up by <code>setup_lab.sh</code>. Navigate to the testcase directory and run the flow.</p>
+                <div class="code-container"><pre class="code-block">cd ~/pd/labs/SYN-SNPS-LS/TC-SYN-SNPS-LS-CH-001
+
+# Edit scripts/dc_syn.tcl and write your synthesis commands
+
+make run
+# Starts DC Shell non-interactively using your script
+# Watch the log at logs/dc_synthesis.log for errors
+
+make verify</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+                <div class="info-card" style="margin-top: 15px;">
+                    <strong>Runtime note:</strong> iguana_soc is a large SoC. Full synthesis with
+                    <code>compile_ultra</code> takes several hours.
+                    Make sure your script reads and elaborates the design without errors before
+                    leaving it to run unattended.
+                </div>
+            </div>
+        </div>
+
+        <!-- Hints -->
+        <div class="content-box">
+            <h2 class="section-title">&#128161; Hints</h2>
+
+            <details>
+                <summary>Hint 1: Reading the RTL for iguana_soc</summary>
+                <div class="hint-content">
+                    <p>
+                        The filelist <code>inputs/iguana_soc_rtl.fl</code> is a Tcl script that sets
+                        the variable <code>$ver_files</code> to the RTL source paths. Source it first,
+                        then pass that variable to <code>analyze</code>.
+                    </p>
+                    <p style="margin-top: 10px;">
+                        iguana_soc uses SystemVerilog constructs (interfaces, packages, <code>logic</code>,
+                        <code>always_ff</code>). Check the <code>analyze</code> command documentation for the
+                        format flag that enables SystemVerilog parsing &mdash; it was not needed in Testcase 1
+                        where the design was plain Verilog.
+                    </p>
+                </div>
+            </details>
+
+            <details>
+                <summary>Hint 2: Clock gating cell and set_dont_use</summary>
+                <div class="hint-content">
+                    <p>
+                        Apply the same <code>set_dont_use</code> strategy as Testcase 1 to block LVT cells
+                        and clock-tree cells. Use the same <code>remove_from_collection</code> pattern to
+                        re-enable <code>CKLNQD8BWP40P140LVT</code> for ICG insertion:
+                    </p>
+                    <pre style="background: #f8f9fa; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.9em; overflow-x: auto;">set_dont_use [remove_from_collection [get_lib_cells {*/*CK* */*LVT*}] [get_lib_cells */CKLNQD8BWP40P140LVT]]</pre>
+                    <p style="margin-top: 10px;">
+                        The <code>set_clock_gating_style</code> command and the <code>CKLNQD8BWP40P140LVT</code>
+                        ICG cell remain the same as Testcase 1 &mdash; the gating strategy does not change
+                        between designs.
+                    </p>
+                </div>
+            </details>
+
+            <details>
+                <summary>Hint 3: Asynchronous clock domains</summary>
+                <div class="hint-content">
+                    <p>
+                        iguana_soc has six independent clock domains. The SDC file already contains
+                        <code>set_clock_groups -asynchronous</code> to prevent DC Shell from analyzing
+                        paths crossing between them. You do not need to add this yourself &mdash; just
+                        source <code>../inputs/iguana.sdc</code> as you did with <code>tile.sdc</code>
+                        in Testcase 1.
+                    </p>
+                    <p style="margin-top: 10px;">
+                        After elaboration and before running <code>compile_ultra</code>, run
+                        <code>check_timing</code> to confirm all clock domains are recognized and
+                        constrained correctly.
+                    </p>
+                </div>
+            </details>
+
+        </div>
+
+        <!-- Expected Reports -->
+        <div class="content-box">
+            <h2 class="section-title">&#128202; Expected Reports</h2>
+            <div class="section-content">
+                <p>Compare your synthesis output against these reference reports at key checkpoints.</p>
+
+                <!-- check_timing before compile -->
+                <div class="hint-box" style="margin-top: 15px;">
+                    <h4>&#128203; Expected <code>check_timing</code> Output (before compile)</h4>
+                    <p style="margin-bottom: 10px; color: #856404;">After elaboration and before <code>compile_ultra</code>, run <code>check_timing</code>. Your report should look like this.</p>
+                    <div class="code-container"><pre class="code-block">Information: Updating design information... (UID-85)
+<span style="color:#f9a825;font-weight:bold;">Warning: Design 'iguana_soc' contains 250 high-fanout nets. A fanout number of 1000 will be used for delay calculations involving these nets. (TIM-134)</span>
+<span style="color:#f9a825;font-weight:bold;">Warning: A non-unate path in clock network for clock 'clk_sys' from pin 'i_hyperbus/i_phy/genblk1.i_phy/i_trx/i_ddr_tx_rwds/i_ddrmux/i_mux/Z' is detected. (TIM-052)</span>
+Information: There are 149 clock pins driven by multiple clocks, and some of them are driven by up-to 2 clocks. (TIM-099)
+
+Information: Checking generated_clocks...
+<span style="color:#f9a825;font-weight:bold;">Warning: A non-unate path in clock network for clock 'clk_sys' from pin 'i_hyperbus/i_phy/genblk1.i_phy/i_trx/i_ddr_tx_rwds/i_ddrmux/i_mux/Z' is detected. (TIM-052)</span>
+
+Information: Checking loops...
+
+Information: Checking no_input_delay...
+
+Information: Checking unconstrained_endpoints...
+
+<span style="color:#f9a825;font-weight:bold;">Warning: The following end-points are not constrained for maximum delay.</span>
+
+End point
+---------------
+i_cheshire_soc/gen_cva6_cores.__0.i_core_cva6/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups.__3.i_opgroup_block/gen_merged_slice.i_multifmt_slice/target_regs.byp_pipe_aux_q_reg[2]/synch_enable
+i_cheshire_soc/gen_cva6_cores.__0.i_core_cva6/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups.__3.i_opgroup_block/gen_merged_slice.i_multifmt_slice/target_regs.byp_pipe_aux_q_reg[3]/synch_enable
+  .
+  .
+  .
+i_cheshire_soc/gen_vga.i_axi_vga/i_axi_burst_splitter/i_demux_supported_vs_unsupported/i_demux_simple/genblk1.i_b_mux/gen_arbiter.rr_q_reg[0]/synch_enable
+i_hyperbus/i_cdc_2phase_trans/i_src/data_src_q_reg[32]/next_state
+
+Information: Checking pulse_clock_cell_type...
+
+Information: Checking no_driving_cell...
+
+Information: Checking partial_input_delay...
+1</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+                    <p style="margin-top: 10px; color: #856404;">
+                        <strong>Warning: 250 high-fanout nets (TIM-134):</strong>
+                        DC detected 250 nets in iguana_soc that drive a very large number of loads. For delay calculation purposes, DC caps the effective fanout at 1000. This is expected for a large multi-clock SoC design and does not indicate a constraint or RTL error.
+                    </p>
+                    <p style="margin-top: 8px; color: #856404;">
+                        <strong>Warning: Non-unate path in clock network (TIM-052):</strong>
+                        The HyperBus RWDS DDR mux output (<code>i_hyperbus/.../i_ddrmux/i_mux/Z</code>) feeds the <code>clk_sys</code> clock network through a path whose polarity DC cannot determine statically. This is expected for clock mux cells that switch dynamically between two clock sources; the warning appears both before and after the generated-clocks check.
+                    </p>
+                    <p style="margin-top: 8px; color: #856404;">
+                        <strong>Info: 149 clock pins driven by multiple clocks (TIM-099):</strong>
+                        149 flip-flop clock pins are reachable from more than one clock source before compile. This is normal in a multi-clock SoC where clock muxes exist and the full tree has not yet been built.
+                    </p>
+                    <p style="margin-top: 8px; color: #856404;">
+                        <strong>Warning: Unconstrained endpoints:</strong>
+                        FPU pipeline registers (<code>byp_pipe_aux_q_reg</code>, <code>byp_pipe_target_q_reg</code>), cache state registers, USB/I2C/LLC arbitration registers, VGA AXI burst-splitter registers, and HyperBus CDC registers have no output delay or setup constraint in the SDC. Before <code>compile_ultra</code>, DC uses generic GTECH cells so register pins appear by their RTL-level names. This will change after compile once real library cells are mapped.
+                    </p>
+                </div>
+
+                <!-- check_timing after compile -->
+                <div class="hint-box" style="margin-top: 20px;">
+                    <h4>&#128203; Expected <code>check_timing</code> Output (after compile)</h4>
+                    <p style="margin-bottom: 10px; color: #856404;">After <code>compile_ultra</code> completes, run <code>check_timing</code> again. Your report should look like this.</p>
+                    <div class="code-container"><pre class="code-block">Information: Updating design information... (UID-85)
+<span style="color:#f9a825;font-weight:bold;">Warning: Design 'iguana_soc' contains 1 high-fanout nets. A fanout number of 1000 will be used for delay calculations involving these nets. (TIM-134)</span>
+<span style="color:#f9a825;font-weight:bold;">Warning: A non-unate path in clock network for clock 'clk_sys' from pin 'i_hyperbus/i_phy_genblk1_i_phy_i_trx_i_ddr_tx_rwds_i_ddrmux_i_mux/Z' is detected. (TIM-052)</span>
+Information: There are 159 clock pins driven by multiple clocks, and some of them are driven by up-to 2 clocks. (TIM-099)
+
+Information: Checking generated_clocks...
+<span style="color:#f9a825;font-weight:bold;">Warning: A non-unate path in clock network for clock 'clk_sys' from pin 'i_hyperbus/i_phy_genblk1_i_phy_i_trx_i_ddr_tx_rwds_i_ddrmux_i_mux/Z' is detected. (TIM-052)</span>
+
+Information: Checking loops...
+
+Information: Checking no_input_delay...
+
+Information: Checking unconstrained_endpoints...
+
+Information: Checking pulse_clock_cell_type...
+
+Information: Checking no_driving_cell...
+
+Information: Checking partial_input_delay...
+1</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+                    <p style="margin-top: 10px; color: #856404;">
+                        <strong>High-fanout nets drop from 250 to 1 (TIM-134):</strong>
+                        After <code>compile_ultra</code>, DC has mapped all logic to real library cells and buffer trees are inserted during optimization. Almost all high-fanout nets are resolved; only one net exceeds the threshold. The flattened name (<code>i_hyperbus_i_phy_genblk1_...</code>) now reflects the mapped netlist hierarchy separator change.
+                    </p>
+                    <p style="margin-top: 8px; color: #856404;">
+                        <strong>Warning: Non-unate path in clock network (TIM-052) persists:</strong>
+                        The HyperBus RWDS DDR mux cell is still present after compile with the same non-unate topology. The pin name changes from the dot-separator RTL form to the underscore-separator mapped form. This warning is expected and harmless.
+                    </p>
+                    <p style="margin-top: 8px; color: #856404;">
+                        <strong>Info: 159 clock pins driven by multiple clocks (TIM-099):</strong>
+                        After compile the clock tree is fully built; the count increases slightly from 149 to 159 as additional clock-tree cells are inserted. All 159 are driven by up to 2 clocks as expected for the RWDS domain.
+                    </p>
+                    <p style="margin-top: 8px; color: #856404;">
+                        <strong>No unconstrained endpoints:</strong>
+                        After compile and technology mapping, all register endpoints that appeared unconstrained before compile are now properly resolved. The <code>Checking unconstrained_endpoints...</code> section produces no warnings.
+                    </p>
+                </div>
+
+                <!-- report_qor -->
+                <div class="hint-box" style="margin-top: 20px;">
+                    <h4>&#128203; Expected Timing QoR (<code>report_qor</code>)</h4>
+                    <p style="margin-bottom: 10px; color: #856404;">Your QoR should match this. The <strong>r2r</strong> Critical Path Slack must be &ge; 0 (positive). Exact values may vary slightly with tool version and runtime.</p>
+                    <div class="code-container"><pre class="code-block">  Timing Path Group '**clock_gating_default**'
+  -----------------------------------
+  Levels of Logic:              95.00
+  Critical Path Length:          6.85
+  Critical Path Slack:           4.03
+  Critical Path Clk Period:     11.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'clk_gen_slo'
+  -----------------------------------
+  Levels of Logic:               0.00
+  Critical Path Length:          0.00
+  Critical Path Slack:          11.45
+  Critical Path Clk Period:     44.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'clk_sys'
+  -----------------------------------
+  Levels of Logic:               3.00
+  Critical Path Length:          0.13
+  Critical Path Slack:          10.75
+  Critical Path Clk Period:     11.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:         -0.11
+  Total Hold Violation:         -0.18
+  No. of Hold Violations:        2.00
+  -----------------------------------
+
+  Timing Path Group 'i2o'
+  -----------------------------------
+  Levels of Logic:               4.00
+  Critical Path Length:          0.97
+  Critical Path Slack:           7.73
+  Critical Path Clk Period:     11.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'i2r'
+  -----------------------------------
+  Levels of Logic:               0.00
+  Critical Path Length:          0.02
+  Critical Path Slack:           1.92
+  Critical Path Clk Period:     44.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'm2r'
+  -----------------------------------
+  Levels of Logic:              78.00
+  Critical Path Length:          4.12
+  Critical Path Slack:           6.75
+  Critical Path Clk Period:     11.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'r2m'
+  -----------------------------------
+  Levels of Logic:              83.00
+  Critical Path Length:          6.31
+  Critical Path Slack:           4.45
+  Critical Path Clk Period:     11.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:         -0.13
+  Total Hold Violation:       -111.01
+  No. of Hold Violations:     1040.00
+  -----------------------------------
+
+  Timing Path Group 'r2o'
+  -----------------------------------
+  Levels of Logic:               2.00
+  Critical Path Length:          0.27
+  Critical Path Slack:           0.18
+  Critical Path Clk Period:     44.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------
+
+  Timing Path Group 'r2r'
+  -----------------------------------
+  Levels of Logic:             186.00
+  Critical Path Length:         10.89
+  <span style="color:#2e7d32;font-weight:bold;">Critical Path Slack:           0.00</span>
+  Critical Path Clk Period:     11.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:         -0.02
+  Total Hold Violation:       -113.74
+  No. of Hold Violations:     8922.00
+  -----------------------------------
+
+  Timing Path Group 'default'
+  -----------------------------------
+  Levels of Logic:               0.00
+  Critical Path Length:          0.22
+  Critical Path Slack:          19.78
+  Critical Path Clk Period:       n/a
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0.00
+  Worst Hold Violation:          0.00
+  Total Hold Violation:          0.00
+  No. of Hold Violations:        0.00
+  -----------------------------------</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+                    <p style="margin-top: 10px; color: #856404;">
+                        <strong>r2r Critical Path Slack = 0.00 ns (PASS):</strong>
+                        The register-to-register path group closes timing exactly at the constraint boundary. Total Negative Slack is 0.00 and there are no setup violations. This meets the pass criterion of r2r slack &ge; 0.
+                    </p>
+                    <p style="margin-top: 8px; color: #856404;">
+                        <strong>All path groups meet setup timing:</strong>
+                        Every path group shows Total Negative Slack = 0.00 and No. of Violating Paths = 0.00, including i2o. All six clock domains are properly constrained and synthesis has closed timing across the full design.
+                    </p>
+                    <p style="margin-top: 8px; color: #856404;">
+                        <strong>Hold violations (r2r, r2m, clk_sys) are expected:</strong>
+                        Hold violations are a physical implementation concern. DC synthesis targets setup timing; hold fixing is done post-place-and-route when actual wire delays are known. Hold violations in synthesis reports are normal and do not constitute a synthesis failure.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Success Criteria / Verification -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>Run from the testcase directory after synthesis completes:</p>
+                <div class="code-container"><pre class="code-block">make verify</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+                <p style="margin-top: 12px;"><code>make verify</code> invokes the central verification script
+                    <code>scripts/verify/verify_SYN-SNPS-LS.py</code> (read-only; stored outside the user area) with
+                    <code>--lab-test-id SYN-SNPS-LS-CH-001</code>. The script uses shared utilities from
+                    <code>verify_common_utils.py</code> and performs the following checks:</p>
+                <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9; list-style-type: disc;">
+                    <li>A <code>.ddc</code> file exists in <code>outputs/</code> &mdash; synthesis database</li>
+                    <li>A <code>.v</code> file exists in <code>outputs/</code> &mdash; gate-level netlist</li>
+                    <li>A <code>.sdc</code> file exists in <code>outputs/</code> &mdash; written constraints</li>
+                    <li><code>reports/check_timing_after_compile.rpt</code> matches expected values:
+                        TIM-134 (1 high-fanout net, iguana_soc), TIM-052 (non-unate clk_sys path),
+                        TIM-099 (159 clock pins), no unconstrained endpoints, partial_input_delay = 1</li>
+                    <li><code>reports/report_qor.rpt</code> r2r Critical Path Slack &ge; 0 ns (positive slack, 0 setup violations)</li>
+                </ul>
+                <p style="margin-top: 12px;">All checks passing &rarr; <strong>OVERALL: PASS</strong>. Any failure &rarr; <strong>OVERALL: FAIL</strong>.
+                    Results are saved to <code>results.csv</code> and <code>overall_result.csv</code>, and the outcome
+                    is automatically posted to the lab dashboard.</p>
+            </div>
+
+            <div class="validation-box" style="margin-top: 20px;">
+                <h4>&#9989; Success Criteria</h4>
+                <ul style="margin-left: 20px; margin-top: 10px; list-style-type: disc;">
+                    <li>Output files present: <code>.ddc</code>, <code>.v</code>, <code>.sdc</code> in <code>outputs/</code></li>
+                    <li><code>check_timing_after_compile.rpt</code>: TIM-134 (1 net / iguana_soc), TIM-052 (non-unate clk_sys), TIM-099 (159 pins), no unconstrained endpoints, partial_input_delay = 1</li>
+                    <li>r2r Critical Path Slack &ge; 0 ns &mdash; zero setup violations in the register-to-register path group</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. iguana_soc uses <code>set_clock_groups -asynchronous</code> in its SDC. What does this tell DC Shell?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">It disables timing analysis for all clocks in the design.</li>
+                        <li onclick="checkAnswer(this, false)">It sets the clock uncertainty to zero for asynchronous paths.</li>
+                        <li onclick="checkAnswer(this, true)">It tells DC Shell not to analyze timing paths that cross between the listed clock groups, since those paths are handled by CDC synchronizers in RTL.</li>
+                        <li onclick="checkAnswer(this, false)">It marks all clocks as generated clocks derived from a single master clock.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Paths crossing asynchronous clock boundaries are handled by dedicated CDC synchronizers in RTL. Without <code>set_clock_groups -asynchronous</code>, DC Shell would try to meet timing on those paths and generate misleading violations.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. The <code>analyze</code> command for iguana_soc requires a different format flag than Testcase 1. What is it and why?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)"><code>-format vhdl</code>, because iguana_soc uses mixed Verilog/VHDL sources.</li>
+                        <li onclick="checkAnswer(this, true)"><code>-format sverilog</code>, because iguana_soc is written in SystemVerilog which has constructs (interfaces, packages, <code>logic</code>, <code>always_ff</code>) that the standard Verilog parser does not support.</li>
+                        <li onclick="checkAnswer(this, false)"><code>-format db</code>, because iguana_soc RTL is pre-compiled into a binary format.</li>
+                        <li onclick="checkAnswer(this, false)"><code>-format verilog</code> works for SystemVerilog too; no flag change is needed.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> iguana_soc is written in SystemVerilog. Passing <code>-format sverilog</code> to <code>analyze</code> enables the SystemVerilog parser so constructs like <code>interface</code>, <code>package</code>, <code>logic</code>, and <code>always_ff</code> are recognized correctly.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. Why are PSRAM macro <code>.db</code> files added to <code>set_link_library</code> but NOT to <code>set_target_library</code>?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">DC Shell cannot read PSRAM .db files; they must be specified separately.</li>
+                        <li onclick="checkAnswer(this, false)">PSRAM macros are automatically included when set_search_path directories are configured.</li>
+                        <li onclick="checkAnswer(this, true)">set_target_library contains only cells DC Shell can map logic onto. PSRAM macros are fixed black boxes &mdash; DC Shell uses their timing models for analysis but cannot place logic inside them.</li>
+                        <li onclick="checkAnswer(this, false)">PSRAM macros are only needed for place-and-route, not synthesis timing analysis.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> <code>set_target_library</code> is for cells DC Shell selects during technology mapping. PSRAM macros are hard macros &mdash; their internal logic is fixed. They only appear in <code>set_link_library</code> so DC Shell can check timing at their ports.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. After <code>compile_ultra -gate_clock</code> finishes, what should you check first in the reports?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">report_design, to confirm the correct top-level module was synthesized.</li>
+                        <li onclick="checkAnswer(this, false)">report_power, to verify clock gating reduced dynamic power.</li>
+                        <li onclick="checkAnswer(this, true)">report_qor, which shows worst negative slack (WNS), total negative slack (TNS), and number of violating paths &mdash; the primary indicators of timing closure.</li>
+                        <li onclick="checkAnswer(this, false)">check_design, to confirm there are no unconnected ports before checking timing.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> <code>report_qor</code> is always the first report to check after compilation. WNS and TNS immediately tell you whether the design closed timing. If WNS is negative, you have violations to investigate in <code>report_timing</code>.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../SYN-SNPS-LS.html" class="btn btn-back">&larr; Back to Lab Home</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../TC-SYN-SNPS-LS-GD-001/TC-SYN-SNPS-LS-GD-001.html" class="btn btn-secondary">&larr; Back to Testcase 1</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = '30';
+        const TESTCASE_NUM = '2';
+        function copyCode(btn) {
+            var text = btn.closest('.code-container').querySelector('.code-block').textContent.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    btn.textContent = 'Copied';
+                    setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+                });
+            } else {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;top:-9999px;opacity:0;';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(ta);
+                btn.textContent = 'Copied';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+            }
+        }
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        function checkAnswer(el, isCorrect) {
+            var question = el.closest('.quiz-question');
+            if (question.querySelector('.correct-answer')) return;
+            var options = question.querySelectorAll('.quiz-options li');
+            var feedback = question.querySelector('.feedback');
+            var answer = question.querySelector('.answer');
+            options.forEach(function(opt) {
+                opt.classList.remove('selected', 'quiz-option-selected', 'wrong-answer');
+            });
+            if (isCorrect) {
+                el.classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '✅ Correct! Well done.';
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+            } else {
+                el.classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '❌ Incorrect. Try again!';
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

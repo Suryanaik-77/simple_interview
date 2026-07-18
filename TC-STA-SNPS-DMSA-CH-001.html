@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challenge: DMSA Based ECO Generation — iguana_soc — STA-SNPS-DMSA</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        .content-box p  { color: #555; line-height: 1.7; }
+        .content-box ul,
+        .content-box ol { color: #555; line-height: 2.0; margin-left: 1.5rem; }
+    </style>
+</head>
+<body>
+
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Challenge: DMSA Based ECO Generation &mdash; iguana_soc</h1>
+            <div class="lab-meta">
+                <div class="meta-item"><span>&#128205; <a href="../STA-SNPS-DMSA.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 2</span></div>
+                <div class="meta-item"><span>&#127919; Type: Independent Work</span></div>
+                <div class="meta-item"><span>&#9201; Estimated Time: 90&ndash;120 minutes</span></div>
+                <div class="meta-item"><span>&#11088;&#11088;&#11088; Difficulty: Hard</span></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Challenge Problem</h2>
+                <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+            </div>
+            <div class="section-content">
+                <p>
+                    Repeat the same DMSA flow from Testcase 1, this time on the <strong>iguana_soc</strong>
+                    design. Use your Testcase 1 script as a template &mdash; swap the scenario names and
+                    saved session paths with the iguana_soc inputs below.
+                </p>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128190; Inputs</h2>
+            <div class="section-content">
+                <p>Saved sessions from the iguana_soc STA lab are in <code>inputs/PT_SS/</code>:</p>
+                <div class="code-container"><pre class="code-block">inputs/PT_SS/funceco_ss_0p81v_m40c_cworst
+inputs/PT_SS/funceco_ss_0p81v_125c_rcworst
+inputs/PT_SS/funceco_ff_0p99v_m40c_cbest
+inputs/PT_SS/funceco_ff_0p99v_125c_rcbest</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <div class="code-container"><pre class="code-block">make verify</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. If a fix improves setup slack in the SS corner but worsens hold in the FF corner, how does DMSA help?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">DMSA cannot detect cross-corner impacts.</li>
+                        <li onclick="checkAnswer(this, true)">DMSA evaluates the fix on all workers simultaneously, so you see the hold degradation instantly before committing the change.</li>
+                        <li onclick="checkAnswer(this, false)">DMSA automatically reverts the fix if any corner degrades.</li>
+                        <li onclick="checkAnswer(this, false)">You need to re-run individual PT sessions to check.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Every ECO fix is evaluated across all corners at once. You see the impact on setup and hold simultaneously before deciding whether to keep or discard the change.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. Can you add more scenarios to a running DMSA session?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">No, all scenarios must be defined before start_hosts.</li>
+                        <li onclick="checkAnswer(this, true)">Yes, you can create additional scenarios and start new workers while the session is running, which is useful when new corners need to be checked.</li>
+                        <li onclick="checkAnswer(this, false)">Only if you restart all existing workers first.</li>
+                        <li onclick="checkAnswer(this, false)">Only if the new scenario uses the same libraries as an existing one.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> DMSA supports dynamic scenario management. You can add corners on the fly as signoff requirements evolve.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. What happens if one worker crashes during a DMSA session?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">The entire DMSA session terminates.</li>
+                        <li onclick="checkAnswer(this, false)">All reports become invalid.</li>
+                        <li onclick="checkAnswer(this, true)">The master continues with the remaining workers. You can restart the failed scenario from its saved session without affecting other corners.</li>
+                        <li onclick="checkAnswer(this, false)">DMSA does not support worker recovery.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> DMSA is resilient to individual worker failures. The master tracks which scenarios are active and you can re-launch a failed worker from its saved session.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. In a production tapeout with 20+ corners, why is DMSA essential?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">It reduces the number of corners needed to 4.</li>
+                        <li onclick="checkAnswer(this, false)">It eliminates the need for parasitic extraction.</li>
+                        <li onclick="checkAnswer(this, true)">Manually comparing 20+ individual reports is impractical and error-prone. DMSA gives you the true worst-case across all corners in one query and validates ECO fixes against all of them at once.</li>
+                        <li onclick="checkAnswer(this, false)">PrimeTime cannot run more than 4 individual sessions.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> At production scale, DMSA is the only practical way to achieve timing signoff. It eliminates manual cross-corner tracking and ensures no corner is missed.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../STA-SNPS-DMSA.html" class="btn btn-back">&larr; Back to Lab Home</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../TC-STA-SNPS-DMSA-GD-001/TC-STA-SNPS-DMSA-GD-001.html" class="btn btn-secondary">&larr; Back to Testcase 1</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = 'DMSA';
+        const TESTCASE_NUM = '2';
+        function copyCode(btn) {
+            var text = btn.closest('.code-container').querySelector('.code-block').textContent.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    btn.textContent = 'Copied!';
+                    setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+                });
+            } else {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;top:-9999px;opacity:0;';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(ta);
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+            }
+        }
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function () {
+            var p = document.getElementById('scrollProgress');
+            p.style.width = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100 + '%';
+        });
+        function checkAnswer(el, isCorrect) {
+            var q = el.closest('.quiz-question');
+            if (q.querySelector('.correct-answer')) return;
+            q.querySelectorAll('.quiz-options li').forEach(function(o) { o.classList.remove('selected','wrong-answer'); });
+            var fb = q.querySelector('.feedback'), ans = q.querySelector('.answer');
+            if (isCorrect) {
+                el.classList.add('correct-answer');
+                fb.className = 'feedback correct'; fb.textContent = '\u2705 Correct! Well done.';
+                fb.style.display = 'block'; if (ans) ans.style.display = 'block';
+            } else {
+                el.classList.add('wrong-answer');
+                fb.className = 'feedback incorrect'; fb.textContent = '\u274C Incorrect. Try again!';
+                fb.style.display = 'block'; if (ans) ans.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

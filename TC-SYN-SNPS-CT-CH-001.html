@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Testcase 2: Timing Constraint Debugging</title>
+
+<link rel="stylesheet" href="../common/styles.css">
+
+</head>
+
+
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+
+
+<!-- HEADER -->
+
+<header class="header">
+
+<div class="header-content">
+
+<h1 class="lab-title">
+Testcase 2: AES Core Timing Constraint Debugging (Challenge)
+</h1>
+
+<div class="lab-meta">
+
+<div class="meta-item">
+&#128205; <a href="../SYN-SNPS-CT.html" style="color:#FA9600;text-decoration:none;">Lab Home</a> / Testcase 2
+</div>
+
+<div class="meta-item">&#127919; Type: Challenge Assignment</div>
+
+<div class="meta-item">&#9201; Estimated Time: 90-120 minutes</div>
+
+<div class="meta-item">&#11088;&#11088; Difficulty: Medium</div>
+
+</div>
+
+</div>
+
+</header>
+
+
+
+<div class="container">
+
+
+
+<!-- Challenge Problem -->
+
+<div class="content-box">
+
+<div class="test-case-header">
+
+<h2>Challenge Problem</h2>
+
+<span class="test-case-type type-independent">
+INDEPENDENT WORK
+</span>
+
+</div>
+
+
+<div class="section-content">
+
+<p>
+
+You are working on the synthesis of an <strong>AES cipher top</strong> design.
+The RTL design is already available and synthesis is performed using
+<strong>Synopsys Design Compiler</strong>.
+
+</p>
+
+<br>
+
+<p>
+
+When the command <code>check_timing</code> is executed, the tool reports
+multiple warnings indicating that several ports in the design are not properly
+constrained.
+
+</p>
+
+<br>
+
+<p>
+
+<strong>Your Mission:</strong> Using the knowledge from Testcase 1, analyze the
+reported timing intent warnings, identify missing constraints in the SDC file,
+update the SDC constraints, and ensure the timing intent report becomes clean.
+
+</p>
+
+</div>
+
+</div>
+
+
+
+
+<!-- Initial Error Report -->
+
+<div class="content-box">
+
+<h2 class="section-title">&#128202; Initial Timing Intent Report</h2>
+
+<div class="code-container">
+
+<div class="code-header">
+check_timing &mdash; Warning Messages
+</div>
+
+<div class="code-container"><pre class="code-block">
+dc_shell&gt; check_timing
+
+Information: Checking generated_clocks...
+
+Information: Checking loops...
+
+Information: Checking no_input_delay...
+
+Warning: The following input ports have no input delay specified.
+--------------------
+rst
+data_in[0]
+data_in[1]
+...
+data_in[7]
+key_in[0]
+...
+key_in[127]
+
+Information: Checking unconstrained_endpoints...
+
+Warning: The following end-points are not constrained for maximum delay.
+
+End point
+---------------
+cipher_out[0]
+cipher_out[1]
+...
+cipher_out[127]
+
+Information: Checking pulse_clock_cell_type...
+
+Information: Checking no_driving_cell...
+
+Information: Checking partial_input_delay...
+1
+
+</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+</div>
+
+<div class="warning-card">
+
+<strong>Analysis Required:</strong>
+Several inputs and outputs are missing timing constraints.
+The SDC file must be updated to properly constrain the design.
+
+</div>
+
+</div>
+
+
+
+
+<!-- Available Design Files -->
+
+<div class="content-box">
+
+<h2 class="section-title">&#128190; Available Design Files</h2>
+
+<div class="section-content">
+
+
+
+<br>
+
+<div class="code-container">
+
+<div class="code-header">SDC File</div>
+
+<pre><code>
+~/pd/labs/lab-03-synthesis-check-timing-dc/testcase2/inputs/aes_cipher_top.sdc
+</code></pre>
+
+</div>
+
+</div>
+
+</div>
+
+
+
+
+<div class="content-box">
+
+<h2 class="section-title">&#128203; Your Task</h2>
+
+<div class="section-content">
+
+<ul style="margin-left:30px; line-height:2;">
+
+<li>Navigate to the testcase directory</li>
+
+<div class="code-container"><pre class="code-block">
+cd ~/pd/labs/lab-03-synthesis-check-timing-dc/testcase2
+</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+<li>Run the automation script</li>
+
+<div class="code-container"><pre class="code-block">
+make run
+</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+<li>Run <code>check_timing</code> in dc_shell to analyze the design constraints</li>
+
+<li>Read the warnings carefully to understand what constraints are missing</li>
+
+<li>Identify input ports that require input delay constraints</li>
+
+<li>Identify output ports that require output delay constraints</li>
+
+<li>Add the missing constraints in the SDC file</li>
+
+<li>Re-run <code>check_timing</code> in dc_shell to verify the fixes</li>
+
+</ul>
+
+</div>
+
+</div>`
+
+
+
+<!-- Success Criteria -->
+
+<div class="content-box">
+
+<h2 class="section-title">&#9989; Success Criteria</h2>
+
+<div class="section-content">
+
+<table>
+
+<thead>
+
+<tr>
+<th>Metric</th>
+<th>Target</th>
+<th>Verification</th>
+</tr>
+
+</thead>
+
+<tbody>
+
+<tr>
+<td>check_timing Warnings</td>
+<td>0 warnings</td>
+<td>check_timing report</td>
+</tr>
+
+<tr>
+<td>Clock Constraints</td>
+<td>Defined</td>
+<td>report_clocks</td>
+</tr>
+
+<tr>
+<td>Input Delay Constraints</td>
+<td>Defined</td>
+<td>report_port -verbose</td>
+</tr>
+
+<tr>
+<td>Output Delay Constraints</td>
+<td>Defined</td>
+<td>report_port -verbose</td>
+</tr>
+
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+<div class="content-box">
+
+<h2 class="section-title">&#129504; Knowledge Check</h2>
+
+<div class="quiz-container">
+
+<!-- Question 1 -->
+
+<div class="quiz-question">
+
+<h3>Question 1: Which check_timing warning appears when input ports are not constrained relative to a clock?</h3>
+
+<ul class="quiz-options" id="q1-options">
+<li onclick="selectAnswer('q1',0,false)">Sequential clock pins with multiple clock waveforms</li>
+<li onclick="selectAnswer('q1',1,true)">Inputs without clocked external delays</li>
+<li onclick="selectAnswer('q1',2,false)">Outputs without external load</li>
+<li onclick="selectAnswer('q1',3,false)">Generated clocks missing</li>
+</ul>
+
+<div id="q1-feedback" class="feedback"></div>
+
+<div id="q1-answer" class="answer">
+<p><strong>Correct!</strong> The warning <code>Inputs without clocked external delays</code> appears when input ports do not have timing relationships defined relative to a clock.</p>
+</div>
+
+</div>
+
+
+<!-- Question 2 -->
+
+<div class="quiz-question">
+
+<h3>Question 2: Which SDC command correctly removes the warning "Inputs without clocked external delays"?</h3>
+
+<ul class="quiz-options" id="q2-options">
+<li onclick="selectAnswer('q2',0,true)">set_input_delay -clock clk &lt;delay&gt; [get_ports data_in]</li>
+<li onclick="selectAnswer('q2',1,false)">set_output_delay -clock clk &lt;delay&gt; [get_ports data_in]</li>
+<li onclick="selectAnswer('q2',2,false)">create_clock -name clk -period &lt;period&gt; [get_ports data_in]</li>
+<li onclick="selectAnswer('q2',3,false)">set_clock_uncertainty -setup &lt;uncertainty&gt; [get_clocks clk]</li>
+</ul>
+
+<div id="q2-feedback" class="feedback"></div>
+
+<div id="q2-answer" class="answer">
+<p><strong>Correct!</strong> <code>set_input_delay</code> defines the arrival time of external signals relative to a clock.</p>
+</div>
+
+</div>
+
+
+<!-- Question 3 -->
+
+<div class="quiz-question">
+
+<h3>Question 3: Which check_timing warning appears when output ports are not constrained relative to a clock?</h3>
+
+<ul class="quiz-options" id="q3-options">
+<li onclick="selectAnswer('q3',0,false)">Generated clocks missing</li>
+<li onclick="selectAnswer('q3',1,true)">Outputs without clocked external delays</li>
+<li onclick="selectAnswer('q3',2,false)">Sequential data pins driven by a clock signal</li>
+<li onclick="selectAnswer('q3',3,false)">Timing exceptions with no effect</li>
+</ul>
+
+<div id="q3-feedback" class="feedback"></div>
+
+<div id="q3-answer" class="answer">
+<p><strong>Correct!</strong> This warning occurs when output ports do not have timing constraints relative to a clock.</p>
+</div>
+
+</div>
+
+
+<!-- Question 4 -->
+
+<div class="quiz-question">
+
+<h3>Question 4: Which SDC command correctly removes the warning "Outputs without clocked external delays"?</h3>
+
+<ul class="quiz-options" id="q4-options">
+<li onclick="selectAnswer('q4',0,false)">set_input_delay -clock clk &lt;delay&gt; [get_ports data_out]</li>
+<li onclick="selectAnswer('q4',1,true)">set_output_delay -clock clk &lt;delay&gt; [get_ports data_out]</li>
+<li onclick="selectAnswer('q4',2,false)">create_clock -name clk -period &lt;period&gt; [get_ports data_out]</li>
+<li onclick="selectAnswer('q4',3,false)">set_load &lt;capacitance&gt; [get_ports data_out]</li>
+</ul>
+
+<div id="q4-feedback" class="feedback"></div>
+
+<div id="q4-answer" class="answer">
+<p><strong>Correct!</strong> <code>set_output_delay</code> defines the required timing for outputs relative to a clock.</p>
+</div>
+
+</div>
+
+
+<!-- Question 5 -->
+
+<div class="quiz-question">
+
+<h3>Question 5: Which check_timing warning appears when generated clocks are not defined in the SDC file?</h3>
+
+<ul class="quiz-options" id="q5-options">
+<li onclick="selectAnswer('q5',0,true)">Sequential clock pins without clock waveform</li>
+<li onclick="selectAnswer('q5',1,false)">Inputs without clocked external delays</li>
+<li onclick="selectAnswer('q5',2,false)">Outputs without external load</li>
+<li onclick="selectAnswer('q5',3,false)">Nets with multiple drivers</li>
+</ul>
+
+<div id="q5-feedback" class="feedback"></div>
+
+<div id="q5-answer" class="answer">
+<p><strong>Correct!</strong> This warning appears when derived clocks exist in the design but are not defined using <code>create_generated_clock</code>.</p>
+</div>
+
+</div>
+
+
+<!-- Question 6 -->
+
+<div class="quiz-question">
+
+<h3>Question 6: Which SDC command defines a generated clock derived from another clock?</h3>
+
+<ul class="quiz-options" id="q6-options">
+<li onclick="selectAnswer('q6',0,true)">create_generated_clock -name gen_clk -source [get_ports clk] -divide_by 2 [get_pins divider/Q]</li>
+<li onclick="selectAnswer('q6',1,false)">create_clock -name gen_clk -period &lt;period&gt; [get_ports gen_clk]</li>
+<li onclick="selectAnswer('q6',2,false)">set_clock_uncertainty -setup &lt;uncertainty&gt; [get_clocks gen_clk]</li>
+<li onclick="selectAnswer('q6',3,false)">set_input_delay -clock gen_clk &lt;delay&gt; [get_ports data]</li>
+</ul>
+
+<div id="q6-feedback" class="feedback"></div>
+
+<div id="q6-answer" class="answer">
+<p><strong>Correct!</strong> <code>create_generated_clock</code> defines clocks derived from another clock source.</p>
+</div>
+
+</div>
+</div>
+</div>
+
+<div class="content-box">
+
+<h2 class="section-title">&#9654; Next Step</h2>
+
+<div class="section-content">
+
+<p>
+Great work completing <strong>Testcase 2</strong>!
+</p>
+
+<p>
+In this challenge, you applied the concepts learned in Testcase 1 to independently analyze
+check_timing warnings and debug missing constraints in the SDC file.
+</p>
+
+<p>
+These debugging skills are essential in real synthesis flows, where engineers must carefully
+interpret timing reports and refine constraint files to ensure accurate timing analysis.
+</p>
+
+<p>
+Now that you can analyze and fix timing intent warnings independently, you are ready to move
+to a more advanced constraint debugging scenario.
+</p>
+
+<p>
+&#128073; <strong>Proceed to Testcase 3</strong> to tackle the next challenge in timing constraint verification.
+</p>
+
+</div>
+
+</div>
+
+
+<div class="content-box">
+    <h2 class="section-title">&#9989; Validation & Verification</h2>
+    <div class="section-content">
+        <p>After completing your fixes and running the synthesis flow, use the automated verification command to validate your results.</p>
+
+      
+            <div class="code-container"><pre class="code-block">make verify</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+        
+
+      
+    </div>
+</div>
+<!-- Navigation -->
+
+<div class="content-box">
+
+<div class="nav-buttons">
+
+<a href="../TC-SYN-SNPS-CT-GD-001/TC-SYN-SNPS-CT-GD-001.html" class="btn btn-back">
+&larr; Back to Testcase 1
+</a>
+
+<a href="../SYN-SNPS-CT.html" class="btn btn-secondary">
+Back to Lab Home &rarr;
+</a>
+
+</div>
+
+</div>
+
+
+
+</div>
+
+
+
+<script src="../common/interactive.js"></script>
+
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        // Copy code functionality
+        function copyCode(button) {
+            var container = button.closest('.code-container');
+            var codeBlock = container.querySelector('.code-block');
+            var text = codeBlock.textContent.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    button.textContent = 'Copied!';
+                    setTimeout(function() { button.textContent = 'Copy'; }, 2000);
+                });
+            } else {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;top:-9999px;opacity:0;';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(ta);
+                button.textContent = 'Copied!';
+                setTimeout(function() { button.textContent = 'Copy'; }, 2000);
+            }
+        }
+
+        // Quiz functionality
+        function selectAnswer(questionId, optionIndex, isCorrect) {
+            const options = document.querySelectorAll(`#${questionId}-options li`);
+            const feedback = document.getElementById(`${questionId}-feedback`);
+            const answer = document.getElementById(`${questionId}-answer`);
+
+            options.forEach(opt => {
+                opt.classList.remove('selected', 'correct-answer', 'wrong-answer');
+            });
+
+            const selectedOption = options[optionIndex];
+            selectedOption.classList.add('selected');
+
+            feedback.style.display = 'block';
+            if (isCorrect) {
+                selectedOption.classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '\u2705 Correct! Well done.';
+                answer.style.display = 'block';
+            } else {
+                selectedOption.classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '\u274C Incorrect. Try again!';
+                answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Guided: Guided Exercise — SYN-CDN-CT</title>
+
+<link rel="stylesheet" href="../common/styles.css">
+
+</head>
+
+<body>
+
+<header class="header">
+
+<div class="header-content">
+
+<h1 class="lab-title">
+Guided: Guided Exercise &mdash; check_timing_intent
+</h1>
+
+<div class="lab-meta">
+<div class="meta-item">
+&#128205; <a href="../SYN-CDN-CT.html" style="color:#FA9600;text-decoration:none;">Lab Home</a> / Guided
+</div>
+<div class="meta-item">&#128218; Course: Physical Design</div>
+<div class="meta-item">&#128295; Tool: Cadence Genus</div>
+<div class="meta-item">&#127919; Type: Guided</div>
+</div>
+
+</div>
+</header>
+
+
+<div class="container">
+
+
+<!-- Problem -->
+
+<div class="content-box">
+
+<h2 class="section-title">&#128203; Problem Statement</h2>
+
+<div class="section-content">
+
+You are synthesizing <b>top_design</b>.  
+The provided SDC file is incomplete.
+
+When <strong>check_timing_intent</strong> is executed, the tool reports timing constraint warnings.
+
+Your task is to analyze the warnings, fix the SDC file, and obtain a clean CTI report.
+
+</div>
+
+</div>
+
+
+
+<!-- Procedure -->
+
+<div class="content-box">
+
+<h2 class="section-title">&#128203; Recommended Workflow</h2>
+
+<div class="section-content">
+<p>
+You have already set up the lab directory structure using the provided setup guidelines.
+The required RTL files, scripts, libraries, and constraint files are now available in the
+testcase directory. With the lab environment ready, proceed with the following steps to
+run the synthesis flow and analyze the timing intent report.
+</p>
+<h3>1. Navigate to the Testcase Directory</h3>
+
+<p>The lab environment is already set up by <code>setup_lab.sh</code>. Navigate to the testcase directory and run the flow:</p>
+
+<pre class="code-block">
+cd ~/pd/labs/SYN-CDN-CT/TC-SYN-CDN-CT-GD-001
+</pre>
+
+
+<h3>2. Run the Automation Script</h3>
+
+<p>
+Execute the provided Makefile target. This command launches the Cadence Genus synthesis flow.
+</p>
+
+<pre class="code-block">
+make run
+</pre>
+
+
+<h3>3. Steps Executed Automatically by the Tool</h3>
+
+<p>
+After running <strong>make run</strong>, the synthesis automation script launches
+Cadence Genus and performs the following setup steps automatically.
+These steps prepare the design environment before the timing intent
+analysis is performed.
+</p>
+
+<pre class="code-block">
+# Load Standard Cell Libraries
+set_db init_lib_search_path ./lib
+set_db library typical.lib
+
+# Read RTL
+read_hdl ~/pd/labs/SYN-CDN-CT/TC-SYN-CDN-CT-GD-001/inputs/constraints_testcase_3.v
+
+# Elaborate Design
+elaborate top_design
+
+# Source SDC
+source ~/pd/labs/SYN-CDN-CT/TC-SYN-CDN-CT-GD-001/inputs/aes_constraints.sdc
+
+# Run Timing Intent Check
+check_timing_intent
+</pre>
+
+
+
+
+<h4>Check timing intent Report before Clock creation</h4>
+
+<pre class="code-block">
+
+Lint summary
+-----------------------------------------------------------------------
+
+Unconnected/logic driven clocks                               0
+Sequential data pins driven by a clock signal                 0
+Sequential clock pins without clock waveform                 377
+Sequential clock pins with multiple clock waveforms           0
+Generated clocks without clock waveform                       0
+Generated clocks with incompatible options                    0
+Generated clocks with multi-master clock                      0
+Paths constrained with different clocks                       0
+Loop-breaking cells for combinational feedback                0
+Nets with multiple drivers                                    0
+Timing exceptions with no effect                              0
+Suspicious multi_cycle exceptions                             0
+Pins/ports with conflicting case constants                    0
+Inputs without clocked external delays                       49
+Outputs without clocked external delays                      56
+Inputs without external driver/transition                    49
+Outputs without external load                                56
+Exceptions with invalid timing start-/endpoints               0
+
+                                              Total:        587
+</pre>
+
+<div class="section">
+
+  <div class="section-title">
+    &#9201; Create Clocks
+  </div>
+
+  <div class="section-content">
+
+    <p>
+      Before writing any <code>create_clock</code>, first understand:
+      <b>Where is the clock coming from?</b>
+    </p>
+
+    <p>
+      A register clock may come directly from a port or pass through logic like a MUX.
+      So we should never assume &mdash; we must trace it.
+    </p>
+
+    <div class="info-card">
+       Trace the clock path using <code>all_fanin</code>
+    </div>
+
+    <!-- REAL TERMINAL COMMAND 1 -->
+    <div class="code-container">
+      <div class="code-header">Genus Trace</div>
+      <pre style="color:#00e6e6; font-weight:600;">
+ all_fanin -to pin:rtl_halfcycle_crosspaths/r2_reg[1]/clk
+
+ r2_reg[1]/clk clk
+      </pre>
+    </div>
+
+    <p>
+      This shows that the register clock is directly coming from <code>clk</code>.
+    </p>
+
+    <!-- REAL TERMINAL COMMAND 2 -->
+    <div class="code-container">
+      <div class="code-header">Genus Trace</div>
+      <pre style="color:#00e6e6; font-weight:600;">
+ all_fanin -to pin:rtl_halfcycle_crosspaths/comm_reg_reg[0]/clk
+
+ comm_reg_reg[0]/clk mux_117_24/z mux_117_24/ctl clk_sel mux_117_24/in_0 clk_new_1 mux_117_24/in_1 clk_new_2
+      </pre>
+    </div>
+
+    <p>
+      Here, the clock is not directly coming from a port. It is passing through a <b>MUX</b>.
+    </p>
+
+    <div class="info-card">
+  <b>clk_sel (MUX control):</b><br>
+  - Selects which clock reaches the register<br>
+  - <code>0 &rarr; clk_new_1</code><br>
+  - <code>1 &rarr; clk_new_2</code>
+</div>
+
+    <div class="warning-card">
+      The MUX is only selecting the clock.  
+      It is NOT generating the clock.
+    </div>
+
+    <p>
+      So the actual clock sources are:
+    </p>
+
+    <div class="code-container">
+      <div class="code-header">Clock Sources</div>
+      <pre style="color:#00e6e6; font-weight:600;">
+clk_new_1
+clk_new_2
+clk
+      </pre>
+    </div>
+
+    <p>
+      Therefore, define clocks at these ports:
+    </p>
+
+    <div class="code-container">
+      <div class="code-header">Create Clock</div>
+      <pre style="color:#00e6e6; font-weight:600;">
+create_clock -name clk1 -period 1 [get_ports clk_new_1]
+create_clock -name clk2 -period 2.2 [get_ports clk_new_2]
+create_clock -name clk  -period 4.3 [get_ports clk]
+      </pre>
+    </div>
+
+    <div class="info-card">
+  <b>Rule:</b> Always define clocks at the <b>origin</b>, not inside logic.
+</div>
+
+    
+
+  </div>
+</div>
+
+<p>
+After adding clock definitions, run <strong>check_timing_intent</strong> again.
+</p>
+
+<h4>CTI Report After Clock Creation</h4>
+
+<pre class="code-block">
+Lint summary
+-----------------------------------------------------------------------
+
+Unconnected/logic driven clocks                               0
+Sequential data pins driven by a clock signal                 0
+Sequential clock pins without clock waveform                 16
+Sequential clock pins with multiple clock waveforms          288
+Generated clocks without clock waveform                       0
+Generated clocks with incompatible options                    0
+Generated clocks with multi-master clock                      0
+Paths constrained with different clocks                       1
+Loop-breaking cells for combinational feedback                0
+Nets with multiple drivers                                    0
+Timing exceptions with no effect                              0
+Suspicious multi_cycle exceptions                             0
+Pins/ports with conflicting case constants                    0
+Inputs without clocked external delays                       46
+Outputs without clocked external delays                      56
+Inputs without external driver/transition                    46
+Outputs without external load                                56
+Exceptions with invalid timing start-/endpoints               0
+
+
+                                               Total:        509
+</pre>
+
+<h3>5. Analyze New CTI Warnings After Clock Creation</h3>
+
+<p>
+After creating the primary clocks (<strong>clk</strong>, <strong>clk1</strong>, <strong>clk2</strong>),
+the timing intent improves significantly and most of the initial warnings are resolved.
+</p>
+
+<p>
+At this stage, the remaining CTI warnings represent missing advanced constraints
+and incomplete I/O modeling. These are the final set of warnings that need to be
+analyzed and fixed to achieve a clean timing intent report.
+</p>
+
+
+<div class="warning-card">
+
+<h4>1. Sequential clock pins without clock waveform (16 warnings)</h4>
+
+<p>
+Some sequential elements are driven by signals that behave like clocks
+but are not defined in the SDC.
+</p>
+
+<p>
+To understand this, always trace the clock pin:
+</p>
+
+<div class="code-block" style="color:#00e6e6; font-weight:600; white-space: pre-wrap;">
+all_fanin -to pin:rtl_halfcycle_crosspaths/rd0_reg[0]/clk
+
+rd0_reg[0]/clk clk_div_reg/q clk_div_reg/clk
+</div>
+
+<p><b>From this trace:</b></p>
+
+<p>
+The register clock is <b>not coming directly</b> from the primary clock.
+It is coming from <code>clk_div_reg/q</code>, which means a flip-flop
+is generating a new clock signal.
+</p>
+
+<div class="info-card">
+<b>What is happening?</b><br>
+The signal <code>clk_div_reg/q</code> is acting as a clock.<br>
+This typically happens in a <b>clock divider circuit</b>.
+</div>
+
+<p>
+Since this clock is derived from another clock, it is called a:
+</p>
+
+<div class="info-card">
+<b>Generated Clock</b>
+</div>
+
+<p>
+STA does not automatically understand this relationship,
+so we must explicitly define it.
+</p>
+
+<p>
+To resolve this warning, define a generated clock at the source:
+</p>
+
+<div class="code-block" style="color:#00e6e6; font-weight:600;">
+create_generated_clock -name gen_clk -source [get_ports clk] -divide_by 2 [get_pins clk_div_reg/Q]
+
+</div>
+
+<div class="warning-card">
+Make sure the <code>-source</code> is the original clock and the generated clock is defined at the pin where it is created (Q of the divider flop).
+</div>
+
+</div>
+
+<img src="gen_clk.png" alt="generated clock schematic"
+     style="max-width:500px; margin:10px auto; display:block;">
+<div class="warning-card">
+
+<h4>2. Paths constrained with different clocks (1 warning)</h4>
+
+<p>
+This warning appears when timing paths exist between registers driven by different clocks.
+</p>
+
+<p>
+Before fixing it, we must understand how these clocks are related.
+</p>
+
+<p>
+In this design, <code>gen_clk</code> is derived from <code>clk</code>, so both belong to the same clock domain.
+On the other hand, <code>clk1</code> and <code>clk2</code> are independent clocks and have no relationship with <code>clk</code>.
+</p>
+
+<p>
+In timing analysis, clocks derived from the same source should be treated as related, while independent clocks must be treated as asynchronous.
+</p>
+
+<p>
+To inform the tool about this, we define clock groups as follows:
+</p>
+
+<pre class="code-block" style="color:#00e6e6; font-weight:600;">
+set_clock_groups -asynchronous 
+  -group {clk gen_clk} 
+  -group {clk1} 
+  -group {clk2}
+</pre>
+
+<p>
+This constraint tells the tool to ignore timing paths between different groups.
+For example, paths between <code>clk</code> or <code>gen_clk</code> and <code>clk1</code> or <code>clk2</code> will not be analyzed.
+</p>
+
+<p>
+However, timing paths within the same group are still valid and will be checked.
+So timing between <code>clk</code> and <code>gen_clk</code> is analyzed correctly.
+</p>
+
+</div>
+
+<div class="warning-card">
+<h4>3. Inputs without clocked external delays (46 warnings)</h4>
+
+<p>
+Input ports are not yet constrained relative to clock domains.
+</p>
+
+<pre class="code-block">
+set_input_delay 0.6 -clock clk [get_ports [remove_from_collection [all_inputs] {clk clk_new_1 clk_new_2}]]
+set_input_delay 1.32 -clock clk1 -add_delay [get_ports [remove_from_collection [all_inputs] {clk clk_new_1 clk_new_2}]]
+set_input_delay 2.58 -clock clk2 -add_delay [get_ports [remove_from_collection [all_inputs] {clk clk_new_1 clk_new_2}]]
+</pre>
+
+<p>
+This will later be refined to exclude clock ports.
+</p>
+</div>
+
+
+<div class="warning-card">
+<h4>4. Outputs without clocked external delays (56 warnings)</h4>
+
+<p>
+Output ports must be constrained relative to clocks.
+</p>
+
+<pre class="code-block">
+set_output_delay 0.6 -clock clk [all_outputs]
+set_output_delay 1.32 -clock clk1 -add_delay [all_outputs]
+set_output_delay 2.58 -clock clk2 -add_delay [all_outputs]
+</pre>
+</div>
+
+
+<div class="warning-card">
+<h4>5. Inputs without external driver/transition (46 warnings)</h4>
+
+<p>
+The tool does not know the driving strength of input ports.
+</p>
+
+<pre class="code-block">
+ set_driving_cell -lib_cell BUFFD4BWP35P140HVT [get_ports [remove_from_collection [all_inputs] {clk clk_new_1 clk_new_2}]]
+</pre>
+</div>
+
+
+<div class="warning-card">
+<h4>6. Outputs without external load (56 warnings)</h4>
+
+<p>
+Output load capacitance is not defined.
+</p>
+
+<pre class="code-block">
+set_load 0.05 [all_outputs]
+</pre>
+</div>
+<h3>5. Update the SDC</h3>
+
+<p>
+After analyzing the warnings from <strong>check_timing_intent</strong>, update the SDC file with the required timing constraints.
+</p>
+
+<p><strong>Source the Updated SDC:</strong></p>
+
+<pre class="code-block">
+source ~/pd/labs/SYN-CDN-CT/TC-SYN-CDN-CT-GD-001/inputs/aes_constraints.sdc
+</pre>
+
+<h4>Completed SDC Snapshot</h4>
+
+<pre class="code-block">
+create_clock -name clk -period 1 [get_ports clk]
+create_clock -name clk1 -period 2.2 [get_ports clk_new_1]
+create_clock -name clk2 -period 4.3 [get_ports clk_new_2]
+
+set_clock_groups -name async -asynchronous -group {clk gen_clk}
+set_clock_groups -name async1 -asynchronous -group {clk1}
+set_clock_groups -name async2 -asynchronous -group {clk2}
+
+set_input_delay 0.6 -clock clk [get_ports en]
+set_input_delay 1.32 -clock clk1 -add_delay [get_ports rst]
+set_input_delay 2.58 -clock clk2 -add_delay [get_ports enable_new_logic]
+
+set_output_delay 0.6 -clock clk [all_outputs]
+set_output_delay 1.32 -clock clk1 -add_delay [all_outputs]
+set_output_delay 2.58 -clock clk2 -add_delay [all_outputs]
+
+set_clock_uncertainty -setup 0.2 [get_clocks clk]
+set_clock_uncertainty -setup 0.44 [get_clocks clk1]
+set_clock_uncertainty -setup 0.86 [get_clocks clk2]
+
+set_clock_uncertainty -hold 0.05 [get_clocks clk]
+set_clock_uncertainty -hold 0.125 [get_clocks clk1]
+set_clock_uncertainty -hold 0.3 [get_clocks clk2]
+
+set_driving_cell -lib_cell BUFFD4BWP35P140HVT [all_inputs]
+
+set_load 0.05 [all_outputs]
+
+set_max_delay 6.52 -from [all_inputs] -to [all_outputs]
+</pre>
+
+
+<h3>6. Run check_timing_intent Again</h3>
+
+<pre class="code-block">
+check_timing_intent
+</pre>
+
+
+<h4>Check timing intent Report &mdash; Clean</h4>
+
+<pre class="code-block">
+Lint summary
+------------------------------------------------------------
+
+Unconnected/logic driven clocks                     0
+Sequential data pins driven by a clock signal       1
+Sequential clock pins without clock waveform        0
+Sequential clock pins with multiple clock waveforms 288
+Generated clocks without clock waveform             0
+Generated clocks with incompatible options          0
+Generated clocks with multi-master clock            0
+Paths constrained with different clocks             0
+Loop-breaking cells for combinational feedback      0
+Nets with multiple drivers                          0
+Timing exceptions with no effect                    1
+Suspicious multi-cycle exceptions                   0
+Pins/ports with conflicting case constants          0
+Inputs without clocked external delays              0
+Outputs without clocked external delays             0
+Inputs without external driver/transition           0
+Outputs without external load                       0
+Exceptions with invalid timing start-/endpoints     0
+
+                                        Total:     290
+
+Timing intent check PASSED
+</pre>
+<div class="content-box">
+
+<h2 class="section-title">&#128269; Remaining CTI Warnings Analysis</h2>
+
+<div class="section-content">
+
+<p>
+Although the timing intent report still shows <strong>295 warnings</strong>, these warnings
+are expected in this design and can be safely ignored after analysis.
+The following sections explain why these warnings occur.
+</p>
+
+<h3>1. Sequential data pins driven by a clock signal (1 warning)</h3>
+
+<p>
+This warning occurs because a <strong>generated clock</strong> is created on the
+<strong>Q</strong> output of a flip-flop. Since the <strong>Q</strong> output feeds back
+into the <strong>D</strong> input of the same register through combinational logic,
+the tool detects that the data pin is being driven by a clock-derived signal.
+</p>
+
+<p>
+In this design, this behavior is intentional and does not represent a functional
+problem, therefore this warning can be safely ignored.
+</p>
+
+<img src="genclk_feedback_flop.png" alt="Generated clock feedback schematic" style="max-width:500px; margin-top:10px;">
+
+
+<h3>2. Sequential clock pins with multiple clock waveforms (288 warnings)</h3>
+
+<p>
+These warnings are caused by a clock multiplexer used in the design.
+The multiplexer selects between two clocks (<strong>clk_new_1</strong> and
+<strong>clk_new_2</strong>) depending on the functional mode of operation.
+</p>
+
+<p>
+Since both clocks can potentially reach the same register clock pin
+through the mux, the tool reports that multiple clock waveforms are
+driving the same sequential clock pin.
+</p>
+
+<p>
+However, only one clock is active at a time depending on the control signal,
+so this is expected behavior and these warnings can be ignored.
+</p>
+
+<img src="clk_mux.png" alt="Clock mux schematic" style="max-width:500px; margin-top:10px;">
+
+
+<h3>3. Timing exceptions with no effect (6 warnings)</h3>
+
+<p>
+These warnings indicate that certain timing exception constraints are currently
+not affecting any timing paths in the design.
+</p>
+
+
+
+
+
+<p>
+This situation can occur when timing exceptions are defined for paths that are
+not active in the current configuration of the design. These warnings do not
+impact the correctness of the constraints and can therefore be ignored.
+</p>
+
+<p>
+After reviewing these warnings and confirming their expected behavior, the
+timing constraints can be considered valid for this design.
+</p>
+
+</div>
+
+</div>
+<p style="margin-top:15px;">
+All timing intent warnings have now been resolved successfully.
+This indicates that the design has been properly constrained and
+the synthesis tool now understands the intended timing relationships
+between clocks, inputs, and outputs.
+</p>
+
+<p>
+A clean <strong>check_timing_intent</strong> report is an important milestone
+before proceeding with further synthesis optimization and timing analysis.
+</p>
+</div>
+</div>
+
+<div class="content-box">
+    <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+    <div class="section-content">
+        <p>After completing your fixes and running the synthesis flow, use the automated verification command to validate your results.</p>
+
+        <pre class="code-block">make verify</pre>
+
+        <p>
+        The <code>verify</code> target calls
+        <code>scripts/verify/verify_SYN-CDN-CT.py</code> with
+        <code>--lab-test-id SYN-CDN-CT-GD-001</code>.
+        It uses shared check runners from <code>verify_common_utils.py</code> and checks
+        that all MUST-BE-ZERO lint metrics in <code>reports/check_timing_intent.rpt</code>
+        are clean.
+        Results are written to <code>results.csv</code> and <code>overall_result.csv</code>,
+        and the outcome is automatically posted to the course dashboard.
+        </p>
+    </div>
+</div>
+
+<!-- Quiz Section -->
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment Quiz</h2>
+            
+            <div class="quiz-container">
+<!-- Question 1 -->
+<div class="quiz-question">
+
+<h3>Question 1: Which warning is reported when input ports are not constrained with respect to a clock?</h3>
+
+<ul class="quiz-options" id="q1-options">
+<li onclick="selectAnswer('q1',0,false)">A. Sequential clock pins with multiple clock waveforms</li>
+<li onclick="selectAnswer('q1',1,true)">B. Inputs without clocked external delays</li>
+<li onclick="selectAnswer('q1',2,false)">C. Outputs without external load</li>
+<li onclick="selectAnswer('q1',3,false)">D. Generated clocks missing</li>
+</ul>
+
+<div id="q1-feedback" class="feedback"></div>
+
+<div id="q1-answer" class="answer">
+<p><strong>Correct!</strong> This warning appears when input ports do not have timing relationships defined relative to a clock.</p>
+</div>
+
+</div>
+
+
+
+<!-- Question 2 -->
+<div class="quiz-question">
+
+<h3>Question 2: Which SDC command correctly constrains input ports to remove the warning "Inputs without clocked external delays"?</h3>
+
+<ul class="quiz-options" id="q2-options">
+<li onclick="selectAnswer('q2',0,true)">A. set_input_delay -clock clk &lt;input_delay&gt; [get_ports data_in]</li>
+<li onclick="selectAnswer('q2',1,false)">B. set_output_delay -clock clk &lt;output_delay&gt; [get_ports data_in]</li>
+<li onclick="selectAnswer('q2',2,false)">C. create_clock -name clk -period &lt;period&gt; [get_ports data_in]</li>
+<li onclick="selectAnswer('q2',3,false)">D. set_clock_uncertainty -setup &lt;uncertainty&gt; [get_clocks clk]</li>
+</ul>
+
+<div id="q2-feedback" class="feedback"></div>
+
+<div id="q2-answer" class="answer">
+<p><strong>Correct!</strong> The <strong>set_input_delay</strong> command specifies the arrival time of external signals relative to a clock.</p>
+</div>
+
+</div>
+
+
+
+<!-- Question 3 -->
+<div class="quiz-question">
+
+<h3>Question 3: Which warning appears if a generated clock is not defined in the SDC constraints?</h3>
+
+<ul class="quiz-options" id="q3-options">
+<li onclick="selectAnswer('q3',0,false)">A. Inputs without clocked external delays</li>
+<li onclick="selectAnswer('q3',1,false)">B. Outputs without external load</li>
+<li onclick="selectAnswer('q3',2,true)">C. Sequential clock pins without clock waveform</li>
+<li onclick="selectAnswer('q3',3,false)">D. Nets with multiple drivers</li>
+</ul>
+
+<div id="q3-feedback" class="feedback"></div>
+
+<div id="q3-answer" class="answer">
+<p><strong>Correct!</strong> This warning occurs when the design contains derived clocks but they are not defined using <strong>create_generated_clock</strong>.</p>
+</div>
+
+</div>
+
+
+
+<!-- Question 4 -->
+<div class="quiz-question">
+
+<h3>Question 4: Which SDC command correctly defines a generated clock derived from another clock?</h3>
+
+<ul class="quiz-options" id="q4-options">
+<li onclick="selectAnswer('q4',0,true)">A. create_generated_clock -name gen_clk -source [get_ports clk] -divide_by 2 [get_pins divider/Q]</li>
+<li onclick="selectAnswer('q4',1,false)">B. create_clock -name gen_clk -period &lt;period&gt; [get_ports clk]</li>
+<li onclick="selectAnswer('q4',2,false)">C. set_clock_uncertainty -setup &lt;uncertainty&gt; [get_clocks clk]</li>
+<li onclick="selectAnswer('q4',3,false)">D. set_input_delay -clock gen_clk &lt;delay&gt; [get_ports data]</li>
+</ul>
+
+<div id="q4-feedback" class="feedback"></div>
+
+<div id="q4-answer" class="answer">
+<p><strong>Correct!</strong> The command <strong>create_generated_clock</strong> defines clocks that are derived from another clock source.</p>
+</div>
+
+</div>
+
+
+
+<!-- Question 5 -->
+<div class="quiz-question">
+
+<h3>Question 5: Which warning occurs when output ports do not have load capacitance defined?</h3>
+
+<ul class="quiz-options" id="q5-options">
+<li onclick="selectAnswer('q5',0,false)">A. Inputs without clocked external delays</li>
+<li onclick="selectAnswer('q5',1,true)">B. Outputs without external load</li>
+<li onclick="selectAnswer('q5',2,false)">C. Generated clocks missing</li>
+<li onclick="selectAnswer('q5',3,false)">D. Timing exceptions with no effect</li>
+</ul>
+
+<div id="q5-feedback" class="feedback"></div>
+
+<div id="q5-answer" class="answer">
+<p><strong>Correct!</strong> This warning occurs when output ports do not have load capacitance defined for timing analysis.</p>
+</div>
+
+</div>
+
+
+
+<!-- Question 6 -->
+<div class="quiz-question">
+
+<h3>Question 6: Which SDC command correctly constrains output ports with load capacitance?</h3>
+
+<ul class="quiz-options" id="q6-options">
+<li onclick="selectAnswer('q6',0,false)">A. set_input_delay -clock clk &lt;delay&gt; [get_ports data_out]</li>
+<li onclick="selectAnswer('q6',1,true)">B. set_load &lt;capacitance&gt; [get_ports data_out]</li>
+<li onclick="selectAnswer('q6',2,false)">C. set_output_delay -clock clk &lt;delay&gt; [get_ports data_out]</li>
+<li onclick="selectAnswer('q6',3,false)">D. set_driving_cell -lib_cell BUFFD4BWP35P140HVT [get_ports data_out]</li>
+</ul>
+
+<div id="q6-feedback" class="feedback"></div>
+
+<div id="q6-answer" class="answer">
+<p><strong>Correct!</strong> The <strong>set_load</strong> command specifies the external capacitance seen by output ports.</p>
+</div>
+
+</div>                
+
+
+</div>
+</div>
+
+<!-- Learning Transition -->
+
+<div class="content-box">
+
+<h2 class="section-title">&#9658; Next Step</h2>
+
+<div class="section-content">
+
+<p>
+&#127881; <strong>Congratulations!</strong> You have successfully completed
+<strong>Guided: Guided Exercise</strong>.
+</p>
+
+<p>
+In this guided exercise, you learned how to analyze warnings reported by
+<strong>check_timing_intent</strong> and how to update the SDC file to fix
+missing timing constraints.
+</p>
+
+
+
+<p>
+These skills are essential for real-world synthesis flows where engineers
+must carefully debug and refine timing constraints before optimization.
+</p>
+
+<p>
+Now that you understand the basics of timing intent debugging, you are ready
+to tackle a more challenging scenario.
+</p>
+
+<p>
+&#9658; <strong>Proceed to the Challenge</strong> where you will independently analyze
+timing intent warnings and fix missing constraints in a more complex design.
+</p>
+
+</div>
+
+</div>
+
+<div class="content-box nav-buttons">
+
+<a href="../SYN-CDN-CT.html" class="btn btn-back">
+&larr; Back to Lab Home
+</a>
+
+<a href="../TC-SYN-CDN-CT-CH-001/TC-SYN-CDN-CT-CH-001.html" class="btn btn-primary">
+Continue to Challenge &rarr;
+</a>
+
+</div>
+
+
+</div>
+
+<script src="../common/interactive.js"></script>
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        // Copy code functionality
+        function copyCode(button) {
+            const codeBlock = button.parentElement.querySelector('code');
+            const text = codeBlock.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2000);
+            });
+        }
+
+        // Module validation
+        function validateModule() {
+            const input = document.getElementById('missingModule').value.trim();
+            const resultDiv = document.getElementById('validationResult');
+            const correctAnswers = ['memory_controller', 'memory_controller.v'];
+            
+            resultDiv.style.display = 'block';
+            
+            if (correctAnswers.includes(input.toLowerCase())) {
+                resultDiv.className = 'validation-box';
+                resultDiv.innerHTML = '<h4 style="color: #28a745;">&#10003; Correct!</h4>' +
+                    '<p>Yes, <strong>memory_controller</strong> was the missing module. Adding its source file to the filelist resolved the LINK-5 warning.</p>';
+            } else {
+                resultDiv.className = 'warning-card';
+                resultDiv.innerHTML = '<h4 style="color: #d9534f;">&#10007; Not quite...</h4>' +
+                    '<p>Hint: Look at the LINK-5 warning message. Which module name appears in the error?</p>';
+            }
+        }
+
+        // Quiz functionality
+        function selectAnswer(questionId, optionIndex, isCorrect) {
+            const options = document.querySelectorAll(`#${questionId}-options li`);
+            const feedback = document.getElementById(`${questionId}-feedback`);
+            const answer = document.getElementById(`${questionId}-answer`);
+            
+            // Remove previous selections
+            options.forEach(opt => {
+                opt.classList.remove('selected', 'correct-answer', 'wrong-answer');
+            });
+            
+            // Mark selected option
+            const selectedOption = options[optionIndex];
+            selectedOption.classList.add('selected');
+            
+            // Show feedback
+            feedback.style.display = 'block';
+            if (isCorrect) {
+                selectedOption.classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '&#10003; Correct! Well done.';
+                answer.style.display = 'block';
+            } else {
+                selectedOption.classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '&#10007; Incorrect. Try again!';
+                answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

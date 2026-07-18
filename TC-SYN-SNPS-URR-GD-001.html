@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testcase 1: Guided Exercise &mdash; Synthesis and Linking Lab</title>
+    <link rel="stylesheet" href="../common/styles.css">
+</head>
+<body>
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Testcase 1: Missing RTL File Reference (Guided)</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#127968; <a href="../SYN-SNPS-URR.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 1</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128203; Type: Guided Exercise</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201;&#65039; Estimated Time: 45-60 minutes</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Problem Context -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Problem Statement</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                <p>You are working on synthesizing a digital design using Design Compiler. The top-level module is top_design, which instantiates several hierarchical submodules.</p>
+
+                <p style="margin-top: 20px;">When you run the synthesis flow, Design Compiler produces the following warnings:</p>
+
+                <pre class="code-block">Warning: Design 'top_design' has '2' unresolved references. For more detailed information, use the "link" command. (UID-341)
+Warning: Unable to resolve reference 'CKBD8BWP40P140LVT' in 'top_design'. (LINK-5)
+Warning: Unable to resolve reference 'memory_controller' in 'top_design'. (LINK-5)</pre>
+
+                <p><strong>Your task:</strong> Investigate these warnings. One involves a missing RTL file in your filelist, and the other involves a missing cell definition in your library configuration.</p>
+            </div>
+        </div>
+
+        <!-- Analysis -->
+        <div class="content-box">
+            <h2 class="section-title">&#128269; Analysis</h2>
+
+            <div class="section-content">
+                <p>Design Compiler uses the 'link' command to assemble your design hierarchy, ensuring all instantiated modules and cells match their definitions. The error log above highlights two distinct failures in this process:</p>
+
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 1.8;">
+                    <li><strong>Missing RTL Module:</strong> The LINK-5 warning for memory_controller indicates that while top_design attempts to instantiate this module, the tool cannot locate its Verilog source code. This typically occurs when a file exists in your project directory but has not been added to your synthesis file list.</li>
+                    <li><strong>Missing Library Cell:</strong> The LINK-5 warning for CKBD8BWP40P140LVT signals that the synthesis tool cannot find the definition for this specific standard cell in your loaded technology libraries. This often points to a configuration issue where the required library database (.db file) is missing from your link_library variable.</li>
+                </ul>
+
+                <p style="margin-top: 20px;">Both of these issues prevent the design from completing its elaboration phase and must be resolved before synthesis can proceed.</p>
+            </div>
+        </div>
+
+        <!-- Guided Steps -->
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Step-by-Step Solution</h2>
+
+            <ul class="step-list">
+                <li>
+                    <h3>Navigate and Start the Testcase</h3>
+                    <p>You have already set up the lab directory structure using the provided setup guidelines. The required RTL files, scripts, libraries, and constraint files are now available in the testcase directory. With the lab environment ready, proceed with the following steps to run the synthesis.</p>
+
+                    <pre class="code-block">cd ~/pd/labs/SYN-SNPS-URR/TC-SYN-SNPS-URR-GD-001/
+make all</pre>
+                </li>
+
+                <li>
+                    <h3>Understand the Error Messages</h3>
+                    <p>The warning LINK-5: Unable to resolve reference 'memory_controller' means Design Compiler has read the top_design module and found an instantiation of memory_controller, but it cannot find the definition of this module.</p>
+
+                    <p style="margin-top: 15px;">This happens because:</p>
+                    <ol style="margin-left: 20px; margin-top: 10px;">
+                        <p>1) The file containing memory_controller was never read by DC</p>
+                        <p>2) DC searches through all previously read files and libraries</p>
+                        <p>3) When not found, it issues a LINK warning during the linking phase</p>
+                    </ol>
+                </li>
+
+                <li>
+                    <h3>Review Current Filelist Configuration</h3>
+                    <p>Check the current design.filelist or the Tcl script that sets up RTL files:</p>
+
+                    <pre class="code-block">set rtl_files {../inputs/data_processing_unit.v
+../inputs/interface_controller.v
+../inputs/top_design.v
+}</pre>
+
+                    <p style="margin-top: 15px;"><strong>Problem Identified:</strong> memory_controller.v is missing from the filelist!</p>
+                </li>
+
+                <li>
+                    <h3>Locate the Missing Source File</h3>
+                    <p>Verify that the memory_controller.v file exists in the inputs directory by running a shell command directly from your tool prompt:</p>
+
+                    <pre class="code-block">dc_shell> sh ls ../inputs/ | grep memory_controller.v
+memory_controller.v</pre>
+
+                    <p style="margin-top: 15px;"><strong>Explanation:</strong> We are searching the <code>../inputs/</code> directory because this is where all RTL source files for this testcase are provided. If the filename prints to the screen, the file is physically there — it just needs to be added to the filelist.</p>
+                </li>
+
+                <li>
+                    <h3>Add the Missing File to the Filelist</h3>
+                    <p>Edit the design.filelist to include memory_controller.v:</p>
+
+                    <pre class="code-block">set rtl_files {../inputs/data_processing_unit.v
+../inputs/interface_controller.v
+../inputs/top_design.v
+../inputs/memory_controller.v
+}</pre>
+                </li>
+
+                <div class="info-card" style="margin: 20px 0; border-left: 4px solid #667eea; background-color: #f1f4ff;">
+                    <p><strong>Next:</strong> Now that we have resolved the missing RTL source file, we will tackle the second failure point. In the next step, we will correct the library configuration to resolve the LINK-5 and UID-341 errors related to missing standard cells.</p>
+                </div>
+
+                <li>
+                    <h3>Analyze Library Configuration</h3>
+                    <p>The Warning: Unable to resolve reference 'CKBD8BWP40P140LVT' in 'top_design'. (LINK-5) indicates that the synthesizer cannot find this specific cell in the currently loaded technology libraries. The CKBD8...LVT naming convention suggests this is a <strong>Low Threshold Voltage (LVT)</strong> cell.</p>
+
+                    <p style="margin-top: 15px;"><strong>Action:</strong> Review your synthesis script to identify missing library paths.</p>
+
+                    <pre class="code-block"># CURRENT CONFIGURATION (Incomplete)
+set search_path [list . ../../pdk/stdcells/9T/hvt/lib/nldm ../../pdk/stdcells/9T/svt/lib/nldm ]
+set target_library [list tcbn28hpcplusbwp40p140hvtssg0p81vm40c.db tcbn28hpcplusbwp40p140ssg0p81vm40c.db ]
+set link_library [list * tcbn28hpcplusbwp40p140hvtssg0p81vm40c.db tcbn28hpcplusbwp40p140ssg0p81vm40c.db ] </pre>
+
+                    <p>The script is missing the LVT library file path. You need to add the corresponding LVT search path to the search_path variable and include the LVT .db file in both target_library and link_library variables.</p>
+                </li>
+
+                <li>
+                    <h3>Correct and Update Library Paths</h3>
+                    <p>Edit the scripts/run_synthesis.tcl file to include the LVT database files. This correction ensures the linker can resolve all standard cell references.</p>
+
+                    <pre class="code-block"># CORRECTED CONFIGURATION
+set search_path [list . ../../pdk/stdcells/9T/hvt/lib/nldm ../../pdk/stdcells/9T/svt/lib/nldm ../../pdk/stdcells/9T/lvt/lib/nldm ]
+set target_library [list tcbn28hpcplusbwp40p140hvtssg0p81vm40c.db \
+                         tcbn28hpcplusbwp40p140ssg0p81vm40c.db \
+                         tcbn28hpcplusbwp40p140lvtssg0p81vm40c.db ]
+
+set link_library [list * tcbn28hpcplusbwp40p140hvtssg0p81vm40c.db \
+                         tcbn28hpcplusbwp40p140ssg0p81vm40c.db \
+                         tcbn28hpcplusbwp40p140lvtssg0p81vm40c.db ]</pre>
+                </li>
+
+                <li>
+                    <h3>Exit Current Shell</h3>
+                    <p>Before proceeding, ensure you have exited active tool shells. Type the following command to return to your main terminal.</p>
+
+                    <pre class="code-block">exit</pre>
+                </li>
+
+                <li>
+                    <h3>Re-run Synthesis and Verify</h3>
+                    <p>Now that you are back in the main shell, execute the synthesis flow using make run.</p>
+
+                    <pre class="code-block">make run</pre>
+                    <p style="margin-top: 15px;">After this, you should not see any linking issues.</p>
+                </li>
+            </ul>
+
+            <div class="validation-box">
+                <h4>&#9989; Success Criteria</h4>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li>No LINK-5 and UID-341 warnings</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After completing your fixes and running the synthesis flow, use the automated verification command to validate your results.</p>
+
+                <pre class="code-block">make verify</pre>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. What is the primary purpose of the 'link' command in Design Compiler?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">To compile the Verilog source code into binary.</li>
+                        <li onclick="checkAnswer(this, true)">To assemble the design hierarchy and verify that all modules and cells are defined.</li>
+                        <li onclick="checkAnswer(this, false)">To map logical gates to physical layout coordinates.</li>
+                        <li onclick="checkAnswer(this, false)">To generate the final GDSII file.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The link command checks the consistency of your hierarchy by ensuring every instantiated submodule or cell has a corresponding definition in your loaded files or libraries.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. What does a LINK-5 warning regarding 'memory_controller' typically imply?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">The module is too complex for the current technology node.</li>
+                        <li onclick="checkAnswer(this, true)">The RTL source file for the module was not included in the read filelist.</li>
+                        <li onclick="checkAnswer(this, false)">The memory controller is incompatible with the clock frequency.</li>
+                        <li onclick="checkAnswer(this, false)">The module name has a syntax error in the Verilog code.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> LINK-5 means the tool can see the instantiation in your top-level file, but it cannot find the actual definition (source code) for that module.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. Why did adding the LVT (Low Threshold Voltage) library to your configuration resolve the error for 'CKBD8BWP40P140LVT'?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">It increased the synthesis speed.</li>
+                        <li onclick="checkAnswer(this, true)">It provided the definition for a specific standard cell missing from the previously loaded libraries.</li>
+                        <li onclick="checkAnswer(this, false)">It automatically corrected the timing constraints in the design.</li>
+                        <li onclick="checkAnswer(this, false)">It removed unnecessary hierarchy from the design.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Standard cells must be defined in the technology libraries (.db files). If a cell is referenced in the design but absent from the loaded link_library, the tool throws a resolution error.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. If you fix an RTL filelist error, why must you re-run the synthesis flow?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">To ensure the file size is correct.</li>
+                        <li onclick="checkAnswer(this, true)">To allow Design Compiler to re-elaborate the hierarchy with the newly included module.</li>
+                        <li onclick="checkAnswer(this, false)">To update the physical design files automatically.</li>
+                        <li onclick="checkAnswer(this, false)">The tool requires a reboot after every configuration change.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Elaboration happens early in the flow. If a module is missing at that stage, you must re-run the process so the tool can parse and build the design structure correctly.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#127881; Next Step</h2>
+            <div class="section-content">
+                <p>Great job completing the quiz for <strong>Testcase 1</strong>!</p>
+
+                <p>In this exercise, you mastered the critical linking phase of synthesis. You learned how to investigate LINK-5 warnings to identify and resolve missing source files in your filelist, and you successfully updated the link_library configuration to correctly resolve standard cell references.</p>
+
+                <p>&#128640; Now that you are comfortable debugging the synthesis setup, you are ready to progress to the next challenge assignment.</p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../SYN-SNPS-URR.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+                <a href="../TC-SYN-SNPS-URR-CH-001/TC-SYN-SNPS-URR-CH-001.html" class="btn btn-success">Continue to Testcase 2 &#8594;</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="../common/interactive.js"></script>
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        function checkAnswer(option, isCorrect) {
+            const parent = option.parentElement;
+            const questionContainer = parent.parentElement;
+            const feedback = questionContainer.querySelector('.feedback');
+            const answer = questionContainer.querySelector('.answer');
+
+            if (isCorrect) {
+                const options = parent.querySelectorAll('li');
+                options.forEach(opt => opt.style.pointerEvents = 'none');
+
+                option.classList.add('correct-answer');
+                feedback.textContent = "\u2705 Correct!";
+                feedback.className = "feedback correct";
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+            } else {
+                option.style.pointerEvents = 'none';
+                option.classList.add('wrong-answer');
+                feedback.textContent = "\u274C Incorrect. Try again.";
+                feedback.className = "feedback incorrect";
+                feedback.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

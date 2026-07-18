@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challenge: PrimeTime STA — iguana_soc — STA-SNPS-STA</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        .content-box p  { color: #555; line-height: 1.7; }
+        .content-box ul,
+        .content-box ol { color: #555; line-height: 2.0; margin-left: 1.5rem; }
+    </style>
+</head>
+<body>
+
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Challenge: PrimeTime STA &mdash; iguana_soc</h1>
+            <div class="lab-meta">
+                <div class="meta-item"><span>&#128205; <a href="../STA-SNPS-STA.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 2</span></div>
+                <div class="meta-item"><span>&#127919; Type: Independent Work</span></div>
+                <div class="meta-item"><span>&#9201; Estimated Time: 4&ndash;6 hours</span></div>
+                <div class="meta-item"><span>&#11088;&#11088; Difficulty: Medium</span></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <!-- Challenge Problem -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Challenge Problem</h2>
+                <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+            </div>
+            <div class="section-content">
+                <p>
+                    Repeat the same 4-corner PrimeTime STA flow from Testcase 1, this time on the
+                    <strong>iguana_soc</strong> design. Use your Testcase 1 scripts as a template &mdash;
+                    swap the design name, library paths, SPEF files, and SDC with the iguana_soc inputs below.
+                </p>
+            </div>
+        </div>
+
+        <!-- PDK Paths -->
+        <div class="content-box">
+            <h2 class="section-title">&#128190; PDK Library Paths</h2>
+            <div class="section-content">
+
+                <p><strong>Standard Cell Library Search Paths (CCS):</strong></p>
+                <div class="code-container"><pre class="code-block">/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lib/ccs/
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/lib/ccs/
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/lib/ccs/</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>SSG 0.81V &minus;40&deg;C .db files (for setup corners):</strong></p>
+                <div class="code-container"><pre class="code-block">tcbn28hpcplusbwp40p140ssg0p81vm40c_ccs.db
+tcbn28hpcplusbwp40p140lvtssg0p81vm40c_ccs.db
+tcbn28hpcplusbwp40p140hvtssg0p81vm40c_ccs.db</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>SSG 0.81V 125&deg;C .db files (for setup corners):</strong></p>
+                <div class="code-container"><pre class="code-block">tcbn28hpcplusbwp40p140ssg0p81v125c_ccs.db
+tcbn28hpcplusbwp40p140lvtssg0p81v125c_ccs.db
+tcbn28hpcplusbwp40p140hvtssg0p81v125c_ccs.db</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>FFG 0.99V &minus;40&deg;C .db files (for hold corners):</strong></p>
+                <div class="code-container"><pre class="code-block">tcbn28hpcplusbwp40p140ffg0p99vm40c_ccs.db
+tcbn28hpcplusbwp40p140lvtffg0p99vm40c_ccs.db
+tcbn28hpcplusbwp40p140hvtffg0p99vm40c_ccs.db</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>FFG 0.99V 125&deg;C .db files (for hold corners):</strong></p>
+                <div class="code-container"><pre class="code-block">tcbn28hpcplusbwp40p140ffg0p99v125c_ccs.db
+tcbn28hpcplusbwp40p140lvtffg0p99v125c_ccs.db
+tcbn28hpcplusbwp40p140hvtffg0p99v125c_ccs.db</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>PSRAM Macro Libraries:</strong></p>
+                <div class="code-container"><pre class="code-block">/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/iguana_mems/TS281PSRAM2048x64M8/lib/
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/iguana_mems/TS281PSRAM256x48M8/lib/
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/iguana_mems/TS281PSRAM256x64M8/lib/</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+
+            </div>
+        </div>
+
+        <!-- 4 Corners Summary -->
+        <div class="content-box">
+            <h2 class="section-title">&#128203; 4 Sessions to Run</h2>
+            <div class="section-content">
+                <p>Create one PT script per corner. Each script must use the correct matching library + SPEF pair:</p>
+                <table style="margin-top: 15px;">
+                    <thead>
+                        <tr><th>Session</th><th>Libraries (.db)</th><th>SPEF</th><th>Analysis</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>SS 0.81V &minus;40&deg;C cworst</strong></td><td>ssg0p81vm40c</td><td>spef extracted at cworst condition</td><td>Setup</td></tr>
+                        <tr><td><strong>SS 0.81V 125&deg;C rcworst</strong></td><td>ssg0p81v125c</td><td>spef extracted at rcworst condition</td><td>Setup</td></tr>
+                        <tr><td><strong>FF 0.99V &minus;40&deg;C cbest</strong></td><td>ffg0p99vm40c</td><td>spef extracted at cbest condition</td><td>Hold</td></tr>
+                        <tr><td><strong>FF 0.99V 125&deg;C rcbest</strong></td><td>ffg0p99v125c</td><td>spef extracted at rcbest condition</td><td>Hold</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Run -->
+        <div class="content-box">
+            <h2 class="section-title">&#9881; Run All 4 Sessions</h2>
+            <div class="section-content">
+                <div class="code-container"><pre class="code-block">cd ~/pd/labs/STA-SNPS-STA/TC-STA-SNPS-STA-CH-001/work
+
+pt_shell -f ../scripts/ss_81v_m40_cworst.sta.tcl | tee ../reports/pt_ss_m40_cworst.log
+
+pt_shell -f ../scripts/ss_0p81v_125c_rcworst.sta.tcl | tee ../reports/pt_ss_125c_rcworst.log
+
+pt_shell -f ../scripts/ff_0p99v_m40c_cbest.sta.tcl | tee ../reports/pt_ff_m40c_cbest.log
+
+pt_shell -f ../scripts/ff_0p99v_125c_rcbest.sta.tcl | tee ../reports/pt_ff_125c_rcbest.log</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <div class="code-container"><pre class="code-block">make verify</pre><button class="copy-button" onclick="copyCode(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. If you use FFG (fast) timing libraries but annotate a cworst (worst parasitic) SPEF, what happens?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">PrimeTime will automatically correct the mismatch.</li>
+                        <li onclick="checkAnswer(this, true)">The results are physically meaningless because fast cells with worst-case parasitics do not represent any real operating condition.</li>
+                        <li onclick="checkAnswer(this, false)">The analysis will fail with an error.</li>
+                        <li onclick="checkAnswer(this, false)">It produces the same result as using matched inputs.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Libraries and SPEF must match the same PVT corner. Fast libraries model fast transistors at high voltage; they should be paired with cbest/rcbest SPEF (minimum parasitics) for hold analysis. Mismatched pairs give unreliable slack values.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. Why are both cworst and rcworst needed for setup analysis?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">They are interchangeable; only one is needed.</li>
+                        <li onclick="checkAnswer(this, true)">Cworst maximizes coupling capacitance (worst crosstalk effects) while rcworst maximizes both resistance and capacitance (worst RC delay). Different nets may be critical under different extraction conditions.</li>
+                        <li onclick="checkAnswer(this, false)">Cworst is for hold analysis and rcworst is for setup analysis.</li>
+                        <li onclick="checkAnswer(this, false)">They only differ in file format, not parasitic values.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Cworst and rcworst stress different aspects of the parasitics. Some critical paths may be dominated by coupling (cworst catches them), while others are dominated by wire RC (rcworst catches them). Running both ensures no setup violation is missed.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. What does parasitic annotation do in PrimeTime?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">It replaces the gate-level netlist with a transistor-level netlist.</li>
+                        <li onclick="checkAnswer(this, false)">It adds clock tree buffers to the design.</li>
+                        <li onclick="checkAnswer(this, true)">It maps the extracted R, C, and Cc values from the SPEF onto every net in the design, replacing wire-load model estimates with real physical parasitic data.</li>
+                        <li onclick="checkAnswer(this, false)">It generates the floorplan DEF file.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Annotation overlays real extracted parasitics onto the logical netlist. After annotation, PrimeTime uses these real R and C values to compute accurate net delays and transitions instead of estimates.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. For a complete signoff, how many PT sessions are typically needed?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">1 session at typical corner is sufficient.</li>
+                        <li onclick="checkAnswer(this, false)">2 sessions: one slow, one fast.</li>
+                        <li onclick="checkAnswer(this, true)">At minimum 4 sessions covering slow and fast process at both temperature extremes, each with its matching RC extraction SPEF.</li>
+                        <li onclick="checkAnswer(this, false)">The number depends only on the number of clocks in the design.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Signoff requires checking setup at slow corners (SS + cworst/rcworst) and hold at fast corners (FF + cbest/rcbest), at both temperature extremes. This gives at minimum 4 sessions to ensure timing closure across all operating conditions.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../STA-SNPS-STA.html" class="btn btn-back">&larr; Back to Lab Home</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../TC-STA-SNPS-STA-GD-001/TC-STA-SNPS-STA-GD-001.html" class="btn btn-secondary">&larr; Back to Testcase 1</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = '27';
+        const TESTCASE_NUM = '2';
+        function copyCode(btn) {
+            var container = btn.closest('.code-container');
+            var codeBlock = container.querySelector('.code-block');
+            var text = codeBlock.textContent.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    btn.textContent = 'Copied!';
+                    setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+                });
+            } else {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;top:-9999px;opacity:0;';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(ta);
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+            }
+        }
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        function checkAnswer(el, isCorrect) {
+            var question = el.closest('.quiz-question');
+            if (question.querySelector('.correct-answer')) return;
+            var options = question.querySelectorAll('.quiz-options li');
+            var feedback = question.querySelector('.feedback');
+            var answer = question.querySelector('.answer');
+            options.forEach(function(opt) { opt.classList.remove('selected', 'quiz-option-selected', 'wrong-answer'); });
+            if (isCorrect) {
+                el.classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '\u2705 Correct! Well done.';
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+            } else {
+                el.classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '\u274C Incorrect. Try again!';
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

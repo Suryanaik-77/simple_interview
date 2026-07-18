@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challenge: Physical-Aware Synthesis with DC — iguana_soc — SYN-SNPS-PS</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        .step-list li ul li {
+            counter-increment: none;
+            border-left: none;
+            background: transparent;
+            padding: 4px 0;
+            margin: 4px 0;
+        }
+        .step-list li ul li::before {
+            display: none;
+        }
+        details {
+            margin: 12px 0;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        details summary {
+            padding: 12px 16px;
+            background: #f3f4f6;
+            cursor: pointer;
+            font-weight: 600;
+            color: #374151;
+            user-select: none;
+        }
+        details summary:hover { background: #e5e7eb; }
+        details .hint-content {
+            padding: 16px;
+            background: white;
+            color: #555;
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Challenge: Physical-Aware Synthesis with DC &mdash; iguana_soc</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#128205; <a href="../SYN-SNPS-PS.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Testcase 2</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#127919; Type: Independent Work</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201; Estimated Time: 120&ndash;180 minutes</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#11088;&#11088;&#11088; Difficulty: Hard</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Challenge Problem -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Challenge Problem</h2>
+                <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+            </div>
+            <div class="section-content">
+                <p>
+                    Repeat the same physical-aware synthesis flow from Testcase 1, this time on the
+                    <strong>iguana_soc</strong> design. Use your Testcase 1 script as a template &mdash;
+                    swap the design name, library paths, NDM references, SPEF/TLU+, SDC, and DEF with
+                    the iguana_soc inputs below.
+                </p>
+            </div>
+        </div>
+
+        <!-- Library Paths -->
+        <div class="content-box">
+            <h2 class="section-title">&#128190; Library and Physical Data Paths</h2>
+            <div class="section-content">
+                <p>Use the following paths in your synthesis script.</p>
+
+                <p style="margin-top: 18px;"><strong>Standard cell library directories (TSMC 28&nbsp;nm HPHP, SSG corner, &minus;40&deg;C):</strong></p>
+                <div class="code-container"><pre class="code-block">/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/lib/ccs
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/lib/ccs
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/lib/ccs</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>Standard cell <code>.db</code> filenames:</strong></p>
+                <div class="code-container"><pre class="code-block">tcbn28hpcplusbwp40p140hvtssg0p81vm40c_ccs.db
+tcbn28hpcplusbwp40p140lvtssg0p81vm40c_ccs.db
+tcbn28hpcplusbwp40p140ssg0p81vm40c_ccs.db</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>PSRAM macro library directories (for <code>set_search_path</code>):</strong></p>
+                <div class="code-container"><pre class="code-block">/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/iguana_mems/TS281PSRAM2048x64M8/lib
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/iguana_mems/TS281PSRAM256x48M8/lib
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/memory/sram/iguana_mems/TS281PSRAM256x64M8/lib</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>PSRAM macro <code>.db</code> filenames (for <code>set_link_library</code> only):</strong></p>
+                <div class="code-container"><pre class="code-block">TS281PSRAM2048x64M8_ssg_cworstt_0p81v_0p81v_m40c.db
+TS281PSRAM256x48M8_ssg_cworstt_0p81v_0p81v_m40c.db
+TS281PSRAM256x64M8_ssg_cworstt_0p81v_0p81v_m40c.db</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>NDM physical reference libraries:</strong></p>
+                <div class="code-container"><pre class="code-block">/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/hvt/ndm/tcbn28hpcplusbwp40p140hvt.ndm
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/svt/ndm/tcbn28hpcplusbwp40p140svt.ndm
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T/lvt/ndm/tcbn28hpcplusbwp40p140lvt.ndm</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+
+                <p style="margin-top: 18px;"><strong>Technology file and TLU+ parasitic models:</strong></p>
+                <div class="code-container"><pre class="code-block"># Technology file
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/metal_stack/1P9M_4X2Y2R/tf/tsmcn28_9lm4X2Y2RUTRDL.tf
+
+# TLU+ max (rcworst — setup timing)
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/metal_stack/1P9M_4X2Y2R/tluplus/cln28hpc+_1p09m+ut-alrdl_4x2y2r_rcworst_T.tluplus
+
+# TLU+ min (rcbest — hold timing)
+/efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/metal_stack/1P9M_4X2Y2R/tluplus/cln28hpc+_1p09m+ut-alrdl_4x2y2r_rcbest_T.tluplus</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>Run from the testcase directory after synthesis completes:</p>
+                <div class="code-container"><pre class="code-block">make verify</pre><button class="copy-button" onclick="copyCode(this)" style="background:transparent;border:none;color:#839496;font-size:0.82em;letter-spacing:0.03em;">Copy</button></div>
+                <p style="margin-top: 12px;"><code>make verify</code> checks the following:</p>
+                <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9; list-style-type: disc;">
+                    <li><code>outputs/iguana_soc.v</code> &mdash; PASS if found, FAIL if missing</li>
+                    <li><code>outputs/iguana_soc.ddc</code> &mdash; PASS if found, FAIL if missing</li>
+                    <li><code>outputs/iguana_soc.sdc</code> &mdash; PASS if found, FAIL if missing</li>
+                </ul>
+                <p style="margin-top: 12px;">All checks passing &rarr; <strong>OVERALL: PASS</strong>. Any failure &rarr; <strong>OVERALL: FAIL</strong>.</p>
+            </div>
+
+            <div class="validation-box" style="margin-top: 20px;">
+                <h4>&#9989; Success Criteria</h4>
+                <ul style="margin-left: 20px; margin-top: 10px; list-style-type: disc;">
+                    <li><code>outputs/iguana_soc.v</code> &mdash; gate-level netlist</li>
+                    <li><code>outputs/iguana_soc.ddc</code> &mdash; design database</li>
+                    <li><code>outputs/iguana_soc.sdc</code> &mdash; post-synthesis SDC</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. Why must PSRAM macro <code>.db</code> files be added to <code>set_link_library</code> but NOT to <code>set_target_library</code>?</h3>
+                    <ul class="quiz-options" id="q1-options">
+                        <li onclick="selectAnswer('q1', 0, false)">DC cannot read PSRAM .db files directly; they must be specified separately from standard cell databases.</li>
+                        <li onclick="selectAnswer('q1', 1, false)">PSRAM macros are automatically included when the search_path directories are configured.</li>
+                        <li onclick="selectAnswer('q1', 2, true)">set_target_library contains only cells DC can map logic onto. PSRAM macros are fixed hard macros &mdash; DC uses their timing models for port timing analysis but cannot synthesise logic inside them.</li>
+                        <li onclick="selectAnswer('q1', 3, false)">PSRAM macros are only needed for place-and-route, not synthesis timing analysis.</li>
+                    </ul>
+                    <div id="q1-feedback" class="feedback"></div>
+                    <div id="q1-answer" class="answer"><strong>Correct!</strong> <code>set_target_library</code> is the list of cells DC selects during technology mapping. PSRAM macros are hard IP blocks whose internal logic is fixed &mdash; DC only needs their timing models (in <code>set_link_library</code>) to analyse setup and hold timing at their ports.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. The iguana_soc <code>analyze</code> command requires a different format flag than tile. What is it and why?</h3>
+                    <ul class="quiz-options" id="q2-options">
+                        <li onclick="selectAnswer('q2', 0, false)"><code>-format vhdl</code>, because iguana_soc uses mixed Verilog/VHDL sources.</li>
+                        <li onclick="selectAnswer('q2', 1, true)"><code>-format sverilog</code>, because iguana_soc is written in SystemVerilog which has constructs (interfaces, packages, <code>logic</code>, <code>always_ff</code>) that the standard Verilog parser does not support.</li>
+                        <li onclick="selectAnswer('q2', 2, false)"><code>-format db</code>, because iguana_soc RTL is pre-compiled into a binary format.</li>
+                        <li onclick="selectAnswer('q2', 3, false)"><code>-format verilog</code> works for SystemVerilog too; no change is needed.</li>
+                    </ul>
+                    <div id="q2-feedback" class="feedback"></div>
+                    <div id="q2-answer" class="answer"><strong>Correct!</strong> iguana_soc uses SystemVerilog. Passing <code>-format sverilog</code> to <code>analyze</code> enables the SystemVerilog parser so constructs like <code>interface</code>, <code>package</code>, <code>logic</code>, and <code>always_ff</code> are correctly recognised.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. iguana_soc uses <code>set_clock_groups -asynchronous</code> in its SDC. What does this tell DC?</h3>
+                    <ul class="quiz-options" id="q3-options">
+                        <li onclick="selectAnswer('q3', 0, false)">It disables all timing analysis for the design.</li>
+                        <li onclick="selectAnswer('q3', 1, false)">It sets clock uncertainty to zero for paths crossing clock domains.</li>
+                        <li onclick="selectAnswer('q3', 2, true)">It tells DC not to analyse timing paths that cross between the listed clock groups, since those paths are handled by CDC synchronisers in RTL and cannot meet normal setup/hold requirements.</li>
+                        <li onclick="selectAnswer('q3', 3, false)">It marks all six clocks as generated clocks derived from a single master clock.</li>
+                    </ul>
+                    <div id="q3-feedback" class="feedback"></div>
+                    <div id="q3-answer" class="answer"><strong>Correct!</strong> Paths crossing asynchronous clock boundaries are intentionally not timed &mdash; they are handled by dedicated CDC synchronisers in RTL. Without <code>set_clock_groups -asynchronous</code>, DC would try to meet impossible inter-domain timing and report misleading violations.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. In physical synthesis, what is the advantage of running <code>check_timing</code> after <code>extract_physical_constraints</code> but before <code>compile_ultra -spg</code>?</h3>
+                    <ul class="quiz-options" id="q4-options">
+                        <li onclick="selectAnswer('q4', 0, false)">It forces DC to reload the TLU+ files after the DEF is loaded.</li>
+                        <li onclick="selectAnswer('q4', 1, false)">It writes the floorplan constraints to a report file for documentation.</li>
+                        <li onclick="selectAnswer('q4', 2, true)">It confirms that all clock domains are correctly constrained after the SDC is applied and before the hours-long SPG compilation begins, allowing you to catch missing constraints before wasting time on a bad run.</li>
+                        <li onclick="selectAnswer('q4', 3, false)">It is required by DC to validate that the DEF file matches the elaborated netlist.</li>
+                    </ul>
+                    <div id="q4-feedback" class="feedback"></div>
+                    <div id="q4-answer" class="answer"><strong>Correct!</strong> SPG compilation takes several hours for a large design like iguana_soc. Running <code>check_timing</code> before starting lets you verify that all paths are constrained and all clock domains recognised. Catching a missing <code>create_clock</code> or <code>set_clock_groups</code> at this stage saves you from a wasted multi-hour run.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../SYN-SNPS-PS.html" class="btn btn-back">&larr; Back to Lab Home</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../TC-SYN-SNPS-PS-GD-001/TC-SYN-SNPS-PS-GD-001.html" class="btn btn-secondary">&larr; Back to Testcase 1</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = '31';
+        const TESTCASE_NUM = '2';
+        function copyCode(btn) {
+            var text = btn.closest('.code-container').querySelector('.code-block').textContent.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    btn.textContent = 'Copied';
+                    setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+                });
+            } else {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;top:-9999px;opacity:0;';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(ta);
+                btn.textContent = 'Copied';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+            }
+        }
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function () {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrolled = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+        function selectAnswer(questionId, optionIndex, isCorrect) {
+            const options = document.querySelectorAll('#' + questionId + '-options li');
+            const feedback = document.getElementById(questionId + '-feedback');
+            const answer = document.getElementById(questionId + '-answer');
+            options.forEach(function(opt) {
+                opt.classList.remove('selected', 'correct-answer', 'wrong-answer');
+            });
+            const selected = options[optionIndex];
+            selected.classList.add('selected');
+            feedback.style.display = 'block';
+            if (isCorrect) {
+                selected.classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '✅ Correct! Well done.';
+                if (answer) answer.style.display = 'block';
+            } else {
+                selected.classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '❌ Incorrect. Try again!';
+                if (answer) answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

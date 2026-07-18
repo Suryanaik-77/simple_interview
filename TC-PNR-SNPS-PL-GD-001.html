@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guided Testcase: ICC2 Placement — tile (Guided)</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        code { color: #333; }
+        .step-list li ul li,
+        .step-list li ol li {
+            counter-increment: none;
+            list-style-type: disc;
+            padding: 4px 0;
+            margin: 4px 0;
+            background: none;
+            border-left: none;
+            border-radius: 0;
+            position: static;
+        }
+        .step-list li ul li::before,
+        .step-list li ol li::before {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Scroll progress bar is created dynamically by interactive.js -->
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Guided Testcase: ICC2 Placement — tile (Guided)</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#127968; <a href="../PNR-SNPS-PL.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Guided Testcase</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128203; Type: Guided Exercise</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128336; Estimated Time: 60–90 minutes</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <!-- Problem Statement -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Problem Statement</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                <p>You will perform <strong>timing-driven global placement</strong> on the <strong>tile</strong> processor core design using ICC2. The floorplan block saved in the PNR-SNPS-FP stage is your starting point. In this exercise, every command is explained in detail — what it does, why it matters, and what you should verify in the tool output before proceeding to the next step.</p>
+
+                <p style="margin-top: 15px;">By the end of this testcase you will have:</p>
+                <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                    <li>Opened the floorplan NDM block and configured setup-only scenario analysis</li>
+                    <li>Inserted IO buffers and anchored them near ports using <code>magnet_placement</code></li>
+                    <li>Applied lib-cell dont-use rules to exclude clock, high-drive, delay, and LVT cells</li>
+                    <li>Set congestion effort, density limits, fanout constraints, and disabled CCD</li>
+                    <li>Executed <code>place_opt</code> and generated a full suite of placement quality reports</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Step-by-Step -->
+        <div class="content-box">
+            <h2 class="section-title">&#128196; Placement — Step-by-Step Command Explanation</h2>
+            <p style="color: #555; margin-bottom: 20px;">Follow the steps below exactly as written. Navigate to the testcase directory, launch ICC2, and run the placement script.</p>
+
+            <ul class="step-list">
+
+                <!-- Step 1 -->
+                <li>
+                    <h3>Navigate to TC-PNR-SNPS-PL-GD-001 and Launch ICC2</h3>
+                    <p>You have already set up the lab directory structure using the provided setup guidelines. The required input files are now available in the testcase directory. With the lab environment ready, proceed with the following steps.</p>
+                    <p style="margin-top: 10px;">Navigate to the testcase directory and start the ICC2 session using the Makefile:</p>
+                    <pre class="code-block">cd ~/pd/labs/PNR-SNPS-PL/TC-PNR-SNPS-PL-GD-001
+make all</pre>
+                    <p style="margin-top: 12px;">This starts an interactive <code>icc2_shell</code> session. Open the placement script in a separate editor window:</p>
+                    <pre class="code-block">sh gvim ../scripts/place.tcl &amp;</pre>
+                    <p style="margin-top: 10px;">Write each command into the script as you follow the steps below. Once all commands are written, source the script from inside <code>icc2_shell</code>:</p>
+                    <pre class="code-block">source ../scripts/place.tcl</pre>
+                    <p style="margin-top: 10px;">Read the tool output carefully after each command executes — the output tells you whether the step succeeded and what actions ICC2 took.</p>
+                </li>
+
+                <!-- Step 2 -->
+                <li>
+                    <h3>Open the Floorplan Library and Block (<code>open_lib</code> / <code>open_block</code>)</h3>
+                    <p><strong>What it does:</strong> Opens the existing ICC2 design library that was built during PNR-SNPS-FP and loads the specific block named <code>floorplan.design</code>. This block contains the complete floorplan: die dimensions, power rings, power stripes, and macro placements. The placement commands you will run next all operate on this block.</p>
+                    <pre class="code-block">open_lib ../inputs/tile.ndm
+open_block floorplan.design</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>What to verify:</strong> ICC2 should print the block name and design statistics on open. Confirm the block name shows <code>floorplan.design</code> and no error messages appear. If the block name is wrong or the NDM cannot be found, check the path and the block name used in the FP stage.
+                    </div>
+                </li>
+
+                <!-- Step 3 -->
+                <li>
+                    <h3>Configure Scenario Settings — Activate Setup Scenarios Only</h3>
+                    <p><strong>What it does:</strong> Deactivates all currently active scenarios, then reactivates only those whose names match the pattern <code>*setup*</code>. This ensures <code>place_opt</code> analyzes only setup timing and does not waste time on hold optimization — which is meaningless before the clock tree is built.</p>
+                    <pre class="code-block">set_scenario_status -active false [all_scenarios]
+set_scenario_status -active true [get_scenarios *setup*]</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Why setup only?</strong> During placement, ICC2 propagates clocks as ideal (zero skew). Hold violations only appear when there is real clock skew between launch and capture flip-flops. Under zero skew, hold analysis produces misleading results — it would insert hold buffers on paths that will not actually need them once the clock tree introduces real skew. Hold fixing is deferred to post-CTS optimization.
+                    </div>
+                    <div class="info-card" style="margin-top: 10px; background: #fff8e1; border-left-color: #f0ad4e;">
+                        <strong>What to check in the report:</strong> Open <code>../reports/report_scenarios.rpt</code> and confirm that only <code>*setup*</code> scenarios show <code>Active=true</code>. All <code>*hold*</code> scenarios must show <code>Active=false</code>.
+                    </div>
+                </li>
+
+                <!-- Step 4 -->
+                <li>
+                    <h3>Define Signal Routing Layer Range (<code>set_ignored_layers</code>)</h3>
+                    <p><strong>What it does:</strong> Instructs ICC2 to use only metal layers M1 through M7 for signal routing estimation during placement. Layers above M7 (M8, M9) are reserved for power stripes and should not be consumed by signal routing congestion analysis at this stage.</p>
+                    <pre class="code-block">set_ignored_layers -min_routing_layer M1 -max_routing_layer M7</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Why this matters:</strong> The congestion estimator used internally by <code>place_opt</code> needs to know which routing layers are available for signal nets. If M8 and M9 are not excluded, the congestion map will underestimate real routing pressure because those layers are already consumed by power stripes from the floorplan stage.
+                    </div>
+                </li>
+
+                <!-- Step 5 -->
+                <li>
+                    <h3>Insert IO Buffers and Anchor Them Near Ports</h3>
+                    <p><strong>What it does:</strong> Inserts a <code>BUFFD4BWP40P140</code> buffer on every data port (excluding clock, power, and ground), names the new instances with the prefix <code>IO_buff</code>, anchors them near the ports using magnet placement, and then freezes them so the optimizer cannot remove them.</p>
+                    <pre class="code-block">add_buffer -lib_cell BUFFD4BWP40P140 -new_cell_names IO_buff [remove_from_collection [get_ports *] {clk VDD VSS}]
+magnet_placement -mark_legalize_only -logical_levels 1 [get_ports *]
+set_dont_touch [get_cells *IO_buff*]</pre>
+                    <ul style="margin-left: 25px; margin-top: 12px; line-height: 2.0;">
+                        <li><strong><code>add_buffer</code>:</strong> Inserts a drive buffer on each data port. <code>BUFFD4BWP40P140</code> is a 4X drive-strength buffer from the TSMC 28nm BWP40 cell library, appropriate for typical IO load capacitances. The clock port (<code>clk</code>) and supply rails (<code>VDD</code>, <code>VSS</code>) are excluded because they do not need signal buffers.</li>
+                        <li><strong><code>magnet_placement -mark_legalize_only -logical_levels 1</code>:</strong> Marks all port-connected cells as legalization magnets with a logical level depth of 1. During legalization, ICC2 will physically pull these buffer cells as close to their port locations as possible, minimizing the length of the port-to-first-buffer wire.</li>
+                        <li><strong><code>set_dont_touch [get_cells *IO_buff*]</code>:</strong> Freezes all IO buffer instances so <code>place_opt</code> cannot delete, resize, or replace them during timing optimization iterations.</li>
+                    </ul>
+                    <div class="info-card" style="margin-top: 12px; background: #fff8e1; border-left-color: #f0ad4e;">
+                        <strong>Important:</strong> The lib-cell name <code>BUFFD4BWP40P140</code> must match exactly what is available in the NDM reference libraries loaded during PNR-SNPS-DI. If the name is wrong, ICC2 will fail with an error such as <code>Cannot find cell BUFFD4BWP40P140</code>.
+                    </div>
+                </li>
+
+                <!-- Step 6 -->
+                <li>
+                    <h3>Set Instance Name Prefix for Optimization Cells</h3>
+                    <p><strong>What it does:</strong> Sets a user-defined prefix for all new cell instances that <code>place_opt</code> inserts during timing optimization (buffers, inverters, sizing changes). Using a consistent prefix makes it easy to identify optimizer-inserted cells in the netlist, distinguish them from designer-instantiated cells, and remove them systematically if needed.</p>
+                    <pre class="code-block">set_app_options -name opt.common.user_instance_name_prefix -value "PNR_PLACEOPT"</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        All new cells inserted by <code>place_opt</code> will have names beginning with <code>PNR_PLACEOPT_</code>. In <code>report_design</code> and ECO scripts, you can quickly filter these cells with <code>get_cells PNR_PLACEOPT*</code>.
+                    </div>
+                </li>
+
+                <!-- Step 7 -->
+                <li>
+                    <h3>Configure Scan-Def and DFT Settings</h3>
+                    <p><strong>What it does:</strong> Tells ICC2 to continue even if no scan DEF file is provided, and disables scan chain reordering during optimization. Scan chain reordering can dramatically improve scan shift timing but is incompatible with a scan DEF that has been committed to the test team — disabling it keeps the scan order deterministic.</p>
+                    <pre class="code-block">set_app_options -name place.coarse.continue_on_missing_scandef -value true
+set_app_options -name opt.dft.optimize_scan_chain -value false</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong><code>continue_on_missing_scandef true</code>:</strong> Without a scan DEF, ICC2 would halt by default at the start of coarse placement. This option bypasses that check when scan data is not yet available at the placement stage.
+                        <br><br>
+                        <strong><code>optimize_scan_chain false</code>:</strong> Prevents <code>place_opt</code> from reordering flip-flops in the scan chain to improve scan shift timing. This keeps the scan chain order consistent with the committed scan DEF definition.
+                    </div>
+                </li>
+
+                <!-- Step 8 -->
+                <li>
+                    <h3>Apply Lib-Cell Dont-Use Rules for Placement Optimization</h3>
+                    <p><strong>What it does:</strong> Excludes specific categories of cells from being used or inserted during <code>place_opt</code> timing optimization. This prevents power blowup, congestion, and downstream CTS conflicts.</p>
+                    <pre class="code-block">set_lib_cell_purpose -exclude optimization [get_lib_cells {*/CK* */*D24* */*D32* */*D20* */*D18* */DEL* */*D0* */*LVT}]
+set_dont_use [get_lib_cells {*/*LVT}]</pre>
+                    <ul style="margin-left: 25px; margin-top: 12px; line-height: 2.0;">
+                        <li><strong><code>*/CK*</code> — Clock cells:</strong> Clock buffers and clock inverters are managed exclusively by the ICC2 CTS engine during the <code>clock_opt</code> stage. Allowing the placement optimizer to insert them creates rogue clock networks that conflict with the CTS solution and cause skew violations.</li>
+                        <li><strong><code>*/*D24*, */*D32*, */*D20*, */*D18*</code> — Very high drive-strength cells:</strong> These cells have drive strengths of 18X to 32X and large physical widths. Inserting them during placement creates severe local congestion in tight areas. They are only warranted if routing analysis confirms the net is extremely long — a decision best made post-route.</li>
+                        <li><strong><code>*/DEL*</code> — Delay cells:</strong> Pure delay cells are used only for scan chain balancing or hold fixing. Inserting them during setup optimization creates false slack improvement that does not survive routing parasitics.</li>
+                        <li><strong><code>*/*D0*</code> — Minimum drive-strength cells:</strong> D0 cells have essentially no drive capability. The optimizer would immediately upsize them in the next iteration, wasting CPU cycles.</li>
+                        <li><strong><code>*/*LVT</code> — Low-Vt cells (set_lib_cell_purpose):</strong> Soft exclusion — prevents the optimizer from inserting LVT cells during timing fix passes.</li>
+                        <li><strong><code>set_dont_use [get_lib_cells {*/*LVT}]</code>:</strong> Hard exclusion — applies the <code>dont_use</code> attribute directly, preventing any context from using LVT cells throughout the entire placement flow. This reinforces the soft exclusion above and ensures LVT cells are not selected even if the optimizer overrides purpose settings.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 9 -->
+                <li>
+                    <h3>Set Placement Spacing Rules to Prevent 1X Gaps</h3>
+                    <p><strong>What it does:</strong> Configures ICC2 to avoid single-site gaps (1X gaps) between standard cells. A 1X gap is a single-track-wide space that is too narrow to fill with any standard cell or filler — it causes DRC violations in chip finishing. The advanced legalizer and minimum VT filler size settings eliminate these gaps during legalization.</p>
+                    <pre class="code-block">set_app_options -name place.rules.min_vt_filler_size -value 2
+set_app_options -name place.legalize.enable_advanced_legalizer -value true
+set_placement_spacing_label -side both -lib_cells [get_lib_cells */*BWP*] -name ALL_STD_CELLS
+set_placement_spacing_rule {1 1} -labels {ALL_STD_CELLS ALL_STD_CELLS}</pre>
+                    <ul style="margin-left: 25px; margin-top: 12px; line-height: 2.0;">
+                        <li><strong><code>min_vt_filler_size 2</code>:</strong> Requires that any gap between cells be at least 2 sites wide, ensuring it can be filled with a valid 2-site filler cell.</li>
+                        <li><strong><code>enable_advanced_legalizer true</code>:</strong> Activates ICC2's advanced legalization algorithm which performs multi-cell displacement to resolve 1X gaps that the standard legalizer cannot fix by local swapping alone.</li>
+                        <li><strong><code>set_placement_spacing_label / set_placement_spacing_rule</code>:</strong> Defines an explicit spacing rule that requires at least 1 site of spacing between BWP standard cells on both sides, which prevents adjacent cells from creating sub-minimum-filler gaps.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 10 -->
+                <li>
+                    <h3>Configure Placement Effort Settings</h3>
+                    <p><strong>What it does:</strong> Sets the suite of application options that control how aggressively ICC2 optimizes during <code>place_opt</code>. These settings trade off runtime for placement quality.</p>
+                    <pre class="code-block">set_app_options -name opt.common.max_fanout -value 32
+set_app_options -name opt.common.max_net_length -value 400
+set_app_options -name opt.timing.effort -value high
+set_app_options -name place_opt.place.congestion_effort -value high
+set_app_options -name place.coarse.congestion_analysis_effort -value high
+set_app_options -name place.coarse.congestion_layer_aware -value true
+set_app_options -name place.coarse.cong_restruct_effort -value high
+set_app_options -name place.coarse.max_density -value 0.6
+set_app_options -name place.coarse.congestion_driven_max_util  -value 0.83</pre>
+                    <ul style="margin-left: 25px; margin-top: 12px; line-height: 2.0;">
+                        <li><strong><code>opt.common.max_fanout 32</code>:</strong> Sets the maximum fanout limit. Nets with more than 32 loads will be buffered to bring fanout below 32, preventing timing degradation from heavily loaded nets and improving signal integrity.</li>
+                        <li><strong><code>opt.common.max_net_length 400</code>:</strong> Limits net length to 400 units (typically microns in this technology). Nets exceeding this length will be buffered during optimization to avoid excessive RC delay from long wires.</li>
+                        <li><strong><code>opt.timing.effort high</code>:</strong> Instructs the timing optimizer inside <code>place_opt</code> to use its most thorough algorithms — more optimization passes, wider search space for sizing and buffer insertion decisions. This increases runtime but produces better WNS and TNS.</li>
+                        <li><strong><code>place_opt.place.congestion_effort high</code>:</strong> Tells the outer <code>place_opt</code> loop to spend more iterations resolving congestion hotspots after each timing optimization pass.</li>
+                        <li><strong><code>place.coarse.congestion_analysis_effort high</code>:</strong> Increases the accuracy and granularity of the congestion estimate computed during coarse placement, giving the placer a more reliable signal to spread cells away from congested areas.</li>
+                        <li><strong><code>place.coarse.congestion_layer_aware true</code>:</strong> Enables per-layer congestion estimation during coarse placement, so layers already occupied by power stripes are correctly excluded from the available routing resource budget.</li>
+                        <li><strong><code>place.coarse.cong_restruct_effort high</code>:</strong> Activates high-effort cell cluster restructuring during coarse placement to break up dense logic clusters by distributing them across multiple placement regions.</li>
+                        <li><strong><code>place.coarse.max_density 0.6</code>:</strong> Limits local cell density to 60% per placement tile, providing 40% routing headroom. More conservative than the default 70% — used here because the tile design has high routing demand from dense logic clusters near SRAM macros.</li>
+                        <li><strong><code>place.coarse.congestion_driven_max_util 0.83</code>:</strong> During congestion-driven spreading, individual placement tiles may be pushed up to 83% utilization when timing demands tighter clustering, but no higher. Works in tandem with <code>max_density 0.6</code> — coarse placement targets 60%, congestion-driven optimization may push local tiles to 83% maximum.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 11 -->
+                <li>
+                    <h3>Disable Concurrent Clock and Data Optimization (CCD)</h3>
+                    <p><strong>What it does:</strong> Disables ICC2's Concurrent Clock and Data (CCD) mode, which jointly optimizes clock tree topology and data path timing. CCD requires a nearly complete clock tree structure to make valid decisions. At the placement stage, no clock tree exists, so enabling CCD produces no quality benefit and only adds runtime.</p>
+                    <pre class="code-block">set_app_options -name place_opt.flow.enable_ccd -value false</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>When to use CCD:</strong> CCD is enabled during the <code>clock_opt</code> command at the CTS stage, where the real clock tree topology and its interaction with data paths can be jointly optimized. Do not enable it during placement.
+                    </div>
+                </li>
+
+                <!-- Step 11b -->
+                <li>
+                    <h3>Add Placement Spacing Rules for AOI and OAI Cells</h3>
+                    <p><strong>What it does:</strong> Defines minimum spacing rules between AOI (AND-OR-INVERT) and OAI (OR-AND-INVERT) complex logic cells to prevent metal DRC violations caused by their internal diffusion geometry. These cells have wider diffusion regions than simple gates, so adjacent placement without spacing causes poly/diffusion pitch violations.</p>
+                    <pre class="code-block">set_placement_spacing_label -side both -lib_cells [get_lib_cells */*AOI*] -name ALL_AOI_CELLS
+set_placement_spacing_rule {0 2} -labels {ALL_AOI_CELLS ALL_AOI_CELLS}
+
+set_placement_spacing_label -side both -lib_cells [get_lib_cells */*OAI*] -name ALL_OAI_CELLS
+set_placement_spacing_rule {0 2} -labels {ALL_OAI_CELLS ALL_OAI_CELLS}
+set_placement_spacing_rule {0 2} -labels {ALL_AOI_CELLS ALL_OAI_CELLS}
+
+#create_keepout_margin -outer {1 1 1 1} [get_flat_cells * -filter "ref_name =~ *AO*"]
+#create_keepout_margin -outer {1 1 1 1} [get_flat_cells * -filter "ref_name =~ *OA*"]</pre>
+                    <ul style="margin-left: 25px; margin-top: 12px; line-height: 2.0;">
+                        <li><strong><code>set_placement_spacing_label -name ALL_AOI_CELLS</code>:</strong> Creates a named label for all AOI cells in the library. Labels are used as operands in spacing rules — you attach a rule to two labels rather than enumerating individual cell pairs. The <code>-side both</code> option applies the spacing to both the left and right sides of each labeled cell.</li>
+                        <li><strong><code>set_placement_spacing_rule {0 2} -labels {ALL_AOI_CELLS ALL_AOI_CELLS}</code>:</strong> Enforces a minimum spacing of 2 sites between any two AOI cells placed adjacent to each other. The rule format is <code>{min_space max_space}</code> — <code>0</code> means no maximum constraint, <code>2</code> is the minimum number of sites that must exist between these cell groups.</li>
+                        <li><strong>OAI rules:</strong> The same 2-site spacing is applied between OAI–OAI pairs and between AOI–OAI mixed pairs. In TSMC 28nm BWP40P140, both AOI and OAI cells use wider transistor stacks that cause DRC violations when placed with no gap.</li>
+                        <li><strong>Commented-out keepout margins:</strong> <code>create_keepout_margin</code> is an alternative approach that creates soft placement blockages around each AO/OA cell instance. It is commented out here because the label-based spacing rules above are more efficient — they are evaluated globally during coarse placement rather than per-instance during legalization.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 12 -->
+                <li>
+                    <h3>Run Placement Optimization, Connect PG, and Save the Block</h3>
+                    <p><strong>What it does:</strong> Executes the complete integrated placement flow — coarse placement, legalization, and timing-driven optimization — followed by a power/ground connection check and a named block save.</p>
+                    <pre class="code-block">place_opt
+connect_pg_net -automatic
+save_block -as placed</pre>
+                    <ul style="margin-left: 25px; margin-top: 12px; line-height: 2.0;">
+                        <li><strong><code>place_opt</code>:</strong> Runs the full placement and optimization flow using all the settings configured in the previous steps. Runtime for the tile design is typically 30–60 minutes depending on the server load. Observe the per-iteration WNS and TNS improvement in the tool log to confirm progress.</li>
+                        <li><strong><code>connect_pg_net -automatic</code>:</strong> After placement, ICC2 may have inserted new cells (buffers, inverters) that do not yet have their power and ground pins connected to the PDN. This command automatically connects all floating PG pins to the nearest PG net, ensuring no power shorts or open PG pins exist in the placed netlist.</li>
+                        <li><strong><code>save_block -as placed</code>:</strong> Saves the placed design as a new named block <code>placed</code> inside <code>tile.ndm</code>. The CTS stage will open this block with <code>open_block placed.design</code>.</li>
+                    </ul>
+                    <div class="info-card" style="margin-top: 12px; background: #fff8e1; border-left-color: #f0ad4e;">
+                        <strong>What to watch during place_opt:</strong> The tool prints a table of optimization iterations. Monitor the <code>WNS</code> (Worst Negative Slack) and <code>TNS</code> (Total Negative Slack) columns. Both should decrease (become less negative) with each iteration. If WNS does not improve after several iterations, check for undriven high-fanout nets or congestion overflow messages in the log.
+                    </div>
+                </li>
+
+                <!-- Step 13 -->
+                <li>
+                    <h3>Generate Placement Quality Reports</h3>
+                    <p><strong>What it does:</strong> Runs a comprehensive suite of placement quality reports to assess timing, constraint violations, utilization, congestion, and legality. These reports are the primary deliverables from the placement stage.</p>
+
+                    <p style="margin-top: 15px;"><strong>Constraint violation report:</strong></p>
+                    <pre class="code-block">redirect -file ../reports/report_constraint.rpt {report_constraint -all_violators -max_transition -max_capacitance -scenarios [all_scenarios]}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> Look for max-transition and max-capacitance violations. Transition violations indicate nets with too-slow rise/fall times — typically caused by high-fanout or long-wire nets. Capacitance violations indicate nets with too many loads. Both must be reduced before CTS.
+                    </div>
+
+                    <p><strong>Setup timing report:</strong></p>
+                    <pre class="code-block">redirect -file ../reports/report_timing.max.rpt {report_timing -delay max -scenarios [all_scenarios] -input_pins -nets -transition_time -capacitance -attributes -physical -derate -report_by group}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> The worst setup path WNS should ideally be better than -0.3 ns after placement. Paths with more than 0.5 ns of violation should be investigated — check whether they are dominated by logic depth or wire length. The <code>-physical</code> flag adds physical location information to each stage in the path, helping identify where the longest wires are.
+                    </div>
+
+                    <p><strong>Setup design violation analysis:</strong></p>
+                    <pre class="code-block">analyze_design_violations -type setup -stage preroute -output ../reports/analyze_design_violations.setup.rpt</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> This command performs a higher-level analysis that groups setup violations by root cause (congestion, high fanout, logic depth). The report will identify which design modules contribute the most to total negative slack (TNS), helping you prioritize fixes.
+                    </div>
+
+                    <p><strong>Max-transition violation analysis:</strong></p>
+                    <pre class="code-block">analyze_design_violations -type max_trans -stage preroute -output ../reports/analyze_design_violations.max_trans.rpt</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> Lists all nets that violate the maximum transition time constraint defined in the SDC. Sort by violation magnitude — the worst violators are often heavily-loaded clock-enable or scan-enable nets that need buffering before CTS.
+                    </div>
+
+                    <p><strong>Utilization report:</strong></p>
+                    <pre class="code-block">redirect -tee -file ../reports/report_utilization.rpt {report_utilization}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> Core utilization should be approximately <strong>58–62%</strong> for the tile design (macros are excluded from the calculation). Utilization above 80% indicates insufficient core area — the placer is forced to pack cells too tightly, leading to congestion and routing failures. Utilization below 50% means the die is too large and the design will be unnecessarily expensive to manufacture.
+                    </div>
+
+                    <p><strong>Design summary report:</strong></p>
+                    <pre class="code-block">redirect -file ../reports/report_design.rpt {report_design -library -netlist -floorplan}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> Confirms the total cell count, macro count, and die dimensions. Cross-check the total cell count against the init_design stage to confirm no cells were accidentally deleted during placement optimization.
+                    </div>
+
+                    <p><strong>Congestion report:</strong></p>
+                    <pre class="code-block">redirect -tee -file ../reports/report_congestion.rpt {report_congestion -layers [get_layers -filter "layer_type==interconnect"] -rerun_global_router -nosplit}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> The <code>-rerun_global_router</code> flag forces a fresh global route to give accurate congestion data. Look at the overflow count per layer. Zero overflow is the target. M3 and M4 are typically the most congested layers in standard cell designs. Any layer with overflow &gt; 5% of total tracks indicates a congestion hotspot that will likely prevent the detail router from completing.
+                    </div>
+
+                    <p><strong>Legality check:</strong></p>
+                    <pre class="code-block">redirect -file ../reports/check_legality.rpt {check_legality -verbose}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> The legality check must report <strong>0 errors</strong>. Any error indicates cells are overlapping, placed off-grid, or violating site alignment rules. Common causes are disabled legalizer settings or macro blockage conflicts. Legality errors will cause the CTS stage to fail — they must be resolved before proceeding.
+                    </div>
+
+                    <p><strong>Scenario status report:</strong></p>
+                    <pre class="code-block">report_scenarios &gt; ../reports/report_scenarios.rpt</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> Confirms which scenarios were active during <code>place_opt</code>. Verify that only the <code>*setup*</code> scenarios show <code>Active=true</code> — all <code>*hold*</code> scenarios must be <code>Active=false</code>. This report is a trace record that documents the timing configuration used for this placement.
+                    </div>
+
+                    <p><strong>Boundary utilization report:</strong></p>
+                    <pre class="code-block">create_utilization_configuration config1 -capacity boundary
+report_utilization -config config1</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong> <code>-capacity boundary</code> computes utilization based on the drawn floorplan boundary, which includes macro blockage areas subtracted from the available placement area. For the tile design, the boundary-capacity utilization accurately reflects the density of standard cells in the usable core region. Compare this number against the default <code>report_utilization</code> output — they will differ if macros occupy significant core area.
+                    </div>
+
+                    <p><strong>End of stage message:</strong></p>
+                    <pre class="code-block">puts "MyInfo: End of $stage on $design_name @ [sh date]"
+
+exit</pre>
+                    <div class="info-card" style="margin-top: 8px;">
+                        <strong>Purpose:</strong> Prints a timestamped completion message to the tool log. This makes it easy to measure actual placement runtime by searching for "MyInfo: End of" in the log file. The <code>exit</code> closes the ICC2 session cleanly.
+                    </div>
+                </li>
+
+            </ul>
+        </div>
+
+        <!-- Success Criteria -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Success Criteria</h2>
+            <div class="validation-box">
+                <h4 style="margin-bottom: 15px; color: #0c5460;">Placement is complete and correct when ALL of the following are true:</h4>
+                <ul style="margin-left: 20px; line-height: 2.2; color: #0c5460;">
+                    <li><code>place_opt</code> completes without errors — the tool log shows "place_opt complete" with no FATAL messages</li>
+                    <li><code>check_legality -verbose</code> reports <strong>0 errors</strong> — all cells are legally placed on the site grid with no overlaps</li>
+                    <li><code>report_utilization</code> shows core utilization of approximately <strong>58–62%</strong> for the tile design (hard macros excluded from the calculation)</li>
+                    <li><code>connect_pg_net -automatic</code> reports 0 unconnected PG pins</li>
+                    <li>The named block <code>placed</code> is saved inside <code>../inputs/tile.ndm</code></li>
+                    <li>All report files exist in <code>../reports/</code>: <code>report_constraint.rpt</code>, <code>report_timing.max.rpt</code>, <code>report_utilization.rpt</code>, <code>report_congestion.rpt</code>, <code>check_legality.rpt</code></li>
+                    <li><code>report_congestion</code> runs without errors and the congestion report is generated in <code>../reports/</code></li>
+                    <li>Setup WNS after <code>place_opt</code> is better (less negative) than pre-placement WNS — confirming timing-driven optimization made progress</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#129514; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After completing the placement flow, run the automated verification to validate your results and post your status to the dashboard:</p>
+                <pre class="code-block">make verify</pre>
+            </div>
+        </div>
+
+        <!-- Complete Script Reference -->
+        <div class="content-box">
+            <h2 class="section-title">&#128196; Complete place.tcl — Reference Script</h2>
+            <p style="color: #555; margin-bottom: 15px;">After completing all the steps above, your <code>../scripts/place.tcl</code> should contain the following commands in order. Use this as a reference to verify your work.</p>
+            <pre class="code-block">open_lib ../inputs/tile.ndm
+open_block floorplan.design
+
+<span style="color:#75715e">##Scenario settings</span>
+set_scenario_status -active false [all_scenarios]
+set_scenario_status -active true [get_scenarios *setup*]
+set_ignored_layers -min_routing_layer M1 -max_routing_layer M7
+
+<span style="color:#75715e">##IO buffer insertion</span>
+add_buffer -lib_cell BUFFD4BWP40P140 -new_cell_names IO_buff [remove_from_collection [get_ports *] {clk VDD VSS}]
+magnet_placement -mark_legalize_only -logical_levels 1 [get_ports *]
+set_dont_touch [get_cells *IO_buff*]
+
+
+<span style="color:#75715e">##Instance prefix </span>
+set_app_options -name opt.common.user_instance_name_prefix -value "PNR_PLACEOPT"
+
+<span style="color:#75715e">##Scan def setting</span>
+set_app_options -name place.coarse.continue_on_missing_scandef -value true
+<span style="color:#75715e">#disable scan chain reordering</span>
+set_app_options -name opt.dft.optimize_scan_chain -value false
+
+<span style="color:#75715e">###Lib cell dont use</span>
+set_lib_cell_purpose -exclude optimization [get_lib_cells {*/CK* */*D24* */*D32* */*D20* */*D18* */DEL* */*D0* */*LVT}]
+set_dont_use [get_lib_cells {*/*LVT}]
+<span style="color:#75715e">##To avoid 1x gap</span>
+set_app_options -name place.rules.min_vt_filler_size -value 2
+set_app_options -name place.legalize.enable_advanced_legalizer -value true
+<span style="color:#75715e">##Workaround as above commands are not resolving 1x gap issue</span>
+set_placement_spacing_label -side both -lib_cells [get_lib_cells */*BWP*] -name ALL_STD_CELLS
+set_placement_spacing_rule {1 1} -labels {ALL_STD_CELLS ALL_STD_CELLS}
+
+
+<span style="color:#75715e">###Effort settings</span>
+set_app_options -name opt.common.max_fanout -value 32
+set_app_options -name opt.common.max_net_length -value 400
+set_app_options -name opt.timing.effort -value high
+set_app_options -name place_opt.place.congestion_effort -value high
+set_app_options -name place.coarse.congestion_analysis_effort -value high
+set_app_options -name place.coarse.congestion_layer_aware -value true
+set_app_options -name place.coarse.cong_restruct_effort -value high
+set_app_options -name place.coarse.max_density -value 0.6
+set_app_options -name place.coarse.congestion_driven_max_util  -value 0.83
+<span style="color:#75715e">##Turn off CCD</span>
+set_app_options -name place_opt.flow.enable_ccd -value false
+set_placement_spacing_label -side both -lib_cells [get_lib_cells */*AOI*] -name ALL_AOI_CELLS
+set_placement_spacing_rule {0 2} -labels {ALL_AOI_CELLS ALL_AOI_CELLS}
+
+set_placement_spacing_label -side both -lib_cells [get_lib_cells */*OAI*] -name ALL_OAI_CELLS
+set_placement_spacing_rule {0 2} -labels {ALL_OAI_CELLS ALL_OAI_CELLS}
+set_placement_spacing_rule {0 2} -labels {ALL_AOI_CELLS ALL_OAI_CELLS}
+
+<span style="color:#75715e">#create_keepout_margin -outer {1 1 1 1} [get_flat_cells * -filter "ref_name =~ *AO*"]
+#create_keepout_margin -outer {1 1 1 1} [get_flat_cells * -filter "ref_name =~ *OA*"]
+##Bounds, magnet placement</span>
+
+place_opt
+connect_pg_net -automatic
+
+
+save_block -as placed
+
+<span style="color:#75715e">###Reports</span>
+<span style="color:#75715e">## Constraint violations</span>
+redirect -file ../reports/report_constraint.rpt {report_constraint -all_violators -max_transition -max_capacitance -scenarios [all_scenarios]}
+redirect -file ../reports/report_timing.max.rpt {report_timing -delay max -scenarios [all_scenarios] -input_pins -nets -transition_time -capacitance -attributes -physical -derate -report_by group}
+analyze_design_violations -type setup -stage preroute -output ../reports/analyze_design_violations.setup.rpt
+analyze_design_violations -type max_trans -stage preroute -output ../reports/analyze_design_violations.max_trans.rpt
+redirect -tee -file ../reports/report_utilization.rpt {report_utilization}
+redirect -file ../reports/report_design.rpt {report_design -library -netlist -floorplan}
+redirect -tee -file ../reports/report_congestion.rpt {report_congestion -layers [get_layers -filter "layer_type==interconnect"] -rerun_global_router -nosplit}
+redirect -file ../reports/check_legality.rpt {check_legality -verbose}
+report_scenarios &gt; ../reports/report_scenarios.rpt
+
+
+create_utilization_configuration config1 -capacity boundary
+report_utilization -config config1
+
+puts "MyInfo: End of $stage on $design_name @ [sh date]"
+
+exit</pre>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#128218; Knowledge Assessment Quiz</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question" id="q1">
+                    <h3>1. After running <code>set_scenario_status -active false [all_scenarios]</code> followed by <code>set_scenario_status -active true [get_scenarios *setup*]</code>, you check <code>report_scenarios</code> and find that one hold scenario still shows <code>Active=true</code>. What is the most likely cause?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">The <code>all_scenarios</code> collection was empty — no scenarios had been defined when the deactivation command ran.</li>
+                        <li data-correct="true">The hold scenario name contains the substring "setup" (for example <code>func_hold_setup_corner</code>), so it matched the <code>*setup*</code> wildcard and was reactivated incorrectly.</li>
+                        <li data-correct="false">ICC2 always keeps at least one hold scenario active during placement to guard against hold violations on short paths.</li>
+                        <li data-correct="false">The <code>set_scenario_status</code> command requires a <code>-hold false</code> flag to deactivate hold analysis specifically.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The wildcard <code>*setup*</code> matches any scenario name containing the string "setup" anywhere in the name. If a hold scenario is named with "setup" somewhere in its identifier, it will be incorrectly reactivated. The fix is to either rename the scenarios so hold names never contain "setup," or to use a more precise wildcard pattern that matches only the intended scenario names.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q2">
+                    <h3>2. <code>place_opt</code> completes but <code>check_legality -verbose</code> reports 47 overlap errors. All errors involve cells adjacent to a hard macro boundary. What setting most directly addresses this?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">Increasing <code>place.coarse.max_density</code> to 0.9 so more cells can fit near the macro boundary.</li>
+                        <li data-correct="false">Disabling <code>set_placement_spacing_rule</code> to allow cells to be placed directly against the macro.</li>
+                        <li data-correct="true">Ensuring <code>place.legalize.enable_advanced_legalizer true</code> is set — the standard legalizer cannot resolve macro-boundary overlaps that require multi-cell displacement, but the advanced legalizer can.</li>
+                        <li data-correct="false">Re-running <code>connect_pg_net -automatic</code> to properly assign PG connections near the macro, which resolves placement overlaps.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The standard legalizer resolves overlaps by locally shifting individual cells. Near macro boundaries, cells may be trapped with no room to move in one direction — the standard legalizer fails in this case. The advanced legalizer performs multi-cell displacement, shifting groups of cells simultaneously to create valid placements near macro boundaries. If it was not enabled before <code>place_opt</code>, re-enable it and re-run <code>legalize_placement</code> or a full <code>place_opt</code> iteration.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q3">
+                    <h3>3. <code>report_utilization</code> after <code>place_opt</code> shows core utilization of 87%. What is the most likely consequence if you proceed to CTS with this utilization?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">CTS will fail immediately with an error because ICC2 refuses to synthesize a clock tree in designs with utilization above 85%.</li>
+                        <li data-correct="true">The router will encounter severe congestion overflow because there is insufficient routing track availability. Detail routing will be incomplete, leaving unrouted nets and DRC violations that cannot be fixed without reducing cell density.</li>
+                        <li data-correct="false">Hold violations will increase dramatically during post-CTS optimization because high-density placement reduces the effectiveness of hold buffer insertion.</li>
+                        <li data-correct="false">Utilization of 87% is within the acceptable range for a high-performance design — no action is needed before proceeding to CTS.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Core utilization above ~80% leaves insufficient routing track headroom for signal routing. With 87% utilization, the global router will show significant congestion overflow, and the detail router will fail to complete all nets. The fix is to increase the floorplan die area (going back to FP stage), reduce max_density below 0.7, or manually spread cells in the congested regions using interactive placement commands before re-running <code>place_opt</code>.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q4">
+                    <h3>4. You forget to run <code>set_dont_touch [get_cells *IO_buff*]</code> before <code>place_opt</code>. What is the most likely result?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">ICC2 will throw an error during place_opt because unprotected IO buffers violate the port-driver design rule.</li>
+                        <li data-correct="false">The IO buffers will be moved away from the port boundary during legalization, increasing the port-to-first-buffer wire length.</li>
+                        <li data-correct="true">The timing optimizer inside <code>place_opt</code> may delete or replace the IO buffers with different cells if it determines that doing so improves timing on other paths, undoing the IO buffer insertion step.</li>
+                        <li data-correct="false">The <code>magnet_placement</code> attribute is automatically preserved by <code>place_opt</code> and the IO buffers will remain in place regardless of the dont-touch setting.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Without <code>set_dont_touch</code>, the ICC2 timing optimizer treats IO buffer instances as freely optimizable cells. During gate sizing and buffer insertion passes, it may delete the IO buffers if it finds that reorganizing the port-connected logic path improves WNS on other critical paths. Setting <code>dont_touch</code> before <code>place_opt</code> ensures the IO buffers are treated as immovable, unmodifiable instances throughout the entire optimization flow.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Next Step -->
+        <div class="content-box">
+            <h2 class="section-title">&#127881; Next Step</h2>
+            <div class="section-content">
+                <p>Outstanding work completing the guided placement flow for the <strong>tile</strong> design!</p>
+                <p style="margin-top: 12px;">You have walked through every step of the ICC2 placement flow — from opening the floorplan block and configuring setup-only scenarios, through IO buffer insertion and lib-cell dont-use rules, to executing <code>place_opt</code> and interpreting a full suite of placement quality reports.</p>
+                <p style="margin-top: 12px;">&#128640; You are now ready to apply these concepts independently. In the Challenge Testcase, you will perform placement for the <strong>iguana_soc</strong> design, starting from a script that contains deliberate errors. Use the patterns and checks you have learned here to diagnose and fix the issues you encounter.</p>
+            </div>
+            <div class="nav-buttons">
+                <a href="../PNR-SNPS-PL.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+                <a href="../TC-PNR-SNPS-PL-CH-001/TC-PNR-SNPS-PL-CH-001.html" class="btn btn-success">Continue to Challenge Testcase &#8594;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        var LAB_ID = '18';
+        var TESTCASE_NUM = '1';
+
+        function copyCode(btn) {
+            const container = btn.closest('.code-container');
+            const codeBlock = container.querySelector('.code-block');
+            const text = codeBlock.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                btn.textContent = '\u2713 Copied!';
+                btn.style.background = '#28a745';
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                    btn.style.background = '#374151';
+                }, 2000);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('pre.code-block').forEach(function (pre) {
+                if (pre.closest('.code-container')) return;
+                const container = document.createElement('div');
+                container.className = 'code-container';
+                const btn = document.createElement('button');
+                btn.className = 'copy-button';
+                btn.textContent = 'Copy';
+                btn.setAttribute('onclick', 'copyCode(this)');
+                pre.parentNode.insertBefore(container, pre);
+                container.appendChild(btn);
+                container.appendChild(pre);
+                pre.style.margin = '0';
+                pre.style.background = 'transparent';
+                pre.style.boxShadow = 'none';
+                pre.style.borderRadius = '0';
+            });
+        });
+    </script>
+    <script src="../common/interactive.js"></script>
+</body>
+</html>

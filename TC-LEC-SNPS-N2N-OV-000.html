@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gate-to-Gate LEC using Synopsys Formality</title>
+    <link rel="stylesheet" href="./common/styles.css">
+    <style> code { color: #333; } </style>
+</head>
+<body>
+
+<!-- Scroll progress bar is created dynamically by interactive.js -->
+
+<!-- Header -->
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Gate-to-Gate Logical Equivalence Checking using Synopsys Formality</h1>
+        <div class="lab-meta">
+            <div class="meta-item"><span>&#128218; Topic: Physical Design &amp; Formal Verification</span></div>
+            <div class="meta-item"><span>&#128295; Tool: Synopsys Formality</span></div>
+            <div class="meta-item"><span>&#127919; Level: Beginner Friendly</span></div>
+            <div class="meta-item"><span>&#9201;&#65039; Read Time: ~30 min</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Thought-Provoking Question -->
+    <div class="content-box" style="border-left: 6px solid #eb5708; background: linear-gradient(135deg, #fff8f5 0%, #fff 100%);">
+        <h2 class="section-title">&#129300; Before We Begin &mdash; Think About This</h2>
+        <div class="section-content" style="font-size: 1.1em; line-height: 1.9; background: transparent; border-left: none;">
+            <p>Your chip has gone through synthesis, placement, clock tree synthesis, routing, and post-route optimization. Each of these stages may have <strong>silently modified your netlist</strong> &mdash; renaming registers, merging flip-flops, restructuring logic cones, or inserting buffers in clock paths.</p>
+
+            <p style="color: #eb5708; font-weight: 600; font-size: 1.15em;">&#10067; How do you <em>mathematically prove</em> that the netlist you are about to tape out still behave <em>exactly</em> what your gate-level netlist from synthesis intended?</p>
+
+
+            <p>The answer is <strong>Logical Equivalence Checking (LEC)</strong> &mdash; and that's precisely what this document will teach you.</p>
+        </div>
+    </div>
+
+    <!-- Learning Objectives -->
+    <div class="content-box">
+        <h2 class="section-title">&#127919; Learning Objectives</h2>
+        <div class="section-content">
+            <p>By the end of this document, you will be able to:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;"><li><strong>G2G LEC Fundamentals:</strong> Explain why post-PnR verification is necessary due to physical optimizations like CTS and buffer insertion.</li>
+            <li><strong>Formality Setup:</strong> Load standard cell libraries, reference/implementation netlists.</li>
+            <li><strong>Equivalence Proof:</strong> Execute <code>match</code> and <code>verify</code> commands to mathematically prove functional equivalence.</li>
+            <li><strong>Debugging & Sessions:</strong> Analyze failing points and manage checkpoints using <code>write_container</code> and <code>save_session</code>.</li>
+                                   </ul>
+        </div>
+    </div>
+
+    <!-- Prerequisites -->
+<div class="content-box">
+    <h2 class="section-title">&#128736;&#65039; Prerequisites</h2>
+    <div class="section-content">
+        <p>Before diving in, you should be comfortable with the following:</p>
+        <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+            <li><strong>ASIC/VLSI Design Flow:</strong> Basic understanding of RTL &rarr; Synthesis &rarr; PnR</li>
+            <li><strong>RTL-to-Gate LEC:</strong> Verified the RTL against the post-synthesis netlist.</li>
+            <li><strong>Linux Command Line:</strong> Running scripts, navigating directories, using shell commands</li>
+            <li><strong>Optimization Concepts:</strong> What PnR tools do at a high level</li>
+        </ul>
+        <div class="info-card" style="margin-top: 15px;">
+            &#128161; It is assumed that the reference netlist has already passed RTL-to-Gate verification.
+        </div>
+    </div>
+</div>
+
+    <!-- Introduction to LEC -->
+    <div class="content-box">
+        <h2 class="section-title">&#128214; Theory and Background</h2>
+
+        <div class="section">
+                <div class="section">
+          
+            <p>To understand where LEC is needed, you need to see the full picture of the VLSI design flow and where netlists are generated:</p>
+
+            <div style="overflow-x: auto; margin: 20px 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Stage</th>
+                            <th>What Happens</th>
+                            <th>Netlist Output</th>
+                            <th>LEC Check Needed?</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                                                <tr>
+                            <td><strong>Logic Synthesis</strong></td>
+                            <td>RTL is compiled into standard cells from a technology library</td>
+                            <td>Gate-Level Netlist (post-synth)</td>
+                            <td>&#9989; RTL-to-Gate LEC</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Placement &amp; Routing (PnR)</strong></td>
+                            <td>Cells are placed on die, wires routed; clock tree inserted; optimizations done</td>
+                            <td>PnR Netlist (post-PnR)</td>
+                            <td>&#9989; <strong>Gate-to-Gate LEC &mdash; We are here</strong></td>
+                        </tr>
+                        
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="warning-card">
+                <strong>&#9888;&#65039; Why PnR can change your netlist:</strong> During PnR, the EDA tool performs placement, clock tree synthesis (CTS), routing, and several optimization passes. These include buffer insertion, gate resizing, register retiming, cell swapping, and post-route ECO (Engineering Change Order) fixes. Each of these can alter logic structure. Without G2G LEC, you cannot be sure the PnR output is still functionally identical to the synthesized netlist.
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>&#128269; What is Gate-to-Gate (G2G) LEC?</h3>
+            <p>In this document, you are learning about a specific type of LEC called <strong>Gate-to-Gate (G2G)</strong>. Here, both the reference and implementation designs are gate-level netlists &mdash; not RTL.</p>
+            <br>
+            <ul style="margin-left: 25px; line-height: 2.1;">
+                <li><strong>Reference Design (Golden):</strong> The gate-level netlist output from <em>synthesis</em> (post-synthesis, pre-PnR). This is the design that was verified to be correct after RTL-to-Gate LEC.</li>
+                <li><strong>Implementation Design (Revised):</strong> The gate-level netlist output after <em>Place and Route (PnR)</em>. This is what you are validating.</li>
+            </ul>
+            <br>
+            <p>Your job is to prove that the PnR netlist is still functionally equivalent to the synthesis netlist, even after all the physical implementation transformations that happened in between.</p>
+        </div>
+    </div>
+</div>
+
+   
+
+
+
+
+    <!-- Formality Flow Overview -->
+    <div class="content-box">
+        <h2 class="section-title">&#128260; Formality Flow Overview</h2>
+        <p style="color: #555; margin-bottom: 20px;">Before we walk through each command, here is the complete flow Formality follows internally during a G2G LEC run:</p>
+
+        <!-- Flowchart: draw.io SVG -->
+        <div style="background: #f8f9fa; border-radius: 12px; padding: 30px; text-align: center; overflow-x: auto;">
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="712px" height="442px" viewBox="0 0 712 442" style="max-width:100%; background: transparent;"><defs/><g><g data-cell-id="0"><g data-cell-id="1"><g data-cell-id="VyfQMzOrNtixJtZa-iJl-3"><g><path d="M 1 76 C 1 67.72 18.91 61 41 61 C 51.61 61 61.78 62.58 69.28 65.39 C 76.79 68.21 81 72.02 81 76 L 81 106 C 81 114.28 63.09 121 41 121 C 18.91 121 1 114.28 1 106 Z" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/><path d="M 81 76 C 81 84.28 63.09 91 41 91 C 18.91 91 1 84.28 1 76" fill="none" stroke="#6c8ebf" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/></g><g><text x="41" y="97" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="14px" font-weight="600" text-anchor="middle">REF</text></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-5"><g><path d="M 1 160.78 C 1 152.5 18.91 145.78 41 145.78 C 51.61 145.78 61.78 147.36 69.28 150.17 C 76.79 152.99 81 156.8 81 160.78 L 81 190.78 C 81 199.06 63.09 205.78 41 205.78 C 18.91 205.78 1 199.06 1 190.78 Z" fill="#d5e8d4" stroke="#82b366" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/><path d="M 81 160.78 C 81 169.06 63.09 175.78 41 175.78 C 18.91 175.78 1 169.06 1 160.78" fill="none" stroke="#82b366" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/></g><g><text x="41" y="182" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="14px" font-weight="600" text-anchor="middle">IMP</text></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-6"><g><path d="M 1 256 C 1 247.72 18.91 241 41 241 C 51.61 241 61.78 242.58 69.28 245.39 C 76.79 248.21 81 252.02 81 256 L 81 286 C 81 294.28 63.09 301 41 301 C 18.91 301 1 294.28 1 286 Z" fill="#fff2cc" stroke="#d6b656" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/><path d="M 81 256 C 81 264.28 63.09 271 41 271 C 18.91 271 1 264.28 1 256" fill="none" stroke="#d6b656" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/></g><g><text x="41" y="277" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="14px" font-weight="600" text-anchor="middle">LIB</text></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-7"><g><rect x="251" y="1" width="450" height="80" rx="6" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2" pointer-events="all"/></g><g><text x="476" y="37" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="14px" font-weight="600" text-anchor="middle">READ</text><text x="476" y="57" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="12px" text-anchor="middle">Partitions designs into logic cones and compare points</text></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-8"><g><rect x="251" y="121" width="450" height="80" rx="6" fill="#d5e8d4" stroke="#82b366" stroke-width="2" pointer-events="all"/></g><g><text x="476" y="157" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="14px" font-weight="600" text-anchor="middle">MATCH</text><text x="476" y="177" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="12px" text-anchor="middle">Aligns (maps) corresponding compare points between the two designs</text></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-10"><g><rect x="251" y="241" width="460" height="80" rx="6" fill="#fff2cc" stroke="#d6b656" stroke-width="2" pointer-events="all"/></g><g><text x="481" y="277" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="14px" font-weight="600" text-anchor="middle">VERIFY</text><text x="481" y="297" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="12px" text-anchor="middle">Checks the functionality of each compare point pair</text></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-11"><g><rect x="251" y="361" width="460" height="80" rx="6" fill="#f8cecc" stroke="#b85450" stroke-width="2" pointer-events="all"/></g><g><text x="481" y="397" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="14px" font-weight="600" text-anchor="middle">DEBUG</text><text x="481" y="417" fill="#1A284D" font-family="Segoe UI, sans-serif" font-size="12px" text-anchor="middle">GUI and reports (if verification fails)</text></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-19"><g><path d="M 481 321 L 481 352.76" fill="none" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/><path d="M 481 358.76 L 477 350.76 L 481 352.76 L 485 350.76 Z" fill="#555" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-12"><g><path d="M 81 91 L 141 91" fill="none" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-13"><g><path d="M 81 175.28 L 141 175.28" fill="none" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-14"><g><path d="M 81 270.5 L 141 270.5" fill="none" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-15"><g><path d="M 141 271 L 141 41" fill="none" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-22"><g><path d="M 480.95 201 L 480.99 232.76" fill="none" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/><path d="M 481 238.76 L 476.99 230.77 L 480.99 232.76 L 484.99 230.76 Z" fill="#555" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-25"><g><path d="M 475.5 81 L 475.5 112.76" fill="none" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/><path d="M 475.5 118.76 L 471.5 110.76 L 475.5 112.76 L 479.5 110.76 Z" fill="#555" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/></g></g><g data-cell-id="VyfQMzOrNtixJtZa-iJl-26"><g><path d="M 141 41 L 242.76 41" fill="none" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/><path d="M 248.76 41 L 240.76 45 L 242.76 41 L 240.76 37 Z" fill="#555" stroke="#555" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/></g></g></g></g></g></svg>
+            <p style="color: #777; font-size: 0.9em; margin-top: 12px;">Figure: Formality Equivalence Checker flow &mdash; REF, IMP and LIB are loaded, then READ &rarr; MATCH &rarr; VERIFY &rarr; DEBUG</p>
+        </div>
+
+    </div>
+
+  
+ 
+
+
+    <div class="content-box">
+        <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+        <p style="color: #555; margin-bottom: 20px;">Test your understanding of G2G LEC concepts covered in this document. Click on your answer for each question.</p>
+
+       <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. In a Gate-to-Gate (G2G) LEC run, what serves as the <strong>reference design</strong> (the Golden design)?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">RTL (Verilog source code)</li>
+                    <li data-correct="true">The post-synthesis gate-level netlist</li>
+                    <li data-correct="false">The post-PnR gate-level netlist</li>
+                    <li data-correct="false">The final GDSII layout</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> In G2G LEC, the reference design is the post-synthesis netlist. It acts as the "Golden" design because it has already been verified to match the original intent during the earlier RTL-to-Gate LEC run.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. In the same Gate-to-Gate (G2G) LEC run, what serves as the <strong>implementation design</strong> (the Revised design)?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">RTL (Verilog source code)</li>
+                    <li data-correct="false">The post-synthesis gate-level netlist</li>
+                    <li data-correct="true">The post-PnR gate-level netlist</li>
+                    <li data-correct="false">The final GDSII layout</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> The implementation design is the post-PnR netlist. The ultimate goal of G2G LEC is to prove that the physical implementation tool didn't break any of the logic established during synthesis.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. Why might the Placement &amp; Routing (PnR) EDA tool silently modify the netlist?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">To compile the design from RTL code into technology standard cells.</li>
+                    <li data-correct="false">To verify that the Golden and Revised designs are mathematically equivalent.</li>
+                    <li data-correct="true">To optimize the physical layout through buffer insertion, clock tree synthesis (CTS), gate resizing, and routing detours.</li>
+                    <li data-correct="false">To upgrade the technology library database to a newer standard.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> During the PnR phase, the EDA tool performs multiple optimization passes (like placement, CTS, routing, and post-route ECO fixes) that can alter the logic structure, which is why a subsequent G2G LEC check is absolutely required.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+
+
+           
+
+        </div>
+    </div>
+
+ <div class="content-box">
+        <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Testcase</th>
+                    <th>Type</th>
+                    <th>Focus Area</th>
+                    <th>Difficulty</th>
+                    <th>Estimated Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><a href="TC-LEC-SNPS-N2N-GD-001/TC-LEC-SNPS-N2N-GD-001.html" style="color: #667eea; text-decoration: none;">Guided Testcase</a></td>
+                    <td><span class="type-guided">Guided</span></td>
+                    <td>AES Cipher Top</td>
+                    <td>&#11088; Easy</td>
+                    <td>45-60 min</td>
+                </tr>
+                <tr>
+                    <td><a href="TC-LEC-SNPS-N2N-CH-001/TC-LEC-SNPS-N2N-CH-001.html" style="color: #667eea; text-decoration: none;">Challenge Testcase</a></td>
+                    <td><span class="type-independent">Challenge</span></td>
+                    <td>iguana_soc</td>
+                    <td>&#11088;&#11088; Medium</td>
+                    <td>90-120 min</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div style="margin-top: 30px;">
+            <h3 style="color: #2c3e50; margin-bottom: 15px;">Guided Testcase</h3>
+            <p>In this guided testcase, you will walk through a complete Gate-to-Gate Logical Equivalence Checking (LEC) flow using an <strong>AES cipher</strong> design. You will learn how to set up the reference and implementation containers, and execute the matching and verification steps to prove functional equivalence after physical implementation.</p>
+            
+            <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Challenge Testcase</h3>
+            <p>You are given a post-PnR netlist for the <strong>iguana_soc</strong> design. Without step-by-step guidance, you must independently configure the Formality environment, and successfully verify that the revised implementation matches the golden post-synthesis netlist.</p>
+        </div>
+    </div>
+    <div class="content-box">
+        <h2 class="section-title">&#128640; Begin the Lab</h2>
+        <p>Start with the Guided Testcase to learn the fundamental concepts of Gate-to-Gate LEC, then progress to the independent challenge.</p>
+        
+        <div class="action-buttons">
+            <a href="./TC-LEC-SNPS-N2N-GD-001/TC-LEC-SNPS-N2N-GD-001.html" class="btn btn-primary">Start Guided Testcase &#8594;</a>
+            <a href="./TC-LEC-SNPS-N2N-CH-001/TC-LEC-SNPS-N2N-CH-001.html" class="btn btn-secondary">Jump to Challenge Testcase &#8594;</a>
+        </div>
+    </div>
+
+</div>
+
+<script src="./common/interactive.js"></script>
+
+</body>
+</html>

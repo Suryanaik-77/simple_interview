@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challenge Testcase: ICC2 Routing — iguana_soc (Challenge)</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style> code { color: #333; } </style>
+</head>
+<body>
+    <!-- Scroll progress bar is created dynamically by interactive.js -->
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Challenge Testcase: ICC2 Routing — iguana_soc (Challenge)</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#127968; <a href="../PNR-SNPS-RT.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Challenge Testcase</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128203; Type: Challenge Assignment</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128336; Estimated Time: 150–180 minutes</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#11088;&#11088;&#11088; Difficulty: Hard</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <!-- Challenge Problem -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Challenge Problem</h2>
+                <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+            </div>
+
+            <div class="section-content">
+                <p>This is the <strong>iguana_soc</strong> design — a full System-on-Chip with multiple processor cores, on-chip SRAM memories, and a complex clock architecture. All inputs required for the ICC2 routing flow are provided in the <code>inputs/</code> directory: the post-CTS NDM block and all NDM libraries.</p>
+
+                <p style="margin-top: 20px;"><strong>Your Challenge:</strong> Based on the workflow you mastered in the Guided Testcase, write the complete <code>scripts/route.tcl</code> from scratch, run the full routing flow, and verify that all design quality checks pass cleanly.</p>
+            </div>
+
+            <div class="info-card" style="margin-top: 20px; background: #fff8e1; border-left-color: #f0ad4e;">
+                <strong>&#9888;&#65039; This is an independent exercise.</strong> No step-by-step instructions are provided — use the Guided Testcase as your reference.
+            </div>
+        </div>
+
+        <!-- Requirements -->
+        <div class="content-box">
+            <h2 class="section-title">&#128203; Requirements &amp; Deliverables</h2>
+            <div class="section">
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">Complete the ICC2 Route + Post-Route Flow for iguana_soc</h3>
+                <ul style="margin-left: 30px; line-height: 2.2;">
+                    <li>Fix all errors in <code>scripts/route.tcl</code> so that <code>open_block</code> successfully opens the correct post-CTS design block</li>
+                    <li>Ensure signal integrity analysis is enabled before <code>route_auto</code> executes</li>
+                    <li>Verify that the antenna diode cell name matches the BWP35P140 library cell available in the iguana_soc NDM</li>
+                    <li>Confirm that <code>route_auto</code> completes with 0 antenna violations in <code>check_routes</code> output</li>
+                    <li>Confirm that <code>check_lvs</code> reports 0 shorts and 0 opens after routing</li>
+                    <li>Tighten clock uncertainty (setup 0.204 ns, hold 0.050 ns) before running <code>route_opt</code></li>
+                    <li>Save both the <code>route</code> and <code>postroute</code> named blocks in the iguana_soc NDM library</li>
+                    <li>Generate the full post-route report suite in the <code>reports/</code> directory</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Recommended Workflow -->
+        <div class="content-box">
+            <h2 class="section-title">&#128295; Recommended Workflow</h2>
+            <div class="section-content">
+                <p>You have already set up the lab directory structure using the provided setup guidelines. The required input files are now available in the testcase directory. With the lab environment ready, proceed with the following steps.</p>
+                <p style="margin-top: 10px;">Navigate to the challenge testcase directory and read the script before running anything:</p>
+                <pre class="code-block">cd ~/pd/labs/PNR-SNPS-RT/TC-PNR-SNPS-RT-CH-001</pre>
+
+                <p style="margin-top: 15px;">Attempt the run to see what errors appear:</p>
+                <pre class="code-block">make all</pre>
+
+                <p style="margin-top: 15px;">When errors appear in the ICC2 log, read them carefully:</p>
+                <pre class="code-block">less logs/icc2.log</pre>
+
+                <p style="margin-top: 15px;">Fix the errors in <code>scripts/route.tcl</code>, then re-run:</p>
+                <pre class="code-block">make all</pre>
+
+                <p style="margin-top: 15px;">After all reports are generated, run verification:</p>
+                <pre class="code-block">make verify</pre>
+            </div>
+        </div>
+
+
+
+        <!-- Success Criteria -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Success Criteria</h2>
+            <div class="validation-box">
+                <h4 style="margin-bottom: 15px; color: #0c5460;">Routing for iguana_soc is complete and correct when ALL of the following are met:</h4>
+                <ul style="margin-left: 20px; line-height: 2.2; color: #0c5460;">
+                    <li><code>open_block</code> successfully opens the post-CTS block (no block-not-found error in the log)</li>
+                    <li><code>route_auto</code> completes with SI analysis enabled — confirm with <code>get_app_options time.si_enable_analysis</code> returning <code>true</code></li>
+                    <li><code>check_routes</code> on the <code>route</code> block: 0 DRC errors and 0 antenna violations</li>
+                    <li><code>check_lvs</code> on the <code>route</code> block: 0 shorts, 0 opens</li>
+                    <li>Clock uncertainty updated to setup 0.204 ns / hold 0.050 ns before <code>route_opt</code></li>
+                    <li><code>postroute</code> block saved in the iguana_soc NDM library</li>
+                    <li>Post-route <code>check_routes</code>: 0 DRC errors</li>
+                    <li>Post-route <code>check_lvs</code>: 0 shorts, 0 opens</li>
+                    <li>All route and post-route reports present in <code>reports/</code></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#128299; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>When you are satisfied with your solution, run automated verification to check results and post your status to the dashboard:</p>
+                <pre class="code-block">make verify</pre>
+            </div>
+        </div>
+
+        <!-- Knowledge Assessment Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#128218; Knowledge Assessment Quiz</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question" id="q1">
+                    <h3>1. During routing of iguana_soc, <code>check_routes</code> shows 0 antenna violations on M1–M5 but 112 antenna violations on M6. The script has <code>hop_layers_to_fix_antenna true</code> and <code>insert_diodes_during_routing true</code>. What is the most likely explanation?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">M6 is a thick global routing layer that is exempt from antenna rules — the violations reported are false positives from an incorrect antenna_rules.tcl.</li>
+                        <li data-correct="false">Diode cells can only be placed on M1–M4 layers; M6 wires are too long to reach a diode insertion point during detail routing.</li>
+                        <li data-correct="true">M6 is the topmost routing layer available for hopping — wires on M6 cannot hop higher, and if congestion prevented diode insertion, there is no fallback fix. The antenna_rules.tcl likely sets a tighter limit for M6, and the router ran out of fix options for those segments.</li>
+                        <li data-correct="false">The <code>route.detail.diode_libcell_names</code> setting applies only to M1–M3 layers; M6 antenna fixes require a separate <code>route.detail.m6_diode_libcell_names</code> option.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Layer hopping works by moving the wire up to a higher metal layer to reset the antenna ratio. M6, being the topmost available routing layer in this stack, has nowhere higher to hop to. If the router cannot insert a diode (due to congestion at that wire location), and cannot hop, the antenna violation is left unresolved. The solution is to reduce M6 routing congestion, allow the router more space for diode cells near M6 wire ends, or manually add diodes in ECO mode post-route.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q2">
+                    <h3>2. After fixing the script and running route_auto successfully, you notice the <code>route.report_timing.max.rpt</code> shows WNS = -0.38 ns across setup scenarios. Is this expected at this stage, and what happens next?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">This is a sign-off failure — a WNS of -0.38 ns after routing means the design will never close timing and must be re-synthesized.</li>
+                        <li data-correct="false">This indicates that SI analysis was not properly enabled — the coupling-induced setup violations caused this WNS and will be fixed when SI is activated.</li>
+                        <li data-correct="true">A negative WNS after route_auto is expected and normal — the design has real routing parasitics for the first time and pre-route estimates may have been optimistic. The tightened clock uncertainty (0.204 ns) and route_opt are specifically designed to recover this margin.</li>
+                        <li data-correct="false">This means the CTS stage was incorrect — the clock tree was not properly balanced, causing 0.38 ns of additional skew that must be corrected by re-running CTS before proceeding.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> It is completely normal to have negative WNS in the <code>route</code> block before <code>route_opt</code>. Actual routing parasitics are extracted for the first time and may be worse than the estimates used during placement. Additionally, the clock uncertainty at this point still reflects the CTS value (0.255 ns). Once you tighten uncertainty to 0.204 ns and run <code>route_opt</code>, the tool has both a more accurate timing picture and a larger optimization window — recovering most or all of the apparent violation.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q3">
+                    <h3>3. You have two designs: Design A uses only timing-driven routing (<code>route.global.timing_driven true</code> only) while Design B uses both timing-driven and crosstalk-driven routing (<code>route.global.timing_driven true</code> and <code>route.global.crosstalk_driven true</code>). After routing, SI analysis is enabled for timing sign-off on both. Which statement best describes the expected outcome?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">Design A and B will show identical timing results because SI effects are always captured during sign-off analysis regardless of routing decisions.</li>
+                        <li data-correct="true">Design B is more likely to pass SI-aware timing sign-off because the router actively separated aggressor-victim pairs during routing. Design A may show new setup or hold violations after SI analysis that were not visible pre-route, because the router placed coupling-sensitive nets on adjacent tracks without awareness of the SI impact.</li>
+                        <li data-correct="false">Design A will have better setup timing because timing-driven routing alone produces shorter wires — crosstalk-driven routing increases wire length to add spacing, which adds resistance and worsens setup.</li>
+                        <li data-correct="false">There is no difference between the two because ICC2's detail router always adds minimum spacing between all nets regardless of crosstalk settings.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Crosstalk-driven routing instructs the router to actively avoid placing aggressor-victim pairs on adjacent tracks or parallel segments. Without this setting, the router may legally (from a DRC standpoint) place two coupled nets on adjacent tracks. When SI analysis is applied at sign-off, these coupled nets generate large delta delays that can convert paths from passing to failing. Enabling crosstalk-driven routing at global, track, and detail stages prevents this class of SI violations from being introduced during wire placement.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q4">
+                    <h3>4. After <code>route_opt</code> on iguana_soc, <code>check_legality -verbose</code> reports 3 illegal placements. How did these arise and what is the correct response?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">Illegal placements after route_opt are always caused by the antenna diode cells inserted during route_auto — they must be manually removed and re-inserted by hand to legal positions.</li>
+                        <li data-correct="false">route_opt is not permitted to move cells — illegal placements after route_opt indicate a tool bug that must be reported to Synopsys support.</li>
+                        <li data-correct="true">route_opt performs ECO moves (cell resizing, buffer insertion, cell relocation) to fix timing violations. In rare cases, these moves can push a cell to a fractional site position or cause overlap with a nearby macro. The fix is to run <code>legalize_placement -incremental</code> after route_opt to resolve these violations without disturbing the routing.</li>
+                        <li data-correct="false">Illegal placements are acceptable post-route and are automatically corrected during the chip finish stage — no action is needed before proceeding.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> When <code>route_opt</code> moves or resizes cells to fix timing, it uses ECO placement which does not always re-legalize every affected cell. A small number of illegal placements (overlaps, off-site cells) can result. The correct fix is <code>legalize_placement -incremental</code>, which legalizes only the affected cells with minimal displacement — preserving the routing integrity. Running a full placement from scratch would destroy the routing. Illegal placements must be resolved before chip finish because they lead to DRC violations in the layout.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Lab Completion -->
+        <div class="content-box">
+            <h2 class="section-title">&#127881; Lab Completion</h2>
+            <div class="section-content">
+                <p>Outstanding work completing the <strong>Challenge Testcase</strong>!</p>
+
+                <p style="margin-top: 15px;">In this independent exercise, you diagnosed and resolved real ICC2 routing errors on a complex SoC design — a wrong block name, missing SI enable, and an incorrect antenna diode cell — the same class of problems encountered on production routing runs. You ran the complete merged route and post-route flow, applied tightened clock uncertainty, and verified a clean DRC/LVS result.</p>
+
+                <p style="margin-top: 15px;">&#128640; You have successfully completed the ICC2 Routing lab! The <code>postroute</code> block you produced is the input to the next stage: Chip Finish, where metal fill is added and final DRC/LVS sign-off is performed before GDSII tape-out.</p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../TC-PNR-SNPS-RT-GD-001/TC-PNR-SNPS-RT-GD-001.html" class="btn btn-back">&#8592; Back to Guided Testcase</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../PNR-SNPS-RT.html" class="btn btn-success">Return to Lab Home</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        var LAB_ID = '20';
+        var TESTCASE_NUM = '2';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.quiz-question').forEach(function(qDiv) {
+                const options  = qDiv.querySelectorAll('.quiz-options li');
+                const feedback = qDiv.querySelector('.feedback');
+                const answer   = qDiv.querySelector('.answer');
+                const btn      = qDiv.querySelector('button.btn-primary');
+                options.forEach(function(opt) {
+                    opt.style.cursor = 'pointer';
+                    opt.addEventListener('click', function() {
+                        options.forEach(o => o.classList.remove('selected-option', 'correct-answer', 'wrong-answer'));
+                        opt.classList.add('selected-option');
+                        const isCorrect = opt.getAttribute('data-correct') === 'true';
+                        options.forEach(o => o.style.pointerEvents = 'none');
+                        if (isCorrect) {
+                            opt.classList.add('correct-answer');
+                            feedback.textContent = 'Correct!';
+                            feedback.className   = 'feedback correct';
+                            feedback.style.display = 'block';
+                            if (answer) answer.style.display = 'block';
+                        } else {
+                            opt.classList.add('wrong-answer');
+                            feedback.textContent = 'Incorrect. Try again.';
+                            feedback.className   = 'feedback incorrect';
+                            feedback.style.display = 'block';
+                        }
+                        if (btn) btn.style.display = 'none';
+                    });
+                });
+                if (btn) btn.style.display = 'none';
+            });
+        });
+    </script>
+    <script src="../common/interactive.js"></script>
+</body>
+</html>

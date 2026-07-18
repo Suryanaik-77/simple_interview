@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Challenge: Signal Net Routing — Iguana SoC </title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style> code { color: #333; } </style>
+</head>
+<body>
+<!-- Scroll progress bar is created dynamically by interactive.js -->
+
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Challenge: Routing — Iguana SoC (Bug Fix)</h1>
+        <div class="lab-meta">
+            <div class="meta-item">
+                <span>&#127968; <a href="../PNR-CDN-RT.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Challenge</span>
+            </div>
+            <div class="meta-item"><span>&#128203; Type: Independent Challenge</span></div>
+            <div class="meta-item"><span>&#128336; Estimated Time: 90–120 minutes</span></div>
+            <div class="meta-item"><span>&#11088;&#11088; Difficulty: Medium</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Challenge Problem -->
+    <div class="content-box">
+        <div class="test-case-header">
+            <h2>Challenge Problem</h2>
+            <span class="test-case-type type-independent">INDEPENDENT WORK</span>
+        </div>
+        <div class="section-content">
+            <p>You are given a routing script for <strong>Iguana SoC</strong> that contains a <strong>critical bug in the minimum signal routing layer setting</strong>. The script sets <code>route_design_signal_min_layer M1</code>, but M1 is restricted to local cell connections and cannot be used for global signal routing. This will cause the detail router to produce DRC violations that cannot be resolved.</p>
+
+            <div class="info-card" style="margin-top: 15px; background: #fff3cd; border-left-color: #ffc107;">
+                <strong>&#9888; What goes wrong without the fix:</strong>
+                <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                    <li><strong>Bug — wrong minimum routing layer:</strong> <code>set_db route_design_signal_min_layer M1</code> allows the router to use M1 for global signal connections. M1 is exclusively used by standard cells for internal pin access wiring — placing global signal routes on M1 creates DRC conflicts with cell internal geometry that cannot be fixed.</li>
+                    <li><strong>Fix:</strong> Change <code>M1</code> to <code>M2</code> — M2 is the correct minimum layer for global signal routing.</li>
+                </ul>
+            </div>
+
+            <p style="margin-top: 15px;">Additionally, verify that the <code>CLK_NDR_RULE</code> is <strong>defined before it is assigned</strong> — this ordering requirement from the guided testcase must also be satisfied here. The script does include the <code>create_route_rule</code> call — confirm it appears before <code>assign_route_rules</code>.</p>
+        </div>
+    </div>
+
+    <!-- Requirements -->
+    <div class="content-box">
+        <h2 class="section-title">&#128221; Requirements and Deliverables</h2>
+        <ul style="margin-left: 20px; line-height: 2.2;">
+            <li>Fix the minimum routing layer: change <code>M1</code> to <code>M2</code> in the routing options</li>
+            <li>Confirm <code>create_route_rule -name CLK_NDR_RULE</code> appears before <code>assign_route_rules</code></li>
+            <li>Complete routing flow runs without critical DRC failures</li>
+            <li><code>../reports/route_drc.rpt</code> — 0 or minimal DRC violations after <code>route_fix_antenna</code></li>
+            <li><code>../reports/connectivity.rpt</code> — 0 open nets, 0 short circuits</li>
+            <li><code>../outputs/Iguana SoC_routed.odb</code> exists on disk</li>
+        </ul>
+    </div>
+
+    <!-- Recommended Workflow -->
+    <div class="content-box">
+        <h2 class="section-title">&#9881; Recommended Workflow</h2>
+        <ol style="margin-left: 20px; line-height: 2.2;">
+            <li>Navigate: <code>cd ~/pd/labs/PNR-CDN-RT/TC-PNR-CDN-RT-CH-001</code></li>
+            <li>Open <code>scripts/routing.tcl</code> and locate the routing options section</li>
+            <li>Find the <code>route_design_signal_min_layer</code> setting and fix it</li>
+            <li>Verify that <code>create_route_rule</code> appears before <code>assign_route_rules</code></li>
+            <li>Run <code>make all</code> and source the corrected script</li>
+            <li>Check that DRC violations after <code>route_detail</code> are minimal and fixed by <code>route_fix_antenna</code></li>
+            <li>Run <code>make verify</code></li>
+        </ol>
+    </div>
+
+    <!-- Hints -->
+    <div class="content-box">
+        <h2 class="section-title">&#128161; Hints</h2>
+
+        <details style="margin-bottom: 15px;">
+            <summary style="cursor: pointer; font-weight: bold; padding: 10px; background: #f8f9fa; border-radius: 6px;">Hint 1 — Finding the bug</summary>
+            <div style="padding: 15px; background: #fff; border: 1px solid #e0e0e0; border-radius: 0 0 6px 6px;">
+                Search for <code>route_design_signal_min_layer</code> in the script. The layer name immediately after this parameter is incorrect. Compare against the metal layer table in the Lab Home page — identify which layer is the minimum valid layer for global signal routing.
+            </div>
+        </details>
+
+        <details style="margin-bottom: 15px;">
+            <summary style="cursor: pointer; font-weight: bold; padding: 10px; background: #f8f9fa; border-radius: 6px;">Hint 2 — Confirming the fix worked</summary>
+            <div style="padding: 15px; background: #fff; border: 1px solid #e0e0e0; border-radius: 0 0 6px 6px;">
+                After the fix, <code>route_detail</code> should complete with a small number of DRC violations (antenna-related), not thousands of M1 spacing violations. If you see hundreds of DRC violations on M1 after detail routing, the minimum layer setting is still incorrect.
+            </div>
+        </details>
+
+        <details>
+            <summary style="cursor: pointer; font-weight: bold; padding: 10px; background: #f8f9fa; border-radius: 6px;">Hint 3 — NDR rule ordering</summary>
+            <div style="padding: 15px; background: #fff; border: 1px solid #e0e0e0; border-radius: 0 0 6px 6px;">
+                In this script, <code>create_route_rule -name CLK_NDR_RULE</code> is already present. Check that it appears on an earlier line than <code>assign_route_rules -non_default_rule CLK_NDR_RULE</code>. If the rule is defined after the assignment, the assignment will fail because the named rule does not yet exist.
+            </div>
+        </details>
+    </div>
+
+    <!-- Success Criteria -->
+    <div class="content-box">
+        <h2 class="section-title">&#9989; Success Criteria</h2>
+        <div class="validation-box">
+            <h4 style="margin-bottom: 15px; color: #0c5460;">Challenge is complete when ALL of the following are true:</h4>
+            <ul style="margin-left: 20px; line-height: 2.2; color: #0c5460;">
+                <li>Bug fixed: <code>set_db route_design_signal_min_layer M2</code> (not M1)</li>
+                <li><code>create_route_rule -name CLK_NDR_RULE</code> appears before <code>assign_route_rules</code></li>
+                <li>Complete routing flow runs without critical DRC failures</li>
+                <li><code>../reports/route_drc.rpt</code> — 0 DRC violations</li>
+                <li><code>../reports/connectivity.rpt</code> — 0 opens, 0 shorts</li>
+                <li><code>../outputs/Iguana SoC_routed.odb</code> exists</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Validation -->
+    <div class="content-box">
+        <h2 class="section-title">&#128270; Validation and Verification</h2>
+        <pre class="code-block">make verify</pre>
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128218; Knowledge Assessment Quiz</h2>
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. An antenna diode is the second major antenna fixing technique. Where is it inserted and how does it prevent gate oxide damage?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">An antenna diode is inserted between VDD and VSS at the chip boundary to absorb plasma charge from the package during assembly</li>
+                    <li data-correct="false">An antenna diode is placed at the driving gate output to clamp the signal voltage, preventing charge from reaching sensitive inputs</li>
+                    <li data-correct="true">An antenna diode is inserted near the sensitive gate input. Its anode connects to the signal net and cathode to VSS (or reverse-biased). During fabrication etching, accumulated charge on the floating metal drains safely through the diode's forward-biased junction to VSS rather than tunneling through the gate oxide</li>
+                    <li data-correct="false">An antenna diode is placed at the metal layer boundary, acting as an insulating barrier that prevents charge from propagating between metal layers during etching</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> An antenna diode provides a parallel discharge path for accumulated plasma charge. During fabrication, as charge accumulates on the metal wire, it can either discharge through the gate oxide (damaging it) or through the diode junction (safe). The diode is forward-biased by the accumulated charge and allows current to flow to VSS. The diode is typically a small standard cell (a dedicated library cell like ANTENNABWP) placed near the gate input. It has negligible electrical impact during normal circuit operation — the reverse-biased diode in normal mode presents very high impedance. It only activates during the brief fabrication etching steps when charge accumulates on the floating metal.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. After detailed routing completes, Search and Repair (S&R) is run. What specific class of problems does S&R address?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">S&R addresses timing violations by searching for the worst slack paths and repairing them through buffer insertion</li>
+                    <li data-correct="false">S&R addresses open-net violations by re-routing any nets that were not successfully completed during detail routing</li>
+                    <li data-correct="true">S&R iteratively finds and fixes remaining DRC (Design Rule Check) violations after detailed routing — spacing violations, minimum metal area violations, and short circuits that the initial detail routing could not resolve within its congestion constraints</li>
+                    <li data-correct="false">S&R addresses antenna violations specifically, searching for long wire segments and inserting antenna diodes or layer jumps as needed</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> After detailed routing, some DRC violations typically remain — the routing engine made timing and congestion trade-offs that left minor rule violations. S&R (Search and Repair) is a post-routing DRC cleanup pass that systematically finds each remaining violation and attempts to fix it by locally re-routing the involved wire segments. It iterates multiple times because fixing one violation may move a wire that creates a new violation elsewhere. S&R is specifically targeted at geometric DRC violations (spacing, width, area rules) — not timing or connectivity issues, which are addressed by separate post-route optimization passes.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. Why are advanced technology nodes (14nm, 7nm, 5nm) more susceptible to antenna effect than older nodes (90nm, 65nm)?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Advanced nodes use more metal layers, and each additional layer adds another etching step where charge accumulates</li>
+                    <li data-correct="false">Advanced nodes have longer wire lengths because designs are more complex, giving more surface area for charge collection</li>
+                    <li data-correct="true">Advanced nodes have significantly thinner gate oxides (from ~8 nm at 90nm to ~1–2 nm at 5nm). Thinner oxide has lower dielectric breakdown charge — a smaller accumulated charge can destroy it. The same metal area accumulates the same charge, but the gate can now be damaged by a charge level that would have been harmless at older nodes</li>
+                    <li data-correct="false">Advanced nodes use more reactive plasma gases in their fabrication processes, generating higher charge per etching step regardless of wire geometry</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Gate oxide thickness scales with the technology node to maintain electrostatic control of the channel. At 90nm, gate oxide was ~1.8 nm thick; at 5nm it is approximately 1 nm or thinner (often using high-k dielectrics as a replacement). Thinner oxides have lower breakdown field strength and accumulate damage more easily. The antenna ratio limit (metal area / gate area) specified in process design rules becomes stricter at each new node, forcing more aggressive antenna fixing in the routing flow. This is why antenna checking and fixing is a more critical step in advanced-node designs than in older process nodes.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. Filler cell insertion is performed after routing. What is the primary purpose of filler cells?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Filler cells provide additional decoupling capacitance to reduce power supply noise in densely placed regions</li>
+                    <li data-correct="false">Filler cells are spare logic cells placed in empty sites to enable metal-only ECOs after manufacturing</li>
+                    <li data-correct="true">Filler cells are non-functional standard cells that fill empty placement sites in standard cell rows. They complete the continuous VDD and VSS power rails across each row and maintain a uniform N-well and P-well diffusion, preventing well breaks that would cause DRC violations from discontinuous implant layers</li>
+                    <li data-correct="false">Filler cells provide additional routing tracks on M1 in empty row sites, increasing routing capacity for ECO changes</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Every standard cell row contains a continuous VDD rail and a continuous VSS rail. Standard cells and endcap/welltap cells each contribute a segment of this rail. However, gaps between placed cells leave the rails disconnected. Filler cells (like FILLBWP40P140) are designed to bridge these gaps — they contain the VDD and VSS rail segments and the N-well and P-well diffusion continuations needed to maintain unbroken implant layers. Without filler cells, the gaps create DRC violations (broken well implant, discontinuous diffusion) and functional problems (open power rail segments). Filler cells have no logic inputs or outputs — they are purely physical spacers.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="content-box">
+        <div class="nav-buttons">
+            <a href="../TC-PNR-CDN-RT-GD-001/TC-PNR-CDN-RT-GD-001.html" class="btn btn-back">&#8592; Back to Guided Testcase</a>
+            <a href="../PNR-CDN-RT.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    var LAB_ID = 'PNR-CDN-RT';
+    var TESTCASE_NUM = '2';
+
+    function copyCode(btn) {
+        const container = btn.closest('.code-container');
+        const codeBlock = container.querySelector('.code-block');
+        const text = codeBlock.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            btn.textContent = '\u2713 Copied!';
+            btn.style.background = '#28a745';
+            setTimeout(() => { btn.textContent = 'Copy'; btn.style.background = '#374151'; }, 2000);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('pre.code-block').forEach(function (pre) {
+            if (pre.closest('.code-container')) return;
+            const container = document.createElement('div');
+            container.className = 'code-container';
+            const btn = document.createElement('button');
+            btn.className = 'copy-button';
+            btn.textContent = 'Copy';
+            btn.setAttribute('onclick', 'copyCode(this)');
+            pre.parentNode.insertBefore(container, pre);
+            container.appendChild(btn);
+            container.appendChild(pre);
+            pre.style.margin = '0';
+            pre.style.background = 'transparent';
+            pre.style.boxShadow = 'none';
+            pre.style.borderRadius = '0';
+        });
+    });
+</script>
+<script src="../common/interactive.js"></script>
+</body>
+</html>

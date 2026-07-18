@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guided Testcase: ICC2 Chip Finish — tile (Guided)</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        code { color: #333; }
+        .step-list li ul li,
+        .step-list li ol li {
+            counter-increment: none;
+            list-style-type: disc;
+            padding: 4px 0;
+            margin: 4px 0;
+            background: none;
+            border-left: none;
+            border-radius: 0;
+            position: static;
+        }
+        .step-list li ul li::before,
+        .step-list li ol li::before {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Scroll progress bar is created dynamically by interactive.js -->
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Guided Testcase: ICC2 Chip Finish — tile (Guided)</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#127968; <a href="../PNR-SNPS-CF.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / Guided Testcase</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128203; Type: Guided Exercise</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128336; Estimated Time: 90–120 minutes</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <!-- Problem Statement -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Problem Statement</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                <p>You will perform the complete <strong>Chip Finish</strong> stage in ICC2 for the <strong>tile</strong> processor core, starting from the <code>final_eco.design</code> block — the post-route optimized design after all engineering change orders. This is the last ICC2 stage before the design leaves the physical implementation team.</p>
+                <p style="margin-top: 12px;">In this stage you will:</p>
+                <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                    <li>Insert standard cell filler cells to eliminate placement gaps and restore N-well continuity</li>
+                    <li>Reconnect power and ground pins after filler insertion</li>
+                    <li>Run incremental detail routing to fix any DRC violations introduced by filler cells</li>
+                    <li>Write the gate-level Verilog netlist for LEC and LVS verification</li>
+                    <li>Insert timing-aware dummy metal fill for CMP density compliance</li>
+                    <li>Export the final GDSII for the foundry and DEF for back-annotation</li>
+                    <li>Generate the full suite of sign-off reports</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Step-by-Step -->
+        <div class="content-box">
+            <h2 class="section-title">&#128196; Chip Finish — Step-by-Step Command Explanation</h2>
+            <p style="color: #555; margin-bottom: 20px;">Follow each step below. Write commands into <code>../scripts/chip_finish.tcl</code>, then source the script from inside <code>icc2_shell</code>.</p>
+
+            <ul class="step-list">
+
+                <!-- Step 1 -->
+                <li>
+                    <h3>Navigate to TC-PNR-SNPS-CF-GD-001 and Launch ICC2</h3>
+                    <p>You have already set up the lab directory structure using the provided setup guidelines. The required input files are now available in the testcase directory.</p>
+                    <pre class="code-block">cd ~/pd/labs/PNR-SNPS-CF/TC-PNR-SNPS-CF-GD-001
+make all</pre>
+                    <p style="margin-top: 12px;">This starts an interactive <code>icc2_shell</code> session. Open the script in a new editor window:</p>
+                    <pre class="code-block">sh gvim ../scripts/chip_finish.tcl &amp;</pre>
+                    <p style="margin-top: 10px;">Write each command into the script as you follow the steps below. Once all commands are written, source the script:</p>
+                    <pre class="code-block">source ../scripts/chip_finish.tcl</pre>
+                </li>
+
+                <!-- Step 2: Set variables -->
+                <li>
+                    <h3>Set Design Variables</h3>
+                    <p><strong>Man page:</strong> <code>set</code> is a Tcl built-in that assigns a string value to a variable. There are no ICC2-specific flags. Variables persist for the duration of the session and are referenced with <code>$variable_name</code>.</p>
+                    <p style="margin-top: 10px;"><strong>Why:</strong> Declaring <code>design_name</code> and <code>stage</code> at the top makes the script reusable — change one line to adapt it to a different design or stage name without editing every command.</p>
+                    <pre class="code-block">set design_name tile
+set stage chip_finish
+puts "MyInfo: Started $stage on $design_name @ [sh date]"</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Log output:</strong> <code>MyInfo: Started chip_finish on tile @ Thu Jun  4 12:52:25 IST 2026</code> — this line confirms the script started and records the wall-clock time. Check this timestamp in the log to estimate total runtime.
+                    </div>
+                </li>
+
+                <!-- Step 3: set_host_options -->
+                <li>
+                    <h3>Set Parallel Execution (<code>set_host_options</code>)</h3>
+                    <p><strong>Man page:</strong> <code>set_host_options -max_cores &lt;N&gt;</code> — controls the maximum number of CPU cores ICC2 is allowed to use for multi-threaded operations. Applies to routing, extraction, and timing analysis. Setting this too low on a multi-core server leaves compute capacity unused; setting it higher than the available core count has no benefit.</p>
+                    <pre class="code-block">set_host_options -max_cores 8</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Log output:</strong> <code>1</code> — ICC2 acknowledges the setting silently. The value <code>8</code> is confirmed later in the routing and extraction logs: <code>Information: Using 8 threads for routing. (ZRT-444)</code> and <code>Information: Timer using 8 threads</code>.
+                    </div>
+                </li>
+
+                <!-- Step 4: open_lib + open_block -->
+                <li>
+                    <h3>Open the Design Library and Final ECO Block (<code>open_lib</code>, <code>open_block</code>)</h3>
+                    <p><strong>Man page — <code>open_lib</code>:</strong> Opens an existing ICC2 design library (<code>.ndm</code>) from disk. This loads the library container and all its reference NDM links into the session. Does not open any design block automatically.</p>
+                    <p style="margin-top: 10px;"><strong>Man page — <code>open_block</code>:</strong> Opens a named block within the currently open library in edit mode by default. The block name must exactly match a block that was previously saved with <code>save_block -as &lt;name&gt;</code>.</p>
+                    <pre class="code-block">open_lib ../inputs/tile.ndm
+open_block final_eco.design</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Log output:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li><code>Information: Loading library file '.../tile.ndm' (FILE-007)</code> — main library loaded</li>
+                            <li>Followed by 15 FILE-007 messages loading each NDM reference library (3 stdcell + 12 SRAM)</li>
+                            <li><code>Opening block 'tile.ndm:final_eco.design' in edit mode</code> — block opened successfully</li>
+                            <li><code>Information: User units loaded from library 'tcbn28hpcplusbwp40p140hvt' (LNK-040)</code> — technology units (nm/DBU) loaded from the HVT stdcell NDM</li>
+                        </ul>
+                    </div>
+                    <div class="info-card" style="margin-top: 12px; background: #fff8e1; border-left-color: #f0ad4e;">
+                        <strong>&#9888;&#65039; Why <code>final_eco.design</code>, not <code>postroute.design</code>?</strong><br>
+                        In production flows, after post-route optimization (<code>route_opt</code>), the design goes through one or more <strong>ECO (Engineering Change Order)</strong> iterations — targeted changes to fix specific timing or functional issues found during sign-off. The <code>final_eco.design</code> block is the result of these last manual ECOs. Chip Finish always starts from this final checkpoint, not from the raw post-route block. Starting from an earlier block would undo ECO fixes.
+                    </div>
+                </li>
+
+                <!-- Step 5: Build cell lists -->
+                <li>
+                    <h3>Build Sorted Filler Cell Lists (<code>get_lib_cells</code>, <code>sort_collection</code>)</h3>
+                    <p><strong>Man page — <code>get_lib_cells</code>:</strong> Returns a collection of library cell objects matching the specified names. When a list of names is passed inside <code>{}</code> braces (a single Tcl list argument), all cells in the list are retrieved in one call. If any name is not found in the loaded libraries, a warning is issued and only the found cells are returned.</p>
+                    <p style="margin-top: 10px;"><strong>Man page — <code>sort_collection</code>:</strong> Sorts a collection of design objects by an attribute. <code>-descending</code> sorts from highest to lowest value of the attribute. <code>area</code> is a numeric attribute present on all lib_cell objects.</p>
+                    <p style="margin-top: 10px;"><strong>Man page — <code>get_object_name</code>:</strong> Converts a collection of objects into a Tcl list of name strings. This is needed because <code>create_stdcell_fillers -lib_cell</code> takes a list of cell name strings, not a collection object.</p>
+                    <pre class="code-block">set DCAP_CELLS [get_object_name [sort_collection -descending [get_lib_cells {DCAP64BWP40P140HVT DCAP64BWP40P140 DCAP64BWP40P140LVT \
+    DCAP32BWP40P140HVT DCAP32BWP40P140 DCAP32BWP40P140LVT \
+    DCAP16BWP40P140HVT DCAP16BWP40P140 DCAP16BWP40P140LVT \
+    DCAP8BWP40P140HVT DCAP8BWP40P140 DCAP8BWP40P140LVT \
+    DCAP4BWP40P140HVT DCAP4BWP40P140 DCAP4BWP40P140LVT}] area]]
+
+set FILL_CELLS [get_object_name [sort_collection -descending [get_lib_cells {FILL64BWP40P140HVT FILL64BWP40P140 FILL64BWP40P140LVT \
+    FILL32BWP40P140HVT FILL32BWP40P140 FILL32BWP40P140LVT \
+    FILL16BWP40P140HVT FILL16BWP40P140 FILL16BWP40P140LVT \
+    FILL8BWP40P140HVT FILL8BWP40P140 FILL8BWP40P140LVT \
+    FILL4BWP40P140HVT FILL4BWP40P140 FILL4BWP40P140LVT \
+    FILL3BWP40P140HVT FILL3BWP40P140 FILL3BWP40P140LVT \
+    FILL2BWP40P140HVT FILL2BWP40P140 FILL2BWP40P140LVT}] area]]</pre>
+
+                    <table style="width:100%; border-collapse: collapse; margin-top: 15px; font-size: 0.95em;">
+                        <thead>
+                            <tr style="background: #2c3e50; color: #fff;">
+                                <th style="padding: 10px 14px; text-align: left; width: 30%;">Cell Type</th>
+                                <th style="padding: 10px 14px; text-align: left;">Purpose</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>DCAP64/32/16/8/4</code></td>
+                                <td style="padding: 9px 14px;">Decoupling capacitor cells — fill gaps while also adding local charge reservoirs between VDD and VSS. Reduces supply noise during switching transients. Available in HVT/SVT/LVT flavors.</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 9px 14px;"><code>FILL64/32/16/8/4/3/2</code></td>
+                                <td style="padding: 9px 14px;">Pure filler cells — contain only N-well extension and power rail continuity. No capacitance value. Used when DCAP cells are exhausted or unavailable at a particular width.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Why sort by area descending?</strong> The sort produces a list ordered from the largest cell (64 sites) down to the smallest (2 sites). <code>create_stdcell_fillers</code> processes this list in order — it tries each cell type against each gap from largest to smallest. A 17-site gap gets filled with one FILL16 + one FILL1, not seventeen FILL1 cells. This minimizes the instance count and maximizes the decoupling capacitance added per gap.
+                    </div>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Log output:</strong> After each <code>set</code> command, ICC2 echoes the resulting string. You will see the full qualified cell name list:<br>
+                        <code>tcbn28hpcplusbwp40p140hvt/DCAP64BWP40P140HVT tcbn28hpcplusbwp40p140/DCAP64BWP40P140 ...</code>
+                    </div>
+                </li>
+
+                <!-- Step 6: create_stdcell_fillers -->
+                <li>
+                    <h3>Insert Standard Cell Filler Cells (<code>create_stdcell_fillers</code>)</h3>
+                    <p><strong>Man page:</strong> <code>create_stdcell_fillers -lib_cell &lt;list&gt;</code> — scans all standard cell rows for unoccupied placement sites (gaps) and fills them by selecting the best-fitting cell from the provided list. The list must be ordered from largest to smallest. The command uses a 2D gap-fill engine that respects VT implant rules, OD spacing rules, and power/ground pin alignment.</p>
+                    <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                        <li><strong><code>-lib_cell</code></strong> — accepts a Tcl list of fully-qualified library cell names (library_name/cell_name format, as produced by <code>get_object_name</code>).</li>
+                        <li>The command runs in two passes: Pass 1 fills standard gaps; Pass 2 cleans up any residual single-site gaps.</li>
+                    </ul>
+                    <pre class="code-block">create_stdcell_fillers -lib_cell $FILL_CELLS</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Log output:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li><code>CHF: Using 2D Engine...</code> — confirms 2D filler engine is active</li>
+                            <li><code>Information: Initializing site map 'unit' at {0.84 0.9} {1124.06 1124.1}.</code> — site grid spans the full 1124×1124 µm die area</li>
+                            <li><code>Information: Init siteMap unit with 8023 sites x 1248 rows</code> — 10,012,704 placement sites in the design</li>
+                            <li>CHF-011 warnings (e.g., <code>filler ref cell FILL64BWP40P140HVT not marked filler type</code>) — these are expected. The TSMC 28nm library does not set the ICC2 filler attribute on these cells; the tool uses them anyway and issues a warning. No action needed.</li>
+                            <li><code>Filled 234,983 of 234,983 gaps</code> — all gaps filled successfully</li>
+                            <li><code>Total 367,643 filler cells inserted successfully into final_eco. (CHF-100)</code></li>
+                        </ul>
+                    </div>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Filler cell breakdown (from log):</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li>FILL64BWP40P140HVT: <strong>8,447</strong> cells</li>
+                            <li>FILL32BWP40P140HVT: <strong>6,104</strong> cells</li>
+                            <li>FILL16BWP40P140HVT: <strong>13,372</strong> cells</li>
+                            <li>FILL8BWP40P140HVT: <strong>35,671</strong> cells</li>
+                            <li>FILL4BWP40P140HVT: <strong>79,724</strong> cells</li>
+                            <li>FILL3BWP40P140HVT: <strong>110,074</strong> cells</li>
+                            <li>FILL2BWP40P140HVT: <strong>114,251</strong> cells</li>
+                            <li><strong>Total: 367,643</strong> — all HVT variant, 2.11M of 2.11M sites filled (100%)</li>
+                        </ul>
+                    </div>
+                </li>
+
+                <!-- Step 7: connect_pg_net -->
+                <li>
+                    <h3>Connect Power and Ground Pins (<code>connect_pg_net</code>)</h3>
+                    <p><strong>Man page:</strong> <code>connect_pg_net</code> — scans all cell instances in the design for power (VDD, VDDG) and ground (VSS, VSSG) pins that are not yet connected to a power or ground net, and connects them to the corresponding net based on the net type. For filler cells, this connects their VDD/VSS pins to the power rails running through the standard cell rows.</p>
+                    <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                        <li>Without this step, every newly inserted filler cell has floating power pins — LVS will report opens on VDD and VSS for every filler instance.</li>
+                        <li>The command is run without <code>-automatic</code> here (implicit global mode) — it processes the entire design at once.</li>
+                    </ul>
+                    <pre class="code-block">connect_pg_net</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Log output — Power/Ground Connection Summary:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li>VDD: previous/current pin count = <strong>411,488 / 779,131</strong></li>
+                            <li>VSS: previous/current pin count = <strong>411,470 / 779,113</strong></li>
+                            <li><code>Information: connections of 735,286 power/ground pin(s) are created or changed.</code></li>
+                            <li>The delta (779,131 − 411,488 = 367,643) matches exactly the number of filler cells inserted — confirming every filler cell VDD pin was connected.</li>
+                        </ul>
+                    </div>
+                </li>
+
+                <!-- Step 8: route_detail -->
+                <li>
+                    <h3>Incremental Detail Routing After Filler Insertion (<code>route_detail</code>)</h3>
+                    <p><strong>Man page:</strong> <code>route_detail -incremental &lt;true/false&gt;</code> — runs the ICC2 detail router. In incremental mode (<code>-incremental true</code>), the router does not re-route already-routed nets from scratch. Instead, it focuses only on nets that are unrouted or have DRC violations — typically caused by filler cells blocking previously clean routing tracks or via access points.</p>
+                    <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                        <li>Filler cells occupy physical sites and can obstruct lower metal layers (M1, M2) where local routing runs. The incremental routing pass re-routes any nets whose paths were blocked by newly inserted filler cells.</li>
+                        <li><code>-incremental true</code> dramatically reduces runtime compared to a full re-route — it skips the 99% of nets that are already clean.</li>
+                        <li>The router also checks and fixes antenna violations in this pass.</li>
+                    </ul>
+                    <pre class="code-block">route_detail -incremental true</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Log output:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li>The router runs a full DRC check first, finding <strong>32 violations</strong> across 1,024 partitions</li>
+                            <li><code>Routing in incremental mode, starting from iteration 40</code> — continues from where the post-route router left off</li>
+                            <li>Routing options: <code>detail.antenna: true</code>, <code>detail.timing_driven: true</code>, <code>detail.insert_diodes_during_routing: true</code></li>
+                            <li>379,562 nets successfully extracted after routing</li>
+                            <li>After routing: <code>check_routes</code> will show 0 violations — all 32 DRC issues are resolved</li>
+                        </ul>
+                    </div>
+                    <div class="info-card" style="margin-top: 12px; background: #e8f5e9; border-left-color: #28a745;">
+                        <strong>&#9989; Gate to move forward:</strong> After <code>route_detail</code>, there should be 0 open nets. Look for the line: <code>Total number of open nets = 0</code> in the log. Any non-zero open count must be investigated before writing outputs.
+                    </div>
+                </li>
+
+                <!-- Step 9: change_names -->
+                <li>
+                    <h3>Normalize Net and Instance Names (<code>change_names</code>)</h3>
+                    <p><strong>Man page:</strong> <code>change_names -rules &lt;format&gt;</code> — renames any net, port, or instance names in the design that contain characters illegal in the target format. The <code>verilog</code> rule set replaces characters such as <code>[</code>, <code>]</code>, <code>/</code>, <code>$</code>, and spaces with Verilog-legal alternatives (typically underscore <code>_</code> or escaped identifiers).</p>
+                    <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                        <li>ICC2 internally uses hierarchical path separators and bus indexing in net names (e.g., <code>U1/net[3]</code>). These are illegal in Verilog syntax.</li>
+                        <li>This command must be run <strong>before</strong> <code>write_verilog</code>. If skipped, the resulting Verilog file will contain illegal identifiers that cause syntax errors in downstream tools (Formality, ModelSim, VCS).</li>
+                    </ul>
+                    <pre class="code-block">change_names -rules verilog</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>What to check:</strong> The command outputs a count of names changed. Typical output: <code>Changed N net names</code>. If 0 names are changed, all names were already Verilog-legal — this is acceptable. Any name changes are printed in detail if needed with <code>-verbose</code>.
+                    </div>
+                </li>
+
+                <!-- Step 10: write_verilog (LEC) -->
+                <li>
+                    <h3>Write Gate-Level Verilog for LEC (<code>write_verilog</code>)</h3>
+                    <p><strong>Man page:</strong> <code>write_verilog [options] &lt;output_file&gt;</code> — writes a Verilog netlist of the current design to disk. Key options:</p>
+
+                    <table style="width:100%; border-collapse: collapse; margin-top: 12px; font-size: 0.95em;">
+                        <thead>
+                            <tr style="background: #2c3e50; color: #fff;">
+                                <th style="padding: 10px 14px; text-align: left; width: 42%;">Option</th>
+                                <th style="padding: 10px 14px; text-align: left;">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>-compress gzip</code></td>
+                                <td style="padding: 9px 14px;">Compresses the output with gzip. The file is written as <code>&lt;name&gt;.gz</code>. Large designs produce 200–500 MB netlists; gzip reduces this by ~8×.</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 9px 14px;"><code>-exclude {scalar_wire_declarations leaf_module_declarations pg_objects end_cap_cells well_tap_cells filler_cells pad_spacer_cells physical_only_cells cover_cells}</code></td>
+                                <td style="padding: 9px 14px;">Excludes categories of content that have no logical counterpart in the synthesis netlist. LEC cannot map physical-only cells (filler, end-cap, tap) or power/ground wires — including them causes false "unmatched point" failures in Formality.</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>-hierarchy all</code></td>
+                                <td style="padding: 9px 14px;">Preserves all module boundaries from the ICC2 hierarchy. Enables hierarchical LEC comparison which is significantly faster than flat mode for designs with 300K+ cells.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <pre class="code-block" style="margin-top: 15px;">write_verilog -compress gzip -exclude {scalar_wire_declarations leaf_module_declarations pg_objects end_cap_cells well_tap_cells filler_cells pad_spacer_cells physical_only_cells cover_cells} -hierarchy all ./outputs/${design_name}.v</pre>
+
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Output:</strong> <code>./outputs/tile.v.gz</code> — the LEC netlist. This file is handed to the Formality (or Conformal) team for gate-to-gate equivalence checking against the synthesis golden netlist. Verify the file exists and is non-zero in size before proceeding.
+                    </div>
+                </li>
+
+                <!-- Step 11: write_verilog (LVS) -->
+                <li>
+                    <h3>Write Gate-Level Verilog for LVS (<code>write_verilog</code> — LVS version)</h3>
+                    <p><strong>What is different:</strong> The LVS netlist includes a slightly different set of exclusions. The key difference is the use of <code>empty_modules</code> exclusion (removes empty module declarations) instead of the physical-only cell exclusions. The LVS tool needs to see power and ground connectivity but does not need physical-only cells.</p>
+                    <pre class="code-block">write_verilog -compress gzip -exclude {scalar_wire_declarations leaf_module_declarations empty_modules} -hierarchy all ./outputs/${design_name}.lvs.v</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Output:</strong> <code>./outputs/tile.lvs.v.gz</code> — the LVS netlist. This file is used by Calibre or ICV LVS to verify the extracted layout netlist against the schematic reference. The LVS tool needs to see all functional cells; it handles physical-only cells differently than the LEC tool.
+                    </div>
+                    <div class="info-card" style="margin-top: 12px; background: #f1f4ff; border-left-color: #667eea;">
+                        <strong>&#128161; LEC vs LVS netlists — what changes:</strong><br>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li><strong>LEC netlist:</strong> No physical cells, no PG objects. LEC compares logic only.</li>
+                            <li><strong>LVS netlist:</strong> Physical cells may be included; PG connectivity is visible. LVS compares full device connectivity including power rails.</li>
+                        </ul>
+                    </div>
+                </li>
+
+                <!-- Step 12: design boundary + signoff metal fill -->
+                <li>
+                    <h3>Get Design Boundary and Insert Dummy Metal Fill (<code>signoff_create_metal_fill</code>)</h3>
+                    <p><strong>Man page — <code>get_attribute</code>:</strong> Returns the value of a named attribute from an object. <code>[current_design]</code> returns the active design object; <code>bbox</code> is the bounding box attribute — a pair of coordinates <code>{{llx lly} {urx ury}}</code> defining the die boundary.</p>
+                    <p style="margin-top: 10px;"><strong>Man page — <code>signoff_create_metal_fill</code>:</strong> ICC2's sign-off quality dummy metal fill insertion command. Unlike the placement-stage <code>create_fill</code>, this command is optimized for the post-route state where all routing is final. It uses the current parasitic extraction state to compute timing impact of fill shapes before inserting them.</p>
+                    <ul style="margin-left: 25px; margin-top: 10px; line-height: 2.0;">
+                        <li><strong><code>-track_fill generic</code></strong> — uses a generic track-based fill algorithm that inserts floating metal shapes on routing tracks, maintaining minimum spacing to existing wires. This is the industry-standard mode for track-aware fill.</li>
+                        <li>The fill shapes are inserted on all interconnect layers (M1–M9) to meet the foundry's per-layer minimum metal density rule.</li>
+                        <li>Shapes are placed away from timing-critical nets based on the extracted RC data — timing impact is minimized.</li>
+                    </ul>
+                    <pre class="code-block">set design_boundary [get_attribute [current_design] bbox]
+signoff_create_metal_fill -track_fill generic</pre>
+                    <div class="info-card" style="margin-top: 12px; background: #fff8e1; border-left-color: #f0ad4e;">
+                        <strong>&#9888;&#65039; Metal fill and CMP:</strong> Foundries specify a minimum metal density (e.g., 20% on M1) per analysis window (e.g., 50×50 µm). Regions below this threshold fail the foundry DRC. <code>signoff_create_metal_fill</code> automatically calculates which regions are deficient and inserts just enough dummy metal to meet the rule — without exceeding the maximum density limit either.
+                    </div>
+                </li>
+
+                <!-- Step 13: write_gds -->
+                <li>
+                    <h3>Write GDSII for Tape-Out (<code>write_gds</code>)</h3>
+                    <p><strong>Man page:</strong> <code>write_gds [options] &lt;output_file&gt;</code> — exports the complete physical layout as a binary GDSII stream file. This is the primary tape-out deliverable. Key options:</p>
+
+                    <table style="width:100%; border-collapse: collapse; margin-top: 12px; font-size: 0.95em;">
+                        <thead>
+                            <tr style="background: #2c3e50; color: #fff;">
+                                <th style="padding: 10px 14px; text-align: left; width: 42%;">Option</th>
+                                <th style="padding: 10px 14px; text-align: left;">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>-compress</code></td>
+                                <td style="padding: 9px 14px;">Writes a compressed GDSII file. Reduces file size by ~3–5×. The foundry must support compressed GDSII input.</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 9px 14px;"><code>-hierarchy all</code></td>
+                                <td style="padding: 9px 14px;">Writes all hierarchical levels. Required to preserve the full design hierarchy in the GDSII cell tree.</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>-lib_cell_view frame</code></td>
+                                <td style="padding: 9px 14px;">Uses the <code>frame</code> view from reference NDMs for standard cell geometry. The frame view contains boundary and pin information optimized for GDSII stream-out.</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 9px 14px;"><code>-long_names</code></td>
+                                <td style="padding: 9px 14px;">Preserves full hierarchical instance and net names. Without this, names are truncated to fit GDSII's 32-character limit — making post-silicon debug harder.</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>-keep_data_type</code></td>
+                                <td style="padding: 9px 14px;">Preserves the original GDSII data type numbers from merged cell files. Required for foundry DRC rule deck compatibility.</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 9px 14px;"><code>-merge_files $GDS_FILE_LIST</code></td>
+                                <td style="padding: 9px 14px;">Merges the standard cell library GDS streams (LVT, SVT, HVT) directly into the output GDSII. The foundry receives one self-contained file with all cell geometry included — no separate PDK GDS files needed at their end.</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>-merge_gds_top_cell $design_name</code></td>
+                                <td style="padding: 9px 14px;">Sets the top-level cell name in the merged GDSII to match the design name (<code>tile</code>). The foundry uses this to identify the top-level structure.</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 9px 14px;"><code>-units 2000</code></td>
+                                <td style="padding: 9px 14px;">Sets the GDSII database units to 2000 units per µm (0.5 nm resolution). <strong>Must match the DBU precision of the technology file and NDM libraries</strong>. TSMC 28nm uses 2000 DBU/µm. Using -units 1000 here would cause coordinates to be halved — misaligning all shapes and causing catastrophic DRC failures.</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>-layer_map &lt;file&gt;</code></td>
+                                <td style="padding: 9px 14px;">Maps ICC2 internal layer names to GDSII layer/datatype numbers per the foundry's layer map. The TSMC 28nm 1P9M_4X2Y2R layer map is specified here.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <pre class="code-block" style="margin-top: 15px;">set pdk_stdcell /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T
+set GDS_FILE_LIST [list \
+    ${pdk_stdcell}/lvt/gds/tcbn28hpcplusbwp40p140lvt.gds \
+    ${pdk_stdcell}/svt/gds/tcbn28hpcplusbwp40p140.gds \
+    ${pdk_stdcell}/hvt/gds/tcbn28hpcplusbwp40p140hvt.gds]
+
+write_gds -compress -hierarchy all -lib_cell_view frame -long_names -keep_data_type \
+    -merge_files $GDS_FILE_LIST -merge_gds_top_cell $design_name \
+    -units 2000 \
+    -layer_map /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/metal_stack/1P9M_4X2Y2R/gdsmap/icc2/gdsout_4X2Y2R.map \
+    ./outputs/${design_name}.gds</pre>
+
+                    <div class="info-card" style="margin-top: 12px; background: #fff8e1; border-left-color: #f0ad4e;">
+                        <strong>&#9888;&#65039; After write_gds:</strong> The GDSII file must pass the foundry's full DRC deck (Calibre DRC or ICV) before final tape-out. ICC2's internal <code>check_routes</code> uses a simplified rule set and does not replace foundry DRC. Coordinate with the sign-off team to run Calibre DRC on <code>tile.gds</code> as the next step after chip finish.
+                    </div>
+                </li>
+
+                <!-- Step 14: write_def -->
+                <li>
+                    <h3>Write DEF for Back-Annotation (<code>write_def</code>)</h3>
+                    <p><strong>Man page:</strong> <code>write_def [options] &lt;output_file&gt;</code> — writes the design in Design Exchange Format (DEF). DEF captures placement coordinates, routing, pin locations, and special net routing in a text-based format readable by other EDA tools.</p>
+
+                    <table style="width:100%; border-collapse: collapse; margin-top: 12px; font-size: 0.95em;">
+                        <thead>
+                            <tr style="background: #2c3e50; color: #fff;">
+                                <th style="padding: 10px 14px; text-align: left; width: 42%;">Option</th>
+                                <th style="padding: 10px 14px; text-align: left;">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>-compress gzip</code></td>
+                                <td style="padding: 9px 14px;">Compresses the DEF output file.</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 9px 14px;"><code>-version 5.8</code></td>
+                                <td style="padding: 9px 14px;">Writes DEF in version 5.8 format — the standard accepted by most downstream tools (PrimeTime, Calibre, StarRC).</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="padding: 9px 14px;"><code>-include_tech_via_definitions</code></td>
+                                <td style="padding: 9px 14px;">Embeds via geometry definitions from the technology file directly into the DEF. Required when the downstream tool does not have access to the original technology LEF.</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 9px 14px;"><code>-units 1000</code></td>
+                                <td style="padding: 9px 14px;">Sets the DEF coordinate resolution to 1000 units per µm (1 nm resolution). This is the standard DEF precision and is independent of the GDS DBU precision. DEF consumers (PrimeTime, Calibre) expect 1000 units/µm.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <pre class="code-block" style="margin-top: 15px;">write_def -compress gzip -version 5.8 -include_tech_via_definitions -units 1000 ./outputs/${design_name}.def</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Why is write_def needed?</strong> The DEF file is used by:
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li><strong>StarRC / ICV StarRC:</strong> For parasitic extraction (SPEF) after tape-out — reads DEF for routing topology</li>
+                            <li><strong>PrimeTime:</strong> For back-annotated timing sign-off using the final placed/routed DEF</li>
+                            <li><strong>Calibre:</strong> Can use DEF for hierarchical LVS and DRC flows</li>
+                            <li><strong>Future ECOs:</strong> DEF can be re-imported to restart a new ICC2 flow from the exact final physical state</li>
+                        </ul>
+                    </div>
+                </li>
+
+                <!-- Step 15: save_block -->
+                <li>
+                    <h3>Save the Chip Finish Block (<code>save_block</code>)</h3>
+                    <p><strong>Man page:</strong> <code>save_block -as &lt;name&gt;</code> — commits the current in-memory design state (including all filler cells, metal fill, name changes, and routing updates) to a permanently named block inside the NDM library. This creates a restore point labeled as the chip finish checkpoint.</p>
+                    <pre class="code-block">save_block -as $stage</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Result:</strong> Creates <code>tile.ndm:chip_finish.design</code>. Future sessions can reopen this exact state with <code>open_block chip_finish.design</code> to regenerate outputs or investigate issues without re-running the full chip finish flow.
+                    </div>
+                </li>
+
+                <!-- Step 16: Reports -->
+                <li>
+                    <h3>Generate Sign-Off Reports</h3>
+                    <p>All reports are generated after <code>save_block</code> so the checkpointed block and the reports are consistent. Reports are redirected to individual files in the <code>reports/chip_finish/</code> directory for archiving and review.</p>
+
+                    <h4 style="margin-top: 20px; color: #2c3e50;">1. Timing Constraint Violations</h4>
+                    <pre class="code-block">set report_dir ../reports/${stage}
+file mkdir $report_dir
+redirect -file ${report_dir}/chip_finish.report_constraint {report_constraint -all_violators -max_transition -max_capacitance -scenarios [all_scenarios]}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li><code>-all_violators</code> — lists every endpoint that violates its constraint (not just the worst)</li>
+                            <li><code>-max_transition</code> — reports nets where rise/fall transition time exceeds the cell's max_transition limit. For tile: <code>CTS_BUFFZCTSNET_238</code> has 0.28ns transition vs 0.35ns limit (slack −0.07ns VIOLATED) — a CTS buffer DRV, not a functional path</li>
+                            <li><code>-max_capacitance</code> — reports nets where total load capacitance exceeds the driving cell's max_capacitance limit</li>
+                            <li><strong>Action:</strong> Setup slack must be ≥ 0 on all functional paths. DRV (max_transition, max_capacitance) violations on CTS nets are acceptable at chip finish if they are in the clock tree — they indicate the clock buffers are slightly stressed but functional</li>
+                        </ul>
+                    </div>
+
+                    <h4 style="color: #2c3e50;">2. Setup and Hold Timing Reports</h4>
+                    <pre class="code-block">redirect -file ${report_dir}/chip_finish.report_timing.max {report_timing -delay max -scenarios [all_scenarios] -input_pins -nets -transition_time -capacitance -attributes -physical -derate -report_by group}
+redirect -file ${report_dir}/chip_finish.report_timing.min {report_timing -delay min -scenarios [all_scenarios] -input_pins -nets -transition_time -capacitance -attributes -physical -derate -report_by group}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li><code>-delay max</code> = setup timing (max path); <code>-delay min</code> = hold timing (min path)</li>
+                            <li><code>-report_by group</code> — organizes paths by clock group (clk, r2r, i2r, r2o)</li>
+                            <li><code>-derate</code> — shows the OCV derate factors applied to each path segment</li>
+                            <li><code>-physical</code> — shows wire length and routing layer information inline with the timing path</li>
+                            <li><strong>For tile chip_finish:</strong> Worst critical path is in the <code>clk</code> group, scenario <code>func_setup_ssg0p81v125c_rcw</code>, through <code>ifu_itlb</code></li>
+                            <li><strong>Action:</strong> If setup WNS &lt; 0, the design did not meet timing — this must be resolved before tape-out</li>
+                        </ul>
+                    </div>
+
+                    <h4 style="color: #2c3e50;">3. QoR Summary</h4>
+                    <pre class="code-block">redirect -file ${report_dir}/report_qor.rpt {report_qor}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>What to check (tile chip_finish results):</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li><code>func_hold_ffg0p99v125c_rcb</code>: WNS = <strong>−0.05 ns</strong>, TNS = −6.35 ns, <strong>442 hold violations</strong></li>
+                            <li><code>func_hold_ffg0p99vm40c_cb</code>: WNS = <strong>−0.04 ns</strong>, TNS = −6.20 ns, <strong>464 hold violations</strong></li>
+                            <li>Hold violations at chip_finish are residual from the post-route optimization stage. For tile, these violations were present in the route block and were not closed during chip finish (chip finish does not run timing optimization). They must be addressed before tape-out via additional ECO iterations or hold buffer insertion.</li>
+                            <li>Setup WNS and TNS: should be 0 if timing was closed during route_opt</li>
+                        </ul>
+                    </div>
+
+                    <h4 style="color: #2c3e50;">4. Design Utilization</h4>
+                    <pre class="code-block">redirect -tee -file ${report_dir}/chip_finish.report_utilization {report_utilization}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>Tile chip_finish results:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li>Utilization Ratio: <strong>0.5955 (59.55%)</strong></li>
+                            <li>Total Die Area: 1,261,600.70 µm²</li>
+                            <li>Total Capacity Area (excluding macros): 703,118.56 µm²</li>
+                            <li>Standard Cell Area: 418,726.22 µm²</li>
+                            <li>Hard Macro Area: 540,232.31 µm² (18 SRAM instances)</li>
+                            <li><strong>What this means:</strong> ~60% of the placeable area is filled with standard cells. This is a healthy utilization — low enough to avoid congestion but high enough to use area efficiently. Values above 80% typically cause routing congestion.</li>
+                        </ul>
+                    </div>
+
+                    <h4 style="color: #2c3e50;">5. Clock Tree QoR</h4>
+                    <pre class="code-block">redirect -tee -file ${report_dir}/chip_finish.report_clock_qor.summary {report_clock_qor}
+redirect -file ${report_dir}/chip_finish.report_clock_qor.latency {report_clock_qor -type latency -show_paths}
+redirect -file ${report_dir}/chip_finish.report_clock_qor.cell_area {report_clock_qor -type area}
+redirect -file ${report_dir}/chip_finish.report_clock_qor.structure {report_clock_qor -type structure}
+redirect -file ${report_dir}/chip_finish.report_clock_qor.drc_violators {report_clock_qor -type drc_violators -all}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>Tile chip_finish clock QoR:</strong>
+
+                        <table style="width:100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em;">
+                            <thead>
+                                <tr style="background: #667eea; color: #fff;">
+                                    <th style="padding: 8px 12px;">Corner</th>
+                                    <th style="padding: 8px 12px;">Sinks</th>
+                                    <th style="padding: 8px 12px;">Levels</th>
+                                    <th style="padding: 8px 12px;">Repeaters</th>
+                                    <th style="padding: 8px 12px;">Max Latency</th>
+                                    <th style="padding: 8px 12px;">Skew</th>
+                                    <th style="padding: 8px 12px;">Trans DRC</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr style="background: #f8f9fa;">
+                                    <td style="padding: 7px 12px;">ffg0p99v125c_rcb (hold)</td>
+                                    <td style="padding: 7px 12px;">101,827</td>
+                                    <td style="padding: 7px 12px;">23</td>
+                                    <td style="padding: 7px 12px;">441</td>
+                                    <td style="padding: 7px 12px;">0.52 ns</td>
+                                    <td style="padding: 7px 12px;">0.36 ns</td>
+                                    <td style="padding: 7px 12px;">0</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 7px 12px;">ffg0p99vm40c_cb (hold)</td>
+                                    <td style="padding: 7px 12px;">101,827</td>
+                                    <td style="padding: 7px 12px;">23</td>
+                                    <td style="padding: 7px 12px;">441</td>
+                                    <td style="padding: 7px 12px;">0.47 ns</td>
+                                    <td style="padding: 7px 12px;">0.33 ns</td>
+                                    <td style="padding: 7px 12px;">0</td>
+                                </tr>
+                                <tr style="background: #f8f9fa;">
+                                    <td style="padding: 7px 12px;">ssg0p81v125c_rcw (setup)</td>
+                                    <td style="padding: 7px 12px;">101,827</td>
+                                    <td style="padding: 7px 12px;">23</td>
+                                    <td style="padding: 7px 12px;">441</td>
+                                    <td style="padding: 7px 12px;">0.72 ns</td>
+                                    <td style="padding: 7px 12px;">0.50 ns</td>
+                                    <td style="padding: 7px 12px;"><strong>2</strong></td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 7px 12px;">ssg0p81vm40c_cw (setup)</td>
+                                    <td style="padding: 7px 12px;">101,827</td>
+                                    <td style="padding: 7px 12px;">23</td>
+                                    <td style="padding: 7px 12px;">441</td>
+                                    <td style="padding: 7px 12px;">0.76 ns</td>
+                                    <td style="padding: 7px 12px;">0.54 ns</td>
+                                    <td style="padding: 7px 12px;"><strong>2</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p style="margin-top: 10px;"><strong>How to read this:</strong></p>
+                        <ul style="margin-left: 20px; margin-top: 6px; line-height: 1.9;">
+                            <li><strong>Sinks:</strong> 101,827 — total number of clock sink pins (flip-flop clock inputs). This is the total sequential element count clocked by the clock tree.</li>
+                            <li><strong>Levels:</strong> 23 — the maximum number of clock buffer stages from clock source to the farthest sink. Fewer levels = less latency and better skew control.</li>
+                            <li><strong>Repeaters (Count / Area):</strong> 441 clock buffers inserted, consuming 542.30 µm² of area</li>
+                            <li><strong>Max Latency:</strong> The longest clock path from source to any sink. Setup corners are slower (0.72–0.76 ns); hold corners are faster (0.47–0.52 ns). All values within expected range for a 1.70 ns clock.</li>
+                            <li><strong>Global Skew:</strong> Difference between fastest and slowest clock arrival. 0.36–0.54 ns — acceptable for this design.</li>
+                            <li><strong>Trans DRC = 2 (setup corners):</strong> 2 clock nets have transition time violations. These come from <code>CTS_BUFFZCTSNET_238</code> — a specific CTS buffer net. Check <code>chip_finish.report_clock_qor.drc_violators</code> for details.</li>
+                        </ul>
+                    </div>
+
+                    <h4 style="color: #2c3e50;">6. Routing and LVS Checks</h4>
+                    <pre class="code-block">redirect -file ${report_dir}/chip_finish.check_routes {check_routes}
+redirect -file ${report_dir}/chip_finish.check_lvs {check_lvs -max_errors 0}</pre>
+                    <div class="info-card" style="margin-top: 8px; margin-bottom: 15px;">
+                        <strong>check_routes — what to check:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li>Look for the summary line: <code>Check &lt;N&gt; nets, 0 have Errors</code></li>
+                            <li><strong>Tile result:</strong> <code>Check 379,838 nets, 0 have Errors</code> — clean</li>
+                            <li>Check for opens (unrouted nets) — must be 0</li>
+                            <li>Check for shorts — must be 0</li>
+                            <li>Antenna violations — report shows antenna mode configurations; 0 violations expected after routing with antenna insertion enabled</li>
+                        </ul>
+                        <strong style="margin-top: 10px; display: block;">check_lvs — what to check:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li>Shorts: <strong>0</strong> — no two distinct logical nets are physically merged</li>
+                            <li>Opens: <strong>0</strong> — no schematic net is broken in layout</li>
+                            <li><code>-max_errors 0</code> means report all violations, not just the first N — always use this flag to get the complete picture</li>
+                        </ul>
+                    </div>
+
+                    <h4 style="color: #2c3e50;">7. Design and Legality Reports</h4>
+                    <pre class="code-block">redirect -file ${report_dir}/chip_finish.check_legality {check_legality -verbose}
+redirect -file ${report_dir}/chip_finish.report_design {report_design -library -netlist -floorplan -routing}
+analyze_design_violations -type setup -stage postroute -output ${report_dir}/chip_finish.analyze_design_violations</pre>
+                    <div class="info-card" style="margin-top: 8px;">
+                        <strong>check_legality:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li>Must report 0 violations for all placement rule categories</li>
+                            <li>NPLDRC-007 warnings about M8 metal sectors are informational density checks — not legality violations</li>
+                        </ul>
+                        <strong style="display: block; margin-top: 10px;">analyze_design_violations:</strong>
+                        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.9;">
+                            <li>Generates a comprehensive timing violation analysis report for setup paths</li>
+                            <li>Useful to understand the distribution of violations and identify the most critical paths for ECO prioritization</li>
+                        </ul>
+                    </div>
+                </li>
+
+                <!-- Step 17: Exit -->
+                <li>
+                    <h3>Print Completion Message and Exit</h3>
+                    <pre class="code-block">puts "MyInfo: End of $stage on $design_name @ [sh date]"
+exit</pre>
+                    <div class="info-card" style="margin-top: 12px;">
+                        <strong>Log output:</strong> <code>MyInfo: End of chip_finish on tile @ Thu Jun  4 13:23:xx IST 2026</code>. Compare this timestamp with the start timestamp to calculate total chip_finish runtime. For tile, the full run takes approximately 30–40 minutes.
+                    </div>
+                </li>
+
+            </ul>
+        </div>
+
+        <!-- Success Criteria -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Success Criteria — When Can You Move to the Next Stage?</h2>
+            <div class="validation-box">
+                <h4 style="margin-bottom: 15px; color: #0c5460;">Chip Finish is complete and ready for tape-out handoff when ALL of the following are true:</h4>
+                <ul style="margin-left: 20px; line-height: 2.2; color: #0c5460;">
+                    <li><code>create_stdcell_fillers</code> completes with <strong>CHF-100</strong> message confirming N filler cells inserted — no CHF-020 (unable to insert) errors</li>
+                    <li><code>connect_pg_net</code> shows VDD/VSS pin count delta matching the number of filler cells — confirms every filler cell is powered</li>
+                    <li><code>route_detail -incremental true</code> resolves all DRC violations — confirm <code>Total number of open nets = 0</code> in log</li>
+                    <li><code>check_routes</code> — <strong><code>Check N nets, 0 have Errors</code></strong></li>
+                    <li><code>check_lvs -max_errors 0</code> — <strong>0 shorts, 0 opens</strong></li>
+                    <li><code>./outputs/${design_name}.v.gz</code> exists and is non-zero size (LEC netlist)</li>
+                    <li><code>./outputs/${design_name}.lvs.v.gz</code> exists and is non-zero size (LVS netlist)</li>
+                    <li><code>./outputs/${design_name}.gds</code> exists and is non-zero size (tape-out GDSII)</li>
+                    <li><code>./outputs/${design_name}.def.gz</code> exists (DEF for back-annotation)</li>
+                    <li>The block <code>chip_finish</code> is saved inside <code>../inputs/tile.ndm</code></li>
+                    <li><code>check_legality -verbose</code> reports 0 placement violations</li>
+                </ul>
+            </div>
+            <div class="info-card" style="margin-top: 15px; background: #fff8e1; border-left-color: #f0ad4e;">
+                <strong>&#9888;&#65039; Residual hold violations:</strong> The tile design has 442–464 hold violations in the final chip_finish QoR. These are known from the route stage and require additional ECO iterations (targeted hold buffer insertion) before tape-out sign-off. Hold violations do not block chip finish from completing — but they must be resolved before the design is submitted to the foundry.
+            </div>
+        </div>
+
+        <!-- Complete Script Reference -->
+        <div class="content-box">
+            <h2 class="section-title">&#128196; Complete chip_finish.tcl — Reference Script</h2>
+            <p style="color: #555; margin-bottom: 15px;">After completing all steps, your <code>../scripts/chip_finish.tcl</code> should contain the following commands in order.</p>
+            <pre class="code-block"><span style="color:#75715e">## chip_finish.tcl — ICC2 Chip Finish
+## Design: tile  |  Tool: Synopsys ICC2</span>
+
+set design_name tile
+set stage chip_finish
+puts "MyInfo: Started $stage on $design_name @ [sh date]"
+
+<span style="color:#75715e">## Open lib and final ECO block</span>
+set_host_options -max_cores 8
+open_lib ../inputs/${design_name}.ndm
+open_block final_eco.design
+
+<span style="color:#75715e">## Build filler cell lists sorted by area (largest first)</span>
+set DCAP_CELLS [get_object_name [sort_collection -descending [get_lib_cells {DCAP64BWP40P140HVT DCAP64BWP40P140 DCAP64BWP40P140LVT \
+    DCAP32BWP40P140HVT DCAP32BWP40P140 DCAP32BWP40P140LVT \
+    DCAP16BWP40P140HVT DCAP16BWP40P140 DCAP16BWP40P140LVT \
+    DCAP8BWP40P140HVT DCAP8BWP40P140 DCAP8BWP40P140LVT \
+    DCAP4BWP40P140HVT DCAP4BWP40P140 DCAP4BWP40P140LVT}] area]]
+
+set FILL_CELLS [get_object_name [sort_collection -descending [get_lib_cells {FILL64BWP40P140HVT FILL64BWP40P140 FILL64BWP40P140LVT \
+    FILL32BWP40P140HVT FILL32BWP40P140 FILL32BWP40P140LVT \
+    FILL16BWP40P140HVT FILL16BWP40P140 FILL16BWP40P140LVT \
+    FILL8BWP40P140HVT FILL8BWP40P140 FILL8BWP40P140LVT \
+    FILL4BWP40P140HVT FILL4BWP40P140 FILL4BWP40P140LVT \
+    FILL3BWP40P140HVT FILL3BWP40P140 FILL3BWP40P140LVT \
+    FILL2BWP40P140HVT FILL2BWP40P140 FILL2BWP40P140LVT}] area]]
+
+<span style="color:#75715e">## Insert standard cell fillers to fill all placement gaps</span>
+create_stdcell_fillers -lib_cell $FILL_CELLS
+
+<span style="color:#75715e">## Reconnect power and ground pins on all cells including new fillers</span>
+connect_pg_net
+
+<span style="color:#75715e">## Incremental detail routing to fix DRC violations from filler insertion</span>
+route_detail -incremental true
+
+<span style="color:#75715e">## Normalize names for Verilog output</span>
+change_names -rules verilog
+
+<span style="color:#75715e">## Write LEC gate-level Verilog (physical-only cells excluded)</span>
+write_verilog -compress gzip -exclude {scalar_wire_declarations leaf_module_declarations pg_objects end_cap_cells well_tap_cells filler_cells pad_spacer_cells physical_only_cells cover_cells} -hierarchy all ./outputs/${design_name}.v
+
+<span style="color:#75715e">## Write LVS gate-level Verilog</span>
+write_verilog -compress gzip -exclude {scalar_wire_declarations leaf_module_declarations empty_modules} -hierarchy all ./outputs/${design_name}.lvs.v
+
+<span style="color:#75715e">## Get design boundary and insert dummy metal fill for CMP</span>
+set design_boundary [get_attribute [current_design] bbox]
+signoff_create_metal_fill -track_fill generic
+
+<span style="color:#75715e">## Write GDSII (merge std cell GDS, correct units for TSMC 28nm)</span>
+set pdk_stdcell /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/stdcells/9T
+set GDS_FILE_LIST [list \
+    ${pdk_stdcell}/lvt/gds/tcbn28hpcplusbwp40p140lvt.gds \
+    ${pdk_stdcell}/svt/gds/tcbn28hpcplusbwp40p140.gds \
+    ${pdk_stdcell}/hvt/gds/tcbn28hpcplusbwp40p140hvt.gds]
+
+write_gds -compress -hierarchy all -lib_cell_view frame -long_names -keep_data_type \
+    -merge_files $GDS_FILE_LIST -merge_gds_top_cell $design_name \
+    -units 2000 \
+    -layer_map /efs/semicon_labs_pd/pdk/foundries/tsmc/N28/versions/v1.0/metal_stack/1P9M_4X2Y2R/gdsmap/icc2/gdsout_4X2Y2R.map \
+    ./outputs/${design_name}.gds
+
+<span style="color:#75715e">## Write DEF for back-annotation and sign-off flows</span>
+write_def -compress gzip -version 5.8 -include_tech_via_definitions -units 1000 ./outputs/${design_name}.def
+
+<span style="color:#75715e">## Save chip_finish checkpoint</span>
+save_block -as $stage
+
+<span style="color:#75715e">## Reports</span>
+set report_dir ../reports/${stage}
+file mkdir $report_dir
+set report_prefix ${stage}
+redirect -file ${report_dir}/${report_prefix}.report_constraint {report_constraint -all_violators -max_transition -max_capacitance -scenarios [all_scenarios]}
+redirect -file ${report_dir}/${report_prefix}.report_timing.max {report_timing -delay max -scenarios [all_scenarios] -input_pins -nets -transition_time -capacitance -attributes -physical -derate -report_by group}
+redirect -file ${report_dir}/${report_prefix}.report_timing.min {report_timing -delay min -scenarios [all_scenarios] -input_pins -nets -transition_time -capacitance -attributes -physical -derate -report_by group}
+analyze_design_violations -type setup -stage postroute -output ${report_dir}/${report_prefix}.analyze_design_violations
+redirect -tee -file ${report_dir}/${report_prefix}.report_utilization {report_utilization}
+redirect -file ${report_dir}/${report_prefix}.report_design {report_design -library -netlist -floorplan -routing}
+redirect -file ${report_dir}/${report_prefix}.check_legality {check_legality -verbose}
+redirect -file ${report_dir}/report_qor.rpt {report_qor}
+redirect -tee -file ${report_dir}/${report_prefix}.report_clock_qor.summary {report_clock_qor}
+redirect -file ${report_dir}/${report_prefix}.report_clock_qor.latency {report_clock_qor -type latency -show_paths}
+redirect -file ${report_dir}/${report_prefix}.report_clock_qor.cell_area {report_clock_qor -type area}
+redirect -file ${report_dir}/${report_prefix}.report_clock_qor.structure {report_clock_qor -type structure}
+redirect -file ${report_dir}/${report_prefix}.report_clock_qor.drc_violators {report_clock_qor -type drc_violators -all}
+redirect -file ${report_dir}/${report_prefix}.check_routes {check_routes}
+redirect -file ${report_dir}/${report_prefix}.check_lvs {check_lvs -max_errors 0}
+
+puts "MyInfo: End of $stage on $design_name @ [sh date]"
+exit</pre>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After completing all steps and confirming all success criteria, run the automated verification command to validate your results and post your completion status to the dashboard:</p>
+                <pre class="code-block">make verify</pre>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#128218; Knowledge Assessment Quiz</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question" id="q1">
+                    <h3>1. After <code>create_stdcell_fillers</code> completes with <code>CHF-100: 367,643 filler cells inserted</code>, you run <code>check_lvs</code> and see hundreds of opens on VDD and VSS nets, all pointing to <code>FILL*</code> instances. What step did you miss and why does skipping it cause these LVS opens?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">You skipped <code>check_legality</code> — legality violations prevent filler cell power pins from being resolved by ICC2.</li>
+                        <li data-correct="true">You skipped <code>connect_pg_net</code> after filler insertion. <code>create_stdcell_fillers</code> places filler cell instances in the design but does not connect their VDD and VSS pins to the power grid. <code>connect_pg_net</code> must be run explicitly to create these connections — without it, every filler cell has floating power pins, which ICC2's LVS engine reports as opens on the VDD and VSS nets.</li>
+                        <li data-correct="false">You skipped <code>route_detail -incremental true</code> — routing is required to establish power connections for new cells.</li>
+                        <li data-correct="false">You skipped <code>save_block</code> before running <code>check_lvs</code> — the command only reads saved block state.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> <code>create_stdcell_fillers</code> inserts filler cell instances but does not handle their power/ground connectivity — that is the job of <code>connect_pg_net</code>. In the tile log, <code>connect_pg_net</code> creates 735,286 new PG connections (matching the 367,643 filler cells × 2 pins each). Without this step, every filler VDD and VSS pin is floating and LVS reports opens.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q2">
+                    <h3>2. Why is <code>-units 2000</code> required in the <code>write_gds</code> command for a TSMC 28nm design, and what would happen if you used <code>-units 1000</code>?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">2000 units/µm is a GDSII format requirement — all modern foundries mandate this precision for manufacturing. Using 1000 would cause the GDSII reader to reject the file with a format error.</li>
+                        <li data-correct="true">The TSMC 28nm PDK technology file and all NDM reference libraries use a database unit precision of 2000 DBU per µm (0.5 nm resolution). The <code>-units</code> parameter must match this precision. If you specify <code>-units 1000</code>, ICC2 scales all coordinates by 0.5 when writing the GDSII — every shape, via, and pin is written at half its correct size and position. The resulting GDSII has misaligned features that fail foundry DRC with thousands of spacing violations.</li>
+                        <li data-correct="false">2000 is the standard for DEF files; GDSII always uses 1000 units. Using 2000 doubles all coordinates, which is corrected automatically by the foundry's viewer.</li>
+                        <li data-correct="false">The units setting only affects display precision in the GDSII viewer — it has no impact on the actual coordinate data written to the file.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The <code>-units</code> value in <code>write_gds</code> tells ICC2 how many GDSII integer units correspond to one micron. This must exactly match the DBU/µm precision of the loaded technology file. TSMC 28nm uses 2000 DBU/µm — so 1 nm = 2 database units. Specifying 1000 causes all coordinates to be halved during GDSII writing, displacing every geometric shape by half its distance from the origin. The resulting GDSII is geometrically invalid.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q3">
+                    <h3>3. The <code>report_clock_qor</code> summary shows <strong>Trans DRC = 2</strong> in the setup corners for the <code>clk</code> tree. How do you identify which specific nets are violated, and when does this require action before tape-out?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">Trans DRC = 2 means 2 flip-flop clock pins have setup violations. Check <code>report_timing.max</code> and find the paths ending at those 2 flip-flops.</li>
+                        <li data-correct="true">Open <code>chip_finish.report_clock_qor.drc_violators</code> (generated with <code>report_clock_qor -type drc_violators -all</code>) to see the exact net name and transition value. For tile, the violator is <code>CTS_BUFFZCTSNET_238</code> with 0.28 ns transition vs 0.35 ns limit. This is a CTS buffer output net. Action is required if the violation causes the clock signal to not be recognized correctly at the sink registers (functional failure) — but if the silicon margin is sufficient and sign-off checks pass in PrimeTime, it may be waived with PDK team approval.</li>
+                        <li data-correct="false">Trans DRC on clock nets is always a waivable issue — it indicates marginal timing but never causes functional failure in silicon. No action is required.</li>
+                        <li data-correct="false">Run <code>check_design -checks timing</code> to get the full list of Trans DRC violators with location information.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> <code>report_clock_qor -type drc_violators -all</code> generates a dedicated file listing every clock net with transition DRC violations, including the measured transition time and the limit. For tile, this reveals <code>CTS_BUFFZCTSNET_238</code> — a CTS buffer clock distribution net. Whether this requires an ECO fix depends on whether PrimeTime sign-off (using actual SPEF) also sees the violation. Some CTS transition violations in ICC2's pre-sign-off model close cleanly in PrimeTime's more accurate extraction.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q4">
+                    <h3>4. Two different Verilog netlists are written in chip_finish: <code>tile.v</code> (LEC) and <code>tile.lvs.v</code> (LVS). Both use <code>write_verilog -hierarchy all</code> but with different <code>-exclude</code> options. What is the key difference in the excluded content and why does each downstream tool need a different netlist?</h3>
+                    <ul class="quiz-options">
+                        <li data-correct="false">The LEC netlist includes compressed binary encoding while the LVS netlist uses ASCII — different tools require different encoding formats.</li>
+                        <li data-correct="false">The LEC netlist is written before <code>signoff_create_metal_fill</code> so it does not include metal fill shapes; the LVS netlist is written after and includes them. This lets LVS check the fill shapes for connectivity.</li>
+                        <li data-correct="true">The LEC netlist excludes all physical-only cells (<code>filler_cells end_cap_cells well_tap_cells pg_objects</code> etc.) because the Formality/Conformal LEC tool compares logic only against the synthesis reference netlist — these cells have no logical counterpart and cause false "unmatched point" failures. The LVS netlist excludes only <code>empty_modules</code> (reducing verbosity) but retains all cells and connectivity so the LVS tool can verify the complete physical connection including power rails and device terminals.</li>
+                        <li data-correct="false">The two netlists are functionally identical; the different exclude options only reduce file size and have no effect on the verification results.</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> LEC (Formality/Conformal) works by matching logic gates between the implementation netlist and the synthesis golden netlist. Physical-only cells — fillers, end-caps, tap cells — do not appear in the synthesis netlist. Including them in the LEC netlist produces "unmatched points" that the tool cannot resolve. LVS (Calibre/ICV), on the other hand, extracts the full device-level connectivity from the layout and compares it against the schematic. It must see all cells and their power connections — using the LEC-style netlist for LVS would miss power connectivity and produce false opens.</div>
+                    <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Next Step -->
+        <div class="content-box">
+            <h2 class="section-title">&#127881; Next Step</h2>
+            <div class="section-content">
+                <p>Outstanding work completing the guided chip finish for the <strong>tile</strong> processor core!</p>
+                <p style="margin-top: 12px;">You have walked through every command in the ICC2 chip finish flow — from opening the <code>final_eco.design</code> block, inserting 367,643 filler cells across 234,983 gaps, reconnecting PG pins, running incremental routing to fix residual DRC violations, writing both LEC and LVS netlists with the correct exclusions, inserting sign-off quality metal fill, exporting the GDSII with the correct TSMC 28nm layer map and units, writing the DEF for back-annotation, saving the chip finish checkpoint, and generating the complete suite of sign-off reports.</p>
+                <p style="margin-top: 12px;">&#128640; You are now ready to apply these concepts independently. In the Challenge Testcase, you will perform the complete chip finish flow for <strong>iguana_soc</strong> — a more complex multi-clock SoC design — on your own.</p>
+            </div>
+            <div class="nav-buttons">
+                <a href="../PNR-SNPS-CF.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+                <button onclick="completeTestcase()" class="btn btn-success">Mark Complete &#10003;</button>
+                <a href="../TC-PNR-SNPS-CF-CH-001/TC-PNR-SNPS-CF-CH-001.html" class="btn btn-success">Continue to Challenge Testcase &#8594;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        var LAB_ID = 'CF';
+        var TESTCASE_NUM = '1';
+
+        function copyCode(btn) {
+            const container = btn.closest('.code-container');
+            const codeBlock = container.querySelector('.code-block');
+            const text = codeBlock.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                btn.textContent = '\u2713 Copied!';
+                btn.style.background = '#28a745';
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                    btn.style.background = '#374151';
+                }, 2000);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('pre.code-block').forEach(function (pre) {
+                if (pre.closest('.code-container')) return;
+                const container = document.createElement('div');
+                container.className = 'code-container';
+                const btn = document.createElement('button');
+                btn.className = 'copy-button';
+                btn.textContent = 'Copy';
+                btn.setAttribute('onclick', 'copyCode(this)');
+                pre.parentNode.insertBefore(container, pre);
+                container.appendChild(btn);
+                container.appendChild(pre);
+                pre.style.margin = '0';
+                pre.style.background = 'transparent';
+                pre.style.boxShadow = 'none';
+                pre.style.borderRadius = '0';
+            });
+        });
+    </script>
+    <script src="../common/interactive.js"></script>
+</body>
+</html>

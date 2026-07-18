@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guided: tile Design &#8212; Complete Standard Cell Placement Flow (Guided)</title>
+    <link rel="stylesheet" href="../common/styles.css">
+    <style>
+        .btn-check-answer {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 9px 24px;
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, opacity 0.2s;
+            letter-spacing: 0.02em;
+        }
+        .btn-check-answer:hover:not(:disabled) {
+            background: #1d4ed8;
+        }
+        .btn-check-answer:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .quiz-options li.selected {
+            background: #eff6ff;
+            border-left: 4px solid #2563eb;
+            color: #1e3a8a;
+        }
+    </style>
+</head>
+<body>
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Guided: tile Design &#8212; Complete Standard Cell Placement Flow (Guided)</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#127968; <a href="../PNR-CDN-PL.html" style="color: #FA9600; text-decoration: none;">Lab Home</a> / TC-PNR-CDN-PL-GD-001</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128203; Type: Guided Exercise</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201;&#65039; Estimated Time: 90&#8211;120 minutes</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Scenario -->
+        <div class="content-box">
+            <div class="test-case-header">
+                <h2>Scenario</h2>
+                <span class="test-case-type type-guided">GUIDED</span>
+            </div>
+            <div class="section-content">
+                <p>You are performing standard cell placement for the <strong>tile</strong> design using Cadence Innovus. The floorplan database from the previous stage is provided in <code>inputs/floorplan.db</code>. Your task is to load that database and run the complete placement flow using <code>scripts/placement.tcl</code>, understanding every command in the script.</p>
+
+                <p style="margin-top: 15px;">This guided exercise walks through the full production Innovus placement script step by step. You will learn:</p>
+                <ul style="margin-left: 20px; margin-top: 12px; line-height: 1.9;">
+                    <li>How to load a prior-stage Innovus database as the starting point</li>
+                    <li>How to establish power rail connectivity before placement begins</li>
+                    <li>How IO buffers are inserted and padded</li>
+                    <li>Why LVT and clock cells are excluded from placement</li>
+                    <li>How placement density, congestion effort, and timing effort are configured</li>
+                    <li>How tieoff and spare cells are set up and placed</li>
+                    <li>What reports are generated and how to interpret them</li>
+                </ul>
+
+                <p style="margin-top: 15px;">Run the full flow from the testcase directory:</p>
+                <pre class="code-block">make all</pre>
+                <p style="margin-top: 12px;">Follow the step-by-step walkthrough below to understand exactly what each command in <code>scripts/placement.tcl</code> does and why it is there.</p>
+            </div>
+        </div>
+
+        <!-- Step-by-Step Walkthrough -->
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Step-by-Step Walkthrough</h2>
+
+            <ul class="step-list">
+
+                <!-- Step 1 -->
+                <li>
+                    <h3>Step 1 &#8212; Load the Floorplan Database</h3>
+                    <p>The placement script begins by loading the Innovus database produced at the end of the floorplan stage:</p>
+                    <pre class="code-block">read_db ../inputs/floorplan.db</pre>
+                    <p style="margin-top: 10px;"><code>read_db</code> restores a complete Innovus session checkpoint — the placed floorplan, power grid, IO pin assignments, timing constraints (SDC), and all tool settings that were active when the floorplan database was saved. By reading the floorplan database as the first command, this placement script picks up exactly where the floorplan stage left off, with no need to re-read LEFs, netlists, or SDC files. Every subsequent command in the script operates on the design state captured in that <code>.db</code> file.</p>
+                </li>
+
+                <!-- Step 2 -->
+                <li>
+                    <h3>Step 2 &#8212; Power Rail Connectivity</h3>
+                    <p>Before any cells are moved or inserted, power and ground rail associations must be declared:</p>
+                    <pre class="code-block">connect_global_net VDD -type pg_pin -pin_base_name VDD*
+connect_global_net VSS -type pg_pin -pin_base_name VSS</pre>
+                    <p style="margin-top: 10px;">Standard cell rows have alternating VDD and VSS rails running across each row. When the placement engine inserts or flips a cell, it must orient the cell so its power pin aligns with the VDD rail and its ground pin aligns with the VSS rail. These two commands tell Innovus which net is power (VDD) and which is ground (VSS) by connecting all pins whose base name starts with <code>VDD*</code> to the global VDD net, and all pins named <code>VSS</code> to the global VSS net. Without this, cells could be inserted with reversed polarity — a catastrophic functional error.</p>
+                </li>
+
+                <!-- Step 3 -->
+                <li>
+                    <h3>Step 3 &#8212; IO Buffer Cell Padding and Insertion</h3>
+                    <p>IO buffers are inserted on every port of the design. Before insertion, a padding margin is defined for the buffer cell type so the tool reserves extra empty sites around each inserted buffer:</p>
+                    <pre class="code-block">set_cell_padding -cells BUFFD4BWP40P140HVT -left_side 4 -right_side 4 -top_side 2 -bottom_side 2
+add_io_buffers -exclude_clock_nets -in_cells BUFFD4BWP40P140HVT -out_cells BUFFD4BWP40P140HVT -port -status softfixed -suffix io_buff
+set_inst_padding -inst *io_buff* -left_side 4 -right_side 4 -top_side 2 -bottom_side 2</pre>
+
+                    <ul style="margin-left: 20px; margin-top: 12px; line-height: 1.9;">
+                        <li><code>set_cell_padding -cells BUFFD4BWP40P140HVT ...</code> &#8212; declares padding for the cell type before insertion. This ensures the tool respects the margins when placing IO buffers. Left/right padding of 4 sites accommodates the routing from the buffer to its port pin; top/bottom padding of 2 sites prevents the buffer from touching cells above and below it in adjacent rows.</li>
+                        <li><code>add_io_buffers</code> &#8212; inserts a <code>BUFFD4BWP40P140HVT</code> buffer on every input and output port except clock nets. The <code>-status softfixed</code> option means the placer positions the buffers near their associated ports but retains freedom to optimize their exact location slightly. The <code>-suffix io_buff</code> names all inserted instances with the <code>io_buff</code> suffix for easy identification.</li>
+                        <li><code>set_inst_padding -inst *io_buff* ...</code> &#8212; applies padding only on the IO buffer instances (matched by the <code>io_buff</code> suffix). This is the correct scope: padding applies only to the inserted buffers, not to all BUFFD4 cells in the design.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 4 -->
+                <li>
+                    <h3>Step 4 &#8212; Cell Library Constraints (dont_use)</h3>
+                    <p>Cells that should not be used by the placement optimizer are excluded before placement begins:</p>
+                    <pre class="code-block">set_dont_use [get_lib_cells *LVT]
+set_dont_use [get_lib_cells {*CKBD* *CKND* *CKAN* *CKMUX* *D18* *D20* *D24* *D32}]</pre>
+
+                    <ul style="margin-left: 20px; margin-top: 12px; line-height: 1.9;">
+                        <li><code>set_dont_use [get_lib_cells *LVT]</code> &#8212; excludes all Low Threshold Voltage cells. LVT cells switch faster than HVT cells but consume significantly more leakage power. In this flow, LVT cells are reserved exclusively for the Clock Tree Synthesis (CTS) stage, where their speed advantage directly reduces clock insertion delay. Keeping them out of logic placement prevents unnecessary leakage power increase on non-critical paths.</li>
+                        <li><code>set_dont_use [get_lib_cells {*CKBD* *CKND* *CKAN* *CKMUX* *D18* *D20* *D24* *D32}]</code> &#8212; excludes clock-specific cells (CKBD, CKND, CKAN, CKMUX) and very large drive-strength variants (D18, D20, D24, D32). Clock cells have special characteristics tuned for low clock skew and are managed by the CTS engine. Large drive-strength cells consume excessive area and power when inserted into logic paths where a smaller drive strength would suffice.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 5 -->
+                <li>
+                    <h3>Step 5 &#8212; Placement Configuration Parameters</h3>
+                    <p>Nine <code>set_db</code> commands configure the placement engine before the run:</p>
+                    <pre class="code-block">set_db opt_new_inst_prefix PNR_PLACE
+set_db add_tieoffs_cells {TIEHBWP40P140HVT TIELBWP40P140HVT}
+set_db add_tieoffs_max_fanout 3
+set_db add_tieoffs_max_distance 50
+set_db design_process_node 28
+set_db place_global_cong_effort high
+set_db place_global_timing_effort medium
+set_db place_global_max_density 0.65
+set_db place_detail_legalization_inst_gap 2
+set_db add_fillers_no_single_site_gap true</pre>
+
+                    <ul style="margin-left: 20px; margin-top: 12px; line-height: 1.9;">
+                        <li><code>opt_new_inst_prefix PNR_PLACE</code> &#8212; any new cell instances created by the placement optimizer will be named with the prefix <code>PNR_PLACE</code>, making optimizer-added cells easy to identify in the netlist and reports.</li>
+                        <li><code>add_tieoffs_cells {TIEHBWP40P140HVT TIELBWP40P140HVT}</code> &#8212; specifies the tie-hi and tie-lo cell types used when <code>add_tieoffs</code> is called later. Tie-hi cells connect constant-1 nodes to VDD; tie-lo cells connect constant-0 nodes to VSS. Using dedicated tieoff cells prevents latch-up conditions.</li>
+                        <li><code>add_tieoffs_max_fanout 3</code> &#8212; a single tieoff cell drives at most 3 loads. If more than 3 logic inputs need the same constant value in a region, additional tieoff cells are inserted nearby.</li>
+                        <li><code>add_tieoffs_max_distance 50</code> &#8212; a tieoff cell must be placed within 50 microns of the loads it drives, limiting wire length and preventing long unintended antennas.</li>
+                        <li><code>design_process_node 28</code> &#8212; informs Innovus that this design targets the TSMC 28nm process node. Some internal algorithms use the process node to select appropriate default parameters and design rule checks.</li>
+                        <li><code>place_global_cong_effort high</code> &#8212; directs the global placement engine to use the highest congestion-awareness effort, spreading cells more aggressively to reduce local density hotspots at the cost of longer runtime.</li>
+                        <li><code>place_global_timing_effort medium</code> &#8212; sets medium timing awareness during global placement, balancing runtime versus timing quality. Full timing closure is handled in post-placement optimization and CTS.</li>
+                        <li><code>place_global_max_density 0.65</code> &#8212; limits placement to a maximum of 65% core utilization. The remaining 35% becomes available for routing wires. Exceeding ~70% density typically causes router congestion failures.</li>
+                        <li><code>place_detail_legalization_inst_gap 2</code> &#8212; requires at least 2 site widths of empty space between adjacent cell instances during detailed legalization, improving local routing flexibility.</li>
+                        <li><code>add_fillers_no_single_site_gap true</code> &#8212; prevents filler cells from being placed in gaps only one site wide, ensuring gaps remain fillable by actual filler cells later in the flow.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 6 -->
+                <li>
+                    <h3>Step 6 &#8212; Tieoff Net Connections</h3>
+                    <p>Constant-value nets in the design are connected to power and ground through the global net mechanism:</p>
+                    <pre class="code-block">connect_global_net VDD -type tie_hi
+connect_global_net VSS -type tie_lo</pre>
+                    <p style="margin-top: 10px;">These commands associate all tie-hi nodes in the design with the VDD global net and all tie-lo nodes with the VSS global net. This prepares the design for <code>add_tieoffs</code>, which runs after placement and inserts the physical tieoff cells defined in Step 4. Establishing the net connections before placement allows the tool to account for tieoff cell placement during congestion estimation.</p>
+                </li>
+
+                <!-- Step 7 -->
+                <li>
+                    <h3>Step 7 &#8212; Spare Cell Module Creation and Placement</h3>
+                    <p>A spare cell module is defined and distributed across the core area for post-silicon ECO use:</p>
+                    <pre class="code-block">set celllist {MUX2D4BWP40P140 ND2D6BWP40P140 NR2D6BWP40P140 INVD8BWP40P140 BUFFD4BWP40P140 BUFFD2BWP40P140 TIEHBWP40P140 TIELBWP40P140 DEL025D1BWP40P140 SDFCNQARDBWP40P140}
+create_spare_module -cells $celllist -module_name PNR_SPARE
+place_spare_modules -prefix PNR_spare_cell -module_name PNR_SPARE -step_x 50 -step_y 50 -offset_x 5 -offset_y 5 -density 0.4 -max_width 15</pre>
+
+                    <ul style="margin-left: 20px; margin-top: 12px; line-height: 1.9;">
+                        <li><code>set celllist {...}</code> &#8212; defines the list of 10 cell types composing one spare module: MUX, NAND, NOR, inverter, buffers (two drive strengths), tie-hi/tie-lo, delay cell, and a scan flip-flop. These provide the logic primitives needed to implement small bug fixes using metal-only ECOs after manufacturing.</li>
+                        <li><code>create_spare_module -cells $celllist -module_name PNR_SPARE</code> &#8212; creates an Innovus spare module definition named <code>PNR_SPARE</code> containing one instance of each cell in <code>$celllist</code>. The module is a template for instantiation.</li>
+                        <li><code>place_spare_modules ...</code> &#8212; tiles instances of <code>PNR_SPARE</code> across the core on a 50&#215;50 micron grid starting at offset (5, 5). The <code>-density 0.4</code> option means spare cells occupy at most 40% of each grid cell, and <code>-max_width 15</code> limits the bounding box of each placed spare group to 15 microns wide. Spare cells must be placed at this stage so the congestion estimator accounts for their area.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 8 -->
+                <li>
+                    <h3>Step 8 &#8212; Source Timing Derates and Run Placement</h3>
+                    <p>Before running the placement engine, on-chip variation (OCV) timing derates are loaded from a shared block script:</p>
+                    <pre class="code-block">source ../inputs/innovus_derates.tcl
+place_opt_design</pre>
+
+                    <ul style="margin-left: 20px; margin-top: 12px; line-height: 1.9;">
+                        <li><code>source ../inputs/innovus_derates.tcl</code> &#8212; loads the timing derate factors for the tile design. Derates model process, voltage, and temperature (PVT) variation effects on cell and wire delays. These derates are applied to timing analysis during placement optimization, ensuring the placer places cells conservatively enough to account for real silicon variation.</li>
+                        <li><code>place_opt_design</code> &#8212; runs the complete Innovus placement engine. This single command performs global placement (assigns approximate cell positions to minimize wire length), legalization (snaps cells to legal row positions without overlaps), and post-placement optimization (PPO: inserts, resizes, and repositions cells to fix setup violations introduced by legalization). On completion, all cells have unique, legal, grid-aligned positions and timing has been optimized within placement constraints.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 9 -->
+                <li>
+                    <h3>Step 9 &#8212; Post-Placement: Add Tieoffs and Reconnect Power Rails</h3>
+                    <p>After placement completes, tieoff cells are inserted and power rail connectivity is re-established for all cells including newly inserted instances:</p>
+                    <pre class="code-block">add_tieoffs
+connect_global_net VDD -type pg_pin -pin_base_name VDD*
+connect_global_net VSS -type pg_pin -pin_base_name VSS</pre>
+
+                    <ul style="margin-left: 20px; margin-top: 12px; line-height: 1.9;">
+                        <li><code>add_tieoffs</code> &#8212; physically inserts tie-hi and tie-lo cell instances (as configured in Step 4) adjacent to the loads they drive, within the distance and fanout constraints. These cells occupy real sites in standard cell rows.</li>
+                        <li><code>connect_global_net VDD/VSS ...</code> &#8212; runs the power rail connection again after tieoff insertion. New cells added by <code>add_tieoffs</code> and by the <code>place_opt_design</code> optimizer need their power pins connected to the global VDD and VSS nets. Re-running <code>connect_global_net</code> ensures every cell in the final placed netlist is properly connected to power.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 10 -->
+                <li>
+                    <h3>Step 10 &#8212; Placement Quality Reports</h3>
+                    <p>Nine reports are generated to assess placement quality across multiple dimensions:</p>
+                    <pre class="code-block">check_place > ../reports/check_place.rpt
+report_congestion -overflow > ../reports/report_congestion.overflow.rpt
+report_timing -group reg2reg > ../reports/rereport_timing.reg2reg.rpt
+report_timing -group in2reg > ../reports/rereport_timing.in2reg.rpt
+report_timing -group reg2out > ../reports/rereport_timing.reg2out.rpt
+time_design -pre_cts > ../reports/time_design.rpt
+report_congestion -hotspot > ../reports/report_congestion.hotspot.rpt
+report_density_map > ../reports/report_density_map.rpt
+report_timing_summary > ../reports/report_timing_summary.rpt
+check_floorplan -report_density > ../reports/tilisation.rpt</pre>
+
+                    <ul style="margin-left: 20px; margin-top: 12px; line-height: 1.9;">
+                        <li><code>check_place</code> &#8212; the primary placement legality check. Reports any cells that are overlapping, outside their assigned row, or misaligned to the site grid. This must show 0 violations before the design proceeds to CTS.</li>
+                        <li><code>report_congestion -overflow</code> &#8212; reports global routing tiles where routing demand exceeds the available track supply. Overflow hotspots predict where the router will fail to complete connections.</li>
+                        <li><code>report_timing -group reg2reg/in2reg/reg2out</code> &#8212; reports pre-CTS timing for the three main path groups using estimated wire delays. Significant negative slack at this stage indicates the design may not close timing after routing and CTS.</li>
+                        <li><code>time_design -pre_cts</code> &#8212; runs a full pre-CTS timing analysis and summarizes WNS, TNS, and violating path counts across all timing modes. This is the comprehensive timing health check before handoff to CTS.</li>
+                        <li><code>report_congestion -hotspot</code> &#8212; identifies specific regions of the core with the highest routing demand concentration. Hotspot count and severity indicate whether cell spreading needs to be increased.</li>
+                        <li><code>report_density_map</code> &#8212; generates a spatial density map showing cell utilization across the core. Areas of unusually high density may become congestion hotspots even if the global density is within target.</li>
+                        <li><code>report_timing_summary</code> &#8212; a compact tabular summary of timing violations across all corners and modes. Used as a quick pass/fail indicator for overall timing health.</li>
+                        <li><code>check_floorplan -report_density</code> &#8212; verifies that the floorplan boundaries are intact after placement and reports the final core utilization. Confirms that cell placement has not pushed any cells outside the legal core area.</li>
+                    </ul>
+                </li>
+
+                <!-- Step 11 -->
+                <li>
+                    <h3>Step 11 &#8212; Save the Database</h3>
+                    <p>The placed Innovus database is written to the outputs directory:</p>
+                    <pre class="code-block">write_db -sdc ../outputs/place.db</pre>
+                    <p style="margin-top: 10px;"><code>write_db -sdc ../outputs/place.db</code> saves the complete Innovus placement database including the placed netlist, physical layout data, and embedded SDC timing constraints (the <code>-sdc</code> flag includes the timing constraints in the database file). This checkpoint is the input to the Clock Tree Synthesis (CTS) stage. Without <code>-sdc</code>, the SDC would need to be re-read at the start of CTS.</p>
+                </li>
+
+            </ul>
+
+            <!-- Success Criteria -->
+            <div class="validation-box">
+                <h4>&#9989; Success Criteria</h4>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li><code>outputs/place.db</code> exists and is non-empty</li>
+                    <li>No <code>**ERROR</code> lines in <code>logs/placement.log</code></li>
+                    <li><code>reports/check_place.rpt</code> shows 0 placement violations</li>
+                    <li>Congestion hotspot count in <code>reports/report_congestion.hotspot.rpt</code> is below 100</li>
+                    <li>No unplaced instances reported in the log</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="content-box">
+            <h2 class="section-title">&#9989; Validation &amp; Verification</h2>
+            <div class="section-content">
+                <p>After the flow completes, run the automated verification to confirm all success criteria:</p>
+                <pre class="code-block">make verify</pre>
+                <p style="margin-top: 12px;">The verify target checks for a valid <code>.db</code> file in <code>outputs/</code>, no <code>**ERROR</code> lines in logs, and a passing congestion hotspot check. A <strong>PASS</strong> result confirms placement completed successfully and the database is ready for CTS.</p>
+            </div>
+        </div>
+
+        <!-- Knowledge Assessment -->
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Knowledge Assessment</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>1. Standard cell placement is divided into multiple sequential phases. What is the correct order of these phases?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">Initial Optimization → Global Placement → HFNS → Detailed Placement → Final Optimization</li>
+                        <li onclick="selectOption(this)">HFNS → Global Placement → Initial Optimization → Detailed Placement → Final Optimization</li>
+                        <li onclick="selectOption(this)" data-correct="true">Global Placement → HFNS → Initial Optimization → Detailed Placement → Final Optimization</li>
+                        <li onclick="selectOption(this)">Global Placement → Detailed Placement → HFNS → Initial Optimization → Final Optimization</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback" style="display:none;"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> The 5-phase placement flow is: (1) Global Placement — coarse placement of all cells with overlaps allowed, minimizing wirelength; (2) HFNS — buffer insertion on high-fanout nets to reduce large capacitive loads; (3) Initial Optimization — early timing and DRV fixes via buffer insertion and cell resizing; (4) Detailed Placement — cell legalization removing all overlaps, aligning to placement sites; (5) Final Optimization — timing-driven refinement of placement to close setup paths.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>2. What does HFNS (High Fanout Net Synthesis) do during the placement flow, and why is it needed?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">HFNS replaces high-fanout logic gates with multi-output versions to reduce the total cell count</li>
+                        <li onclick="selectOption(this)">HFNS redistributes flip-flops to equalize the number of cells connected to each clock domain</li>
+                        <li onclick="selectOption(this)" data-correct="true">HFNS inserts buffers or inverter trees on nets with very high fanout (typically &gt;32–50 loads), breaking a single large capacitive net into a buffered tree, reducing transition time and preparing the design for accurate timing optimization</li>
+                        <li onclick="selectOption(this)">HFNS analyzes net frequencies and moves high-frequency cells closer together to reduce dynamic power</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback" style="display:none;"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> A high-fanout net (e.g., a reset or enable signal driving thousands of cells) has enormous capacitance. Without buffering, the driver must charge this load, producing a very slow transition time and poor setup timing on all receiver paths. HFNS inserts a buffer tree so each driver sees a manageable load, transition times meet DRV limits, and the placement optimizer can work with realistic wire capacitances.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>3. How does excessive IR drop in the power grid affect cell timing?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">IR drop increases clock transition time but has no effect on data path delays</li>
+                        <li onclick="selectOption(this)">IR drop only affects hold timing because it slows the clock path, making the clock arrive later</li>
+                        <li onclick="selectOption(this)" data-correct="true">IR drop reduces the effective supply voltage at a cell, which decreases transistor drive current. This slows cell switching speed, increasing cell delays — setup violations develop on data paths, and if the IR drop affects clock cells differentially, hold violations can also appear</li>
+                        <li onclick="selectOption(this)">IR drop has no timing impact because EDA tools account for supply variation in the worst-case .lib files</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback" style="display:none;"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> Cell delay is a strong function of supply voltage. When IR drop reduces VDD at a cell's power pins, the transistors switch more slowly than their characterized values at nominal voltage. This translates directly to increased cell delay. Setup violations arise when data-path cells slow down. If IR drop affects clock capture-path cells more than launch-path cells, the effective clock period is shortened, which can trigger hold violations.</div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>4. In placement, "PPA" is described as a trade-off triangle. What do the three letters stand for and what fundamental tension exists between them?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)">Pad, Pin, and Area — describing the competing demands of I/O planning versus core area</li>
+                        <li onclick="selectOption(this)">Placement, Power grid, and Analysis — the three stages that must be iterated until convergence</li>
+                        <li onclick="selectOption(this)" data-correct="true">Power, Performance, and Area — optimizing any one typically degrades the others: higher performance needs larger/faster cells (more area, more power); lower power needs smaller cells or less switching (less performance); smaller area increases density (routing congestion, harder timing closure)</li>
+                        <li onclick="selectOption(this)">Parasitic, Path, and Accuracy — reflecting the compromise between extraction accuracy and runtime</li>
+                    </ul>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                    <div class="feedback" style="display:none;"></div>
+                    <div class="answer" style="display: none;"><strong>Correct!</strong> PPA (Power-Performance-Area) is the fundamental design objective space for chip implementation. Performance requires driving cells harder (bigger transistors = more area + power). Reducing power demands smaller cells with lower switching activity (less performance + smaller area). Minimizing area packs cells densely (less routing space, harder timing closure). Every design makes deliberate PPA trade-offs based on the product's requirements.</div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Next Step -->
+        <div class="content-box">
+            <h2 class="section-title">&#127881; Next Step</h2>
+            <div class="section-content">
+                <p>You have completed the guided walkthrough of the complete Cadence Innovus standard cell placement flow for the <strong>tile</strong> design.</p>
+                <p style="margin-top: 15px;">You now understand: power rail connectivity setup, IO buffer insertion and padding scoping, LVT and clock cell exclusion, all placement configuration parameters, tieoff and spare cell placement, OCV derate sourcing, post-placement power reconnection, and the complete set of placement quality reports.</p>
+                <p style="margin-top: 15px;">&#128073; Apply this understanding independently to the <strong>aes_cipher_top</strong> design in TC-PNR-CDN-PL-CH-001 &#8212; a placement script with a missing command awaits your investigation.</p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="../PNR-CDN-PL.html" class="btn btn-back">&#8592; Back to Lab Home</a>
+                <a href="../TC-PNR-CDN-PL-CH-001/TC-PNR-CDN-PL-CH-001.html" class="btn btn-success">Continue to Challenge &#8594;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = 'PNR-CDN-PL';
+        const TESTCASE_NUM = '1';
+    </script>
+    <script src="../common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        function selectOption(option) {
+            var qc = option.closest('.quiz-question');
+            if (qc.dataset.answered === 'true') return;
+            qc.querySelectorAll('.quiz-options li').forEach(function(o) {
+                o.classList.remove('selected');
+                o.classList.remove('wrong-answer');
+            });
+            option.classList.add('selected');
+            var fb = qc.querySelector('.feedback');
+            if (fb) { fb.textContent = ''; fb.className = 'feedback'; fb.style.display = 'none'; }
+        }
+
+        function submitAnswer(button) {
+            const questionContainer = button.closest('.quiz-question');
+            const selectedOption = questionContainer.querySelector('.quiz-options li.selected');
+            const feedback = questionContainer.querySelector('.feedback');
+            const answer = questionContainer.querySelector('.answer');
+
+            if (!selectedOption) {
+                feedback.textContent = 'Please select an answer first.';
+                feedback.className = 'feedback incorrect';
+                feedback.style.display = 'block';
+                return;
+            }
+
+            const isCorrect = selectedOption.dataset.correct === 'true';
+
+            if (isCorrect) {
+                selectedOption.classList.remove('selected');
+                selectedOption.classList.add('correct-answer');
+                feedback.textContent = '\u2705 Correct!';
+                feedback.className = 'feedback correct';
+                feedback.style.display = 'block';
+                if (answer) answer.style.display = 'block';
+                questionContainer.querySelectorAll('.quiz-options li').forEach(function(opt) {
+                    opt.style.pointerEvents = 'none';
+                });
+                button.disabled = true;
+                questionContainer.dataset.answered = 'true';
+            } else {
+                selectedOption.classList.remove('selected');
+                selectedOption.classList.add('wrong-answer');
+                selectedOption.style.pointerEvents = 'none';
+                feedback.textContent = '\u274C Incorrect. Try again!';
+                feedback.className = 'feedback incorrect';
+                feedback.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>
