@@ -421,27 +421,27 @@
         btn.addEventListener("click", () => {
           const i = btn.dataset.i;
           const choice = options[i];
-          // Once a choice is made, remove the option cards + hint so they
-          // disappear (the pick shows up as the next "You" message below).
-          bubble.querySelector(".clarify-opts")?.remove();
-          bubble.querySelector(".clarify-hint")?.remove();
           // Facet-based options hard-filter the corpus (e.g. provider=SNPS);
           // LLM-based options just narrow the query text.
           const facets = (facet && optionValues) ? { [facet]: optionValues[i] } : null;
-          ask(choice, `${originalQ} - specifically: ${choice}`, false, facets);
+          // Drop the whole clarify exchange (the "which do you mean?" prompt)
+          // and don't echo the pick as a "You" message — leave just the
+          // original question and the final answer.
+          msgDiv.remove();
+          ask(choice, `${originalQ} - specifically: ${choice}`, false, facets, false);
         });
       });
     }
 
     // preset: text shown as the user's message. queryOverride: what's actually
     // sent to the API (defaults to the shown text).
-    async function ask(preset, queryOverride, allowClarify = true, facets = null) {
+    async function ask(preset, queryOverride, allowClarify = true, facets = null, showUser = true) {
       const question = (preset || q.value).trim();
       if (!question) return;
       hint && hint.remove();
       q.value = "";
       q.style.height = "auto";
-      addMsg("user", `<p>${esc(question)}</p>`);
+      if (showUser) addMsg("user", `<p>${esc(question)}</p>`);
       send.disabled = true;
 
       const thinking = addMsg("assistant", '<span class="spinner"></span>');
