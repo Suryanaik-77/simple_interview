@@ -265,12 +265,15 @@ def api_ask(req: AskRequest):
 
     # 3. Verifier agent: keep only the sub-chunks that truly match.
     keep = _verify_relevant(req.question, hits)
+    # If nothing passes strict verification, don't dead-end. Fall back to the
+    # closest retrieved sections (still ONLY lab content, already restricted to
+    # the chosen lab/tool) so the answer can say what ISN'T there AND point to
+    # the lab's actual equivalent — e.g. "Synopsys has no clock-tree spec file;
+    # CTS there is run via clock_opt." The prompt keeps it honest.
+    fallback = False
     if not keep:
-        return {
-            "answer": "I don't have that information in the lab content for "
-                      "the lab you asked about.",
-            "sources": [],
-        }
+        keep = list(range(min(3, len(hits))))
+        fallback = True
 
     # 4. Expand each winning sub-chunk back to its FULL section (all sibling
     #    chunks sharing the same lab+heading), de-duplicated in order.
@@ -296,6 +299,12 @@ def api_ask(req: AskRequest):
         f"[{n + 1}] ({s['lab_name']} :: {s['heading']})\n{s['content']}"
         for n, s in enumerate(sections)
     )
+    fallback_note = (
+        "\n\nNote: no section directly matches the question. If these sections "
+        "do not contain the exact command/term asked about, say plainly that it "
+        "is not part of this lab/tool, then briefly state what this lab uses "
+        "instead — using ONLY these sections, never outside knowledge."
+    ) if fallback else ""
     resp = _client.chat.completions.create(
         model=CHAT_MODEL,
         temperature=0.2,
@@ -305,7 +314,7 @@ def api_ask(req: AskRequest):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",
              "content": f"Context sections:\n\n{context}\n\n"
-                        f"Question: {req.question}"},
+                        f"Question: {req.question}{fallback_note}"},
         ],
     )
     answer = _sanitize_paths(resp.choices[0].message.content)

@@ -339,9 +339,9 @@
       <div class="big">Ask about the lab testcases</div>
       <div>Answers are grounded in the lab content, with cited sources.</div>
       <div class="examples" id="examples">
-        <div class="example"><span class="arrow">→</span><span class="q">What command loads the technology libraries?</span></div>
-        <div class="example"><span class="arrow">→</span><span class="q">How do I run RTL-to-gate LEC on the CVA6 core?</span></div>
-        <div class="example"><span class="arrow">→</span><span class="q">Which command generates the clock tree spec file?</span></div>
+        <div class="example"><span class="arrow">&rarr;</span><span class="q">What command loads the technology libraries?</span></div>
+        <div class="example"><span class="arrow">&rarr;</span><span class="q">How do I run RTL-to-gate LEC on the CVA6 core?</span></div>
+        <div class="example"><span class="arrow">&rarr;</span><span class="q">Which command generates the clock tree spec file?</span></div>
       </div>
     </div>
   </div>
@@ -349,11 +349,11 @@
   <footer>
     <div class="composer">
       <div class="field">
-        <textarea id="q" placeholder="Ask about the labs…" rows="1"></textarea>
+        <textarea id="q" placeholder="Ask about the labs..." rows="1"></textarea>
       </div>
-      <button class="send" id="send" title="Ask">↑</button>
+      <button class="send" id="send" title="Ask">&uarr;</button>
     </div>
-    <div class="foot-note">Grounded in lab testcase content · answers cite their sources</div>
+    <div class="foot-note">Grounded in lab testcase content &middot; answers cite their sources</div>
   </footer>
 
   <script>
@@ -364,8 +364,8 @@
     const hint = document.getElementById("hint");
 
     fetch("/api/labs").then(r => r.json()).then(d => {
-      document.getElementById("meta").textContent =
-        `${d.chunks} sections · ${d.labs.length} labs`;
+      document.getElementById("meta").innerHTML =
+        `${d.chunks} sections &middot; ${d.labs.length} labs`;
     });
 
     function esc(s) {
@@ -412,7 +412,7 @@
         html += `<button class="clarify-opt" data-i="${i}" style="animation-delay:${i * 55}ms">`
           + `<span class="opt-ico">${letter}</span>`
           + `<span class="opt-label">${esc(o)}</span>`
-          + `<span class="opt-go">›</span>`
+          + `<span class="opt-go">&rsaquo;</span>`
           + `</button>`;
       });
       html += "</div>";
@@ -428,7 +428,7 @@
           // Facet-based options hard-filter the corpus (e.g. provider=SNPS);
           // LLM-based options just narrow the query text.
           const facets = (facet && optionValues) ? { [facet]: optionValues[i] } : null;
-          ask(choice, `${originalQ} — specifically: ${choice}`, false, facets);
+          ask(choice, `${originalQ} - specifically: ${choice}`, false, facets);
         });
       });
     }
@@ -463,7 +463,7 @@
             html += `<details class="src"><summary>`
               + `<span class="chip">${s.n}</span>`
               + `<span class="src-title">${esc(s.heading)}</span>`
-              + `<span class="src-meta">${esc(s.lab_name)} · sim ${s.score}</span>`
+              + `<span class="src-meta">${esc(s.lab_name)} &middot; sim ${s.score}</span>`
               + `</summary><div class="body">${esc(s.content)}</div></details>`;
           }
           html += "</div>";
