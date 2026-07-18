@@ -38,21 +38,18 @@ jobs:
               exit 1
             fi
 
-            # Restart the standalone RAG app (separate process on :8100).
+            # Restart the standalone RAG app (systemd unit rag.service, :8100).
             # It rebuilds its vector index on startup when the lab HTML changed.
             /home/ubuntu/venv311/bin/pip install -r rag_interview/requirements.txt -q 2>/dev/null || true
-            pkill -f "uvicorn app:app" || true
-            sleep 2
-            cd rag_interview
-            nohup /home/ubuntu/venv311/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8100 > rag.log 2>&1 &
+            sudo systemctl restart rag.service
 
-            # Give the index rebuild time, then verify the process is alive.
+            # Give the index rebuild time, then verify it is serving.
             sleep 10
-            if pgrep -f "uvicorn app:app" > /dev/null; then
+            if curl -sf -m 8 http://127.0.0.1:8100/health > /dev/null; then
               echo "RAG app restarted successfully"
             else
               echo "RAG app failed to start!"
-              tail -30 rag.log
+              sudo journalctl -u rag.service -n 30 --no-pager || true
               exit 1
             fi
           ENDSSH
