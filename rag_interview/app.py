@@ -12,7 +12,6 @@ Then open http://localhost:8100
 """
 
 import os
-import re
 import json
 
 from fastapi import FastAPI
@@ -22,7 +21,7 @@ from starlette.requests import Request
 from pydantic import BaseModel
 from openai import OpenAI
 
-from rag_engine import RAGEngine
+from rag_engine import RAGEngine, sanitize_paths, parse_facets
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -82,25 +81,10 @@ CLARIFY_PROMPT = (
     "one option fits, set clarify=false with an empty options list."
 )
 
-# Internal/central lab paths must never reach the candidate. Rewrite any
-# central admin path to the user-space working-directory convention
-# (~/pd/labs/...) wherever it appears — matching how every other lab is worded.
-# Applied to the verifier's section listing (the middle chunk-verification
-# model), to the answer context, and to the returned answer + sources, so no
-# central path can leak even from future lab data.
-_CENTRAL_PATH_RES = (
-    (re.compile(r"/proj5/semicon_labs/central_labs/labs/"), "~/pd/labs/"),
-    (re.compile(r"/proj5/semicon_labs/central_labs/"), "~/pd/labs/"),
-)
-
-
-def _sanitize_paths(text):
-    """Replace central/admin lab paths with the user-facing ~/pd/labs/ path."""
-    if not text:
-        return text
-    for pattern, repl in _CENTRAL_PATH_RES:
-        text = pattern.sub(repl, text)
-    return text
+# The corpus is already path-sanitized at ingest (rag_engine.sanitize_paths),
+# so the index is clean. We still sanitize LLM outputs as defense-in-depth in
+# case a model ever echoes a central path from its own priors.
+_sanitize_paths = sanitize_paths
 
 
 VERIFY_PROMPT = (
@@ -118,6 +102,7 @@ class AskRequest(BaseModel):
     lab_name: str | None = None
     k: int = 5
     allow_clarify: bool = True   # False once the user has picked an option
+    facets: dict | None = None   # {"provider": "SNPS"} once a facet is picked
 
 
 def _verify_relevant(question, hits):
@@ -148,6 +133,47 @@ def _verify_relevant(question, hits):
     except Exception:
         # On any failure, fall back to the top-3 retrieved chunks.
         return list(range(min(3, len(hits))))
+
+
+# Facets whose value materially changes the answer, in the order we'd ask about
+# them (coarsest first). Each entry: (facet_key, label_key, question_text).
+_CLARIFY_FACETS = (
+    ("stage", "stage_label", "Which flow/stage do you mean?"),
+    ("provider", "provider_label", "Which tool do you mean?"),
+    ("doc_type", "doc_label", "Guided walkthrough or challenge?"),
+)
+
+
+def _facet_clarify(question, hits):
+    """Deterministic clarify from real filename facets — no LLM guessing.
+
+    If the retrieved hits span more than one value of a materially-different
+    facet (stage / provider / guided-vs-challenge) that the question did NOT
+    already specify, return that facet's real values as clickable options.
+    Returns {"question", "options", "facet", "option_values"} or None.
+    """
+    qlc = question.lower()
+    for fk, lk, qtext in _CLARIFY_FACETS:
+        values = {}                       # code -> human label, first seen wins
+        for h in hits:
+            f = h.get("facets") or {}
+            code = f.get(fk)
+            if code and code not in values:
+                values[code] = f.get(lk) or code
+        if len(values) < 2:
+            continue
+        # Skip if the user already named one of these (by code or label).
+        if any(code.lower() in qlc or str(lbl).lower() in qlc
+               for code, lbl in values.items()):
+            continue
+        codes = list(values.keys())
+        return {
+            "question": qtext,
+            "options": [values[c] for c in codes],
+            "facet": fk,
+            "option_values": codes,
+        }
+    return None
 
 
 def _clarify_needed(question, hits):
@@ -203,23 +229,36 @@ def api_labs():
 
 @app.post("/api/ask")
 def api_ask(req: AskRequest):
-    # 1. Retrieve wide (precise sub-chunks).
+    # 1. Retrieve wide (precise sub-chunks). A picked facet hard-restricts.
     hits = engine.search(req.question, k=max(req.k, RETRIEVE_K),
-                         lab_name=req.lab_name)
+                         lab_name=req.lab_name, facets=req.facets)
     if not hits:
         return {"answer": "No lab content is indexed.", "sources": []}
 
-    # 2. If the hits span multiple labs, the question may be ambiguous — ask the
-    #    user to pick instead of guessing. The UI renders options as buttons.
-    if req.allow_clarify and len({h["lab_name"] for h in hits}) > 1:
-        clar = _clarify_needed(req.question, hits)
+    # 2. Ambiguity check. Prefer DETERMINISTIC facet clarify (real Synopsys vs
+    #    Cadence / stage / guided-vs-challenge values from the filenames); only
+    #    fall back to the LLM clarify for subtler within-facet ambiguity. The UI
+    #    renders the options as buttons.
+    if req.allow_clarify:
+        clar = _facet_clarify(req.question, hits)
         if clar:
             return {
                 "clarify": True,
                 "question": clar["question"],
                 "options": clar["options"],
+                "facet": clar["facet"],
+                "option_values": clar["option_values"],
                 "sources": [],
             }
+        if len({h["lab_name"] for h in hits}) > 1:
+            clar = _clarify_needed(req.question, hits)
+            if clar:
+                return {
+                    "clarify": True,
+                    "question": clar["question"],
+                    "options": clar["options"],
+                    "sources": [],
+                }
 
     # 3. Verifier agent: keep only the sub-chunks that truly match.
     keep = _verify_relevant(req.question, hits)
@@ -244,6 +283,7 @@ def api_ask(req: AskRequest):
             "heading": h["heading"],
             "source": h["source"],
             "score": round(h["score"], 3),
+            "facets": h.get("facets") or {},
             "content": _sanitize_paths(engine.get_section(h["lab_name"],
                                                           h["heading"])),
         })

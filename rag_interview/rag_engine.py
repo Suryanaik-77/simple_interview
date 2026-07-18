@@ -9,6 +9,7 @@ This module is intentionally independent of the main interview app.
 """
 
 import os
+import re
 import sys
 import glob
 import pickle
@@ -42,6 +43,79 @@ _splitter = RecursiveCharacterTextSplitter(
     chunk_overlap=CHUNK_OVERLAP,
     separators=["\n\n", "\n", ". ", " ", ""],
 )
+
+# ---------------------------------------------------------------------------
+# Path sanitizing (applied ONCE at ingest, so the cached index is already clean)
+#
+# Internal/central mount paths must never reach a candidate. Rewrite every
+# central admin/user/PDK path to the user-space working-directory convention
+# (~/pd/...), matching how the labs are meant to be worded. Ordered specific ->
+# general so the fallback only catches paths the explicit rules missed.
+# ---------------------------------------------------------------------------
+_CENTRAL_PATH_RES = (
+    (re.compile(r"/proj5/semicon_labs/central_labs/labs/"), "~/pd/labs/"),
+    (re.compile(r"/proj5/semicon_labs/central_labs/"), "~/pd/labs/"),
+    # proj1 central design/user/PDK areas — strip the central+owner segments.
+    (re.compile(r"/proj1/pd/users/testcase/[^/\s]+/"), "~/pd/"),
+    (re.compile(r"/proj1/pd/pdk/"), "~/pd/pdk/"),
+    (re.compile(r"/proj1/proj_pd/"), "~/pd/"),
+    (re.compile(r"/proj1/dataIn/"), "~/pd/"),
+    # Generic fallback: any remaining central mount -> user space.
+    (re.compile(r"/proj\d+/(?:pd/)?"), "~/pd/"),
+)
+
+
+def sanitize_paths(text):
+    """Replace central/admin/PDK mount paths with the user-facing ~/pd/ path."""
+    if not text:
+        return text
+    for pattern, repl in _CENTRAL_PATH_RES:
+        text = pattern.sub(repl, text)
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Facets parsed from the TC filename taxonomy:
+#   TC-<STAGE>-<PROVIDER>-<VARIANT>-<TYPE>-<NUM>.html
+# e.g. TC-LEC-SNPS-CG-GD-001 -> stage LEC, provider SNPS, variant CG, type GD.
+# These let retrieval filter by tool/stage and let the clarify step offer REAL
+# options (Synopsys vs Cadence) instead of an LLM guessing them.
+# ---------------------------------------------------------------------------
+_STAGE_LABELS = {
+    "LEC": "Logic Equivalence Check",
+    "PNR": "Place & Route",
+    "PV": "Physical Verification",
+    "STA": "Static Timing Analysis",
+    "SYN": "Synthesis",
+}
+_PROVIDER_LABELS = {"SNPS": "Synopsys", "CDN": "Cadence", "SIE": "Siemens"}
+_TYPE_LABELS = {"GD": "Guided", "CH": "Challenge", "OV": "Overview"}
+
+_FACET_RE = re.compile(
+    r"^TC-(?P<stage>[A-Z]+)-(?P<provider>[A-Z]+)-(?P<variant>.+)-"
+    r"(?P<doc_type>GD|CH|OV)-(?P<num>\d+)$"
+)
+
+
+def parse_facets(source):
+    """Parse a TC-*.html filename into structured facets (best effort)."""
+    stem = source[:-5] if source.lower().endswith(".html") else source
+    m = _FACET_RE.match(stem)
+    if not m:
+        return {}
+    stage = m.group("stage")
+    provider = m.group("provider")
+    doc_type = m.group("doc_type")
+    return {
+        "stage": stage,
+        "stage_label": _STAGE_LABELS.get(stage, stage),
+        "provider": provider,
+        "provider_label": _PROVIDER_LABELS.get(provider, provider),
+        "variant": m.group("variant"),
+        "doc_type": doc_type,
+        "doc_label": _TYPE_LABELS.get(doc_type, doc_type),
+    }
+
 
 _client = None
 
@@ -93,9 +167,13 @@ class RAGEngine:
         chunks = []
         for path in sorted(html_paths):
             source = os.path.basename(path)
+            facets = parse_facets(source)
             for sec in extract_sections(path):
                 header = f"[{sec['lab_name']}]\n\n## {sec['heading']}"
-                parts = _splitter.split_text(sec["content"])
+                # Sanitize central paths ONCE, here, so the cached index and
+                # everything downstream (retrieval, verifier, answer) is clean.
+                content = sanitize_paths(sec["content"])
+                parts = _splitter.split_text(content)
 
                 # If a section splits into several chunks, prepend the header
                 # to each so every chunk keeps its lab/section context.
@@ -107,6 +185,7 @@ class RAGEngine:
                         "content": part,
                         "chunk": f"{header}\n\n{part}",
                         "source": source,
+                        "facets": facets,
                     })
 
         if not chunks:
@@ -176,8 +255,12 @@ class RAGEngine:
                 seen.append(c["lab_name"])
         return seen
 
-    def search(self, query, k=5, lab_name=None):
-        """Return the top-k chunks most similar to the query text."""
+    def search(self, query, k=5, lab_name=None, facets=None):
+        """Return the top-k chunks most similar to the query text.
+
+        facets: optional {facet_key: value} filter (e.g. {"provider": "SNPS"})
+        applied before scoring, so a clarified pick hard-restricts the results.
+        """
         if self.vectors is None or not len(self.chunks):
             return []
         qvec = _normalize(_embed_batch([query]))[0]
@@ -188,6 +271,9 @@ class RAGEngine:
         for i in idx:
             c = self.chunks[i]
             if lab_name and c["lab_name"] != lab_name:
+                continue
+            if facets and any((c.get("facets") or {}).get(fk) != fv
+                              for fk, fv in facets.items()):
                 continue
             results.append({**c, "score": float(sims[i])})
             if len(results) >= k:
