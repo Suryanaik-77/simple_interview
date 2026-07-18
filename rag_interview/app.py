@@ -137,10 +137,13 @@ def _verify_relevant(question, hits):
 
 # Facets whose value materially changes the answer, in the order we'd ask about
 # them (coarsest first). Each entry: (facet_key, label_key, question_text).
+# NOTE: doc_type (guided vs challenge vs overview) is deliberately NOT a clarify
+# facet — nearly every topic has all three, so gating on it asks the user
+# "guided or challenge?" on almost every question. The guided page reliably
+# carries the commands, so we just answer instead of asking.
 _CLARIFY_FACETS = (
     ("stage", "stage_label", "Which flow/stage do you mean?"),
     ("provider", "provider_label", "Which tool do you mean?"),
-    ("doc_type", "doc_label", "Guided walkthrough or challenge?"),
 )
 
 
