@@ -421,10 +421,10 @@
         btn.addEventListener("click", () => {
           const i = btn.dataset.i;
           const choice = options[i];
-          bubble.querySelectorAll(".clarify-opt").forEach(b => {
-            b.disabled = true;
-            if (b === btn) b.classList.add("chosen");
-          });
+          // Once a choice is made, remove the option cards + hint so they
+          // disappear (the pick shows up as the next "You" message below).
+          bubble.querySelector(".clarify-opts")?.remove();
+          bubble.querySelector(".clarify-hint")?.remove();
           // Facet-based options hard-filter the corpus (e.g. provider=SNPS);
           // LLM-based options just narrow the query text.
           const facets = (facet && optionValues) ? { [facet]: optionValues[i] } : null;
