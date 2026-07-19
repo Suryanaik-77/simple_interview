@@ -1253,7 +1253,7 @@
     let recordingStartTime = 0;
     let currentAudio = null;
     const SILENCE_THRESHOLD = 15;
-    const EARLY_COMMIT_MS = 1000;     // 1.0s silence → commit chunk to STT, keep listening
+    const EARLY_COMMIT_MS = 500;      // 0.5s silence → commit chunk to STT, keep listening
     const SILENCE_TIMEOUT = 2000;     // 2.0s total silence → finalize turn (no re-send)
     const MAX_CHUNK_MS = 30000;   // 30s auto-send
     const NO_SPEECH_TIMEOUT = 10000;  // 10s no speech → prompt candidate
@@ -1749,7 +1749,7 @@
             }
 
             // Pause flow (same for Silero and browser fallback — isSilent source differs):
-            //   speech → 1.0s silence → commit chunk to STT (background), STOP recorder.
+            //   speech → 0.5s silence → commit chunk to STT (background), STOP recorder.
             //   Then post-commit monitor watches the live mic (no MediaRecorder running):
             //     speech resumes  → startRecording() (new recorder captures it)
             //     2.0s total silence → finalize turn (no re-send, uses accumulated transcript)
@@ -1770,9 +1770,9 @@
                 document.getElementById('sub-label').textContent = `pause ${(totalPause/1000).toFixed(1)}s... (${avg.toFixed(0)}/255)`;
 
                 if (!_hadCommitInPause && localSilence >= EARLY_COMMIT_MS) {
-                    // 1.0s silence — ship what we have, then STOP. Wait for speech via post-commit monitor.
+                    // 0.5s silence — ship what we have, then STOP. Wait for speech via post-commit monitor.
                     _hadCommitInPause = true;
-                    document.getElementById('sub-label').textContent = 'pause 1.0s — committing chunk...';
+                    document.getElementById('sub-label').textContent = 'pause 0.5s — committing chunk...';
                     mediaRecorder._autoChunk = true;
                     mediaRecorder._pauseCommit = true;   // distinguish 1s commit from 30s mid-speech chunk
                     stopRecording();
