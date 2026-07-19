@@ -3128,6 +3128,11 @@ def stream_answer(data: dict):
             pending_tts = None  # (future, t0_tts, sentence)
             token_hold = []
             voice_only_hold = False
+            # Clause-level streaming: break a sentence into clause segments so each is
+            # synthesized and shipped as its own audio event (played back-to-back by the
+            # client's existing audio queue). First audio starts sooner. Toggle off if
+            # the clause boundaries sound choppy.
+            _tts_clause_stream = RUNTIME_CONFIG.get("tts_stream_clauses", True)
 
             def _flush_tts():
                 """Wait for pending TTS future and yield audio."""
@@ -3150,8 +3155,14 @@ def stream_answer(data: dict):
                 sentence_buffer += token
                 token_hold.append(token)
 
-                # Check for sentence boundary
-                if re.search(r'[.?!]\s*$', sentence_buffer) or len(sentence_buffer) > 150:
+                # Segment boundary — end of sentence (or over-long buffer), OR (when
+                # clause-streaming is on) a clause break once the buffer is long enough
+                # to be worth speaking on its own. Smaller segments → first audio sooner.
+                _seg_boundary = bool(re.search(r'[.?!]\s*$', sentence_buffer)) or len(sentence_buffer) > 150
+                if _tts_clause_stream and not _seg_boundary and len(sentence_buffer) >= 30 \
+                        and re.search(r'[,;:—]\s*$', sentence_buffer):
+                    _seg_boundary = True
+                if _seg_boundary:
                     sentence = sentence_buffer.strip()
                     sentence_buffer = ""
                     if not sentence:
