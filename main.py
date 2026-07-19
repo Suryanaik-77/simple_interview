@@ -1482,11 +1482,24 @@ def _should_end_interview(session) -> tuple[bool, str]:
 STOP_AGENT_MIN_Q = 8        # dormant until this many answered questions
 STOP_AGENT_HARD_MAX = 30    # absolute ceiling — always stop here
 
+# Fixed rubric — kept as a stable prefix so the LLM provider can prompt-cache it
+# (and the transcript that follows) across every turn. The only thing that varies
+# per call is the short dynamic tail appended after the transcript.
+_STOP_AGENT_RUBRIC = """You are the STOP CONTROLLER for a live technical interview. Your ONLY job is to decide whether to END the interview now or let it CONTINUE. You never ask questions.
+
+Apply these rules using the number of questions answered (given at the end):
+- Fewer than 16 answered: END only if the candidate is clearly weak — vague, thin, wrong, or unable to show real depth/ownership. If the candidate is strong OR even borderline, CONTINUE; a strong candidate must be probed across more questions before you end. Do not end a strong candidate this early.
+- 16 to 23 answered: END unless the candidate is still clearly strong AND recent answers keep revealing new depth. A merely decent, borderline, or plateauing candidate has shown enough — END.
+- 24 or more answered: END unless the candidate is exceptional and every recent answer still adds real signal."""
+
 def _count_answered(session) -> int:
     return sum(1 for e in session.get("conversation", [])
                if (e.get("question") or "").strip() and e.get("answer") is not None)
 
-def _stop_agent_transcript(session, max_chars: int = 4000) -> str:
+def _stop_agent_transcript(session, max_chars: int = 16000) -> str:
+    # Oldest-first so the string grows as a stable prefix across turns (good for
+    # prompt caching). The cap is generous enough that a normal 30-question
+    # interview is never truncated; only a pathologically long one keeps the tail.
     lines = []
     for e in session.get("conversation", []):
         q = (e.get("question") or "").strip()
@@ -1512,28 +1525,17 @@ def _stop_agent_decide(session) -> tuple[bool, str]:
     model = RUNTIME_CONFIG.get("stop_agent_model") or "gpt-4o-mini"
     level = session.get("resume", {}).get("level", "") or "unknown"
     transcript = _stop_agent_transcript(session)
-    # Count-aware guidance: weak candidates end at the minimum; strong candidates
-    # are probed harder and longer, ending only once they plateau (~16-24).
-    if q < 16:
-        guidance = ("END now ONLY if the candidate is clearly weak — vague, thin, wrong, or unable to show "
-                    "real depth/ownership. A weak candidate must NOT be dragged past this point. "
-                    "If the candidate is strong OR even borderline, CONTINUE — a strong candidate has to be "
-                    "probed harder across more questions before you can end. Do not end a strong candidate this early.")
-    elif q < 24:
-        guidance = ("END unless the candidate is still clearly strong AND their recent answers keep revealing new depth. "
-                    "A merely decent, borderline, or plateauing candidate has shown enough by now — END.")
-    else:
-        guidance = ("END now unless the candidate is exceptional and every recent answer is still adding real signal.")
-    prompt = f"""You are the STOP CONTROLLER for a live technical interview. Your ONLY job is to decide whether to END the interview now or let it CONTINUE. You never ask questions.
-
-State: {q} questions answered. Minimum {STOP_AGENT_MIN_Q} is met; hard maximum is {STOP_AGENT_HARD_MAX}.
-Candidate level applied for: {level}.
-
-Guidance at this point: {guidance}
+    # Prompt is ordered for prefix caching: FIXED rubric first, then the transcript
+    # (oldest-first, so it grows as a stable prefix across turns), then the small
+    # DYNAMIC state at the very end. Only the last ~30 tokens change each turn, so
+    # the model provider can cache the long stable prefix (rubric + transcript).
+    prompt = f"""{_STOP_AGENT_RUBRIC}
 
 Transcript so far:
 {transcript}
 
+--- decide now ---
+State: {q} questions answered (minimum {STOP_AGENT_MIN_Q} met, hard maximum {STOP_AGENT_HARD_MAX}). Candidate level: {level}.
 Return ONLY JSON: {{"decision": "end" | "continue", "reason": "<max 8 words>"}}"""
     try:
         raw, _ = call_llm([{"role": "user", "content": prompt}], model_id=model,
