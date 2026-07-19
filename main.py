@@ -1547,6 +1547,20 @@ Return ONLY JSON: {{"decision": "end" | "continue", "reason": "<max 8 words>"}}"
         log.warning(f"[StopAgent] decision failed ({e}) — continuing")
         return False, "error"
 
+def _stop_agent_background(session):
+    """Run the stop decision OFF the critical path and stash the verdict on the
+    session for the next turn to enforce. Shares the session object and writes it
+    back so the verdict is visible to whichever worker handles the next request."""
+    try:
+        stop, reason = _stop_agent_decide(session)
+        session["_stop_decision"] = {"stop": bool(stop), "reason": reason,
+                                     "at_q": _count_answered(session)}
+        sessions[session["id"]] = session
+        if stop:
+            log.info(f"[StopAgent] verdict=END at {session['_stop_decision']['at_q']} — {reason}")
+    except Exception as e:
+        log.warning(f"[StopAgent] background decision failed: {e}")
+
 
 # ── Candidate Behavior Guard ───────────────────────────────────────────
 
@@ -3044,23 +3058,30 @@ def stream_answer(data: dict):
             yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended'})}\n\n"
             return
 
-        # Stop agent — server-enforced early ending. Active only after the minimum;
-        # on every turn it decides whether the interview should continue. This is the
-        # authority on ending, independent of whether the interviewer emits a tag.
-        if _count_answered(session) >= STOP_AGENT_MIN_Q:
-            stop_now, stop_reason = _stop_agent_decide(session)
-            if stop_now:
-                session["phase"] = "ended"
-                log.info(f"[StopAgent] Ending at {_count_answered(session)} questions — {stop_reason}")
-                closing = _stop_agent_closing(session)
-                audio_bytes = tts_chunk(closing)
-                sessions[sid] = session
-                _evaluate_async(session)
-                yield f"data: {json.dumps({'type': 'text', 'content': closing, 'done': True, 'should_end': True})}\n\n"
-                if audio_bytes:
-                    yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
-                yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended', 'should_end': True})}\n\n"
-                return
+        # Stop agent runs OFF the critical path (background thread, spawned below),
+        # so here we only ENFORCE its stashed verdict — instant, no added latency —
+        # plus a cheap synchronous hard-max guard so we can never exceed the ceiling.
+        _answered = _count_answered(session)
+        _sd = session.get("_stop_decision") or {}
+        _stop_now = (_answered >= STOP_AGENT_HARD_MAX) or (_answered >= STOP_AGENT_MIN_Q and _sd.get("stop"))
+        if _stop_now:
+            session["phase"] = "ended"
+            reason = "hard_max" if _answered >= STOP_AGENT_HARD_MAX else _sd.get("reason", "")
+            log.info(f"[StopAgent] Ending at {_answered} questions — {reason}")
+            closing = _stop_agent_closing(session)
+            audio_bytes = tts_chunk(closing)
+            sessions[sid] = session
+            _evaluate_async(session)
+            yield f"data: {json.dumps({'type': 'text', 'content': closing, 'done': True, 'should_end': True})}\n\n"
+            if audio_bytes:
+                yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended', 'should_end': True})}\n\n"
+            return
+
+        # Spawn the stop agent in parallel (off the response path) to decide about
+        # the NEXT turn. Its verdict is enforced at the top of the next request.
+        if _answered >= STOP_AGENT_MIN_Q:
+            threading.Thread(target=_stop_agent_background, args=(session,), daemon=True).start()
 
         # Build prompt
         messages = build_interview_prompt(session)
@@ -3070,11 +3091,12 @@ def stream_answer(data: dict):
         pacing = f"\nPHASE: {phase} | Turn: {turn}"
         if topics_covered:
             pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
-        # Ending is owned by the stop agent (server-enforced), NOT the interviewer.
-        # So the interviewer just keeps asking fresh questions and never ends on its
-        # own — that prevents it from closing while the stop agent wants to continue.
-        pacing += ("\nKeep asking fresh, non-repeated questions. Do NOT end the interview yourself "
-                   "and do NOT output [END_INTERVIEW] — ending is handled separately.")
+        # Ending is owned by the stop agent (server-enforced), NOT the interviewer —
+        # so the interviewer must never end on its own. Keep the rest of its behavior
+        # (including [FOLLOWUP] drills on weak answers) unchanged.
+        pacing += ("\nDo NOT end the interview yourself and do NOT output [END_INTERVIEW] — ending is "
+                   "handled for you. Otherwise interview normally: when an answer is vague or hand-wavy "
+                   "on something that matters, use [FOLLOWUP] to pin it down; otherwise move to a new topic.")
         messages.append({"role": "user", "content": answer + pacing})
 
         # Stream LLM tokens, buffer into sentences
