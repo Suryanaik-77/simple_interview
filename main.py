@@ -1512,15 +1512,24 @@ def _stop_agent_decide(session) -> tuple[bool, str]:
     model = RUNTIME_CONFIG.get("stop_agent_model") or "gpt-4o-mini"
     level = session.get("resume", {}).get("level", "") or "unknown"
     transcript = _stop_agent_transcript(session)
+    # Count-aware guidance: weak candidates end at the minimum; strong candidates
+    # are probed harder and longer, ending only once they plateau (~16-24).
+    if q < 16:
+        guidance = ("END now ONLY if the candidate is clearly weak — vague, thin, wrong, or unable to show "
+                    "real depth/ownership. A weak candidate must NOT be dragged past this point. "
+                    "If the candidate is strong OR even borderline, CONTINUE — a strong candidate has to be "
+                    "probed harder across more questions before you can end. Do not end a strong candidate this early.")
+    elif q < 24:
+        guidance = ("END unless the candidate is still clearly strong AND their recent answers keep revealing new depth. "
+                    "A merely decent, borderline, or plateauing candidate has shown enough by now — END.")
+    else:
+        guidance = ("END now unless the candidate is exceptional and every recent answer is still adding real signal.")
     prompt = f"""You are the STOP CONTROLLER for a live technical interview. Your ONLY job is to decide whether to END the interview now or let it CONTINUE. You never ask questions.
 
-State: {q} questions answered. The minimum of {STOP_AGENT_MIN_Q} is met; the hard maximum is {STOP_AGENT_HARD_MAX}.
+State: {q} questions answered. Minimum {STOP_AGENT_MIN_Q} is met; hard maximum is {STOP_AGENT_HARD_MAX}.
 Candidate level applied for: {level}.
 
-Decide END when the interview has already settled — i.e. either:
-- the candidate is consistently weak / vague / wrong, so more questions won't change the verdict (end promptly, don't drag a clearly weak candidate toward the maximum), OR
-- the candidate is consistently strong and has proven it across enough questions.
-Decide CONTINUE only when more questions would still meaningfully change the assessment (borderline candidate, or strong and worth probing harder).
+Guidance at this point: {guidance}
 
 Transcript so far:
 {transcript}
