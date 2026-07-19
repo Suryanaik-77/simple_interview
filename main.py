@@ -3133,6 +3133,7 @@ def stream_answer(data: dict):
             # client's existing audio queue). First audio starts sooner. Toggle off if
             # the clause boundaries sound choppy.
             _tts_clause_stream = RUNTIME_CONFIG.get("tts_stream_clauses", True)
+            _clause_split_done = False  # cap clause splits at ONE per sentence (limits TTS calls/cost)
 
             def _flush_tts():
                 """Wait for pending TTS future and yield audio."""
@@ -3156,13 +3157,16 @@ def stream_answer(data: dict):
                 token_hold.append(token)
 
                 # Segment boundary — end of sentence (or over-long buffer), OR (when
-                # clause-streaming is on) a clause break once the buffer is long enough
-                # to be worth speaking on its own. Smaller segments → first audio sooner.
-                _seg_boundary = bool(re.search(r'[.?!]\s*$', sentence_buffer)) or len(sentence_buffer) > 150
-                if _tts_clause_stream and not _seg_boundary and len(sentence_buffer) >= 30 \
-                        and re.search(r'[,;:—]\s*$', sentence_buffer):
+                # clause-streaming is on) ONE clause break per sentence once the buffer
+                # is long enough. Capping at a single split keeps first-audio early while
+                # limiting extra TTS calls to at most one per sentence.
+                _is_sentence_end = bool(re.search(r'[.?!]\s*$', sentence_buffer))
+                _seg_boundary = _is_sentence_end or len(sentence_buffer) > 150
+                if _tts_clause_stream and not _seg_boundary and not _clause_split_done \
+                        and len(sentence_buffer) >= 30 and re.search(r'[,;:—]\s*$', sentence_buffer):
                     _seg_boundary = True
                 if _seg_boundary:
+                    _clause_split_done = not _is_sentence_end  # set after a mid-sentence split; reset at sentence end
                     sentence = sentence_buffer.strip()
                     sentence_buffer = ""
                     if not sentence:
