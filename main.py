@@ -1473,6 +1473,72 @@ def _should_end_interview(session) -> tuple[bool, str]:
     return False, ""
 
 
+# ── Stop Decision Agent ────────────────────────────────────────────────────
+# The interviewer LLM won't reliably self-terminate a weak candidate (prompt
+# hints get ignored), so a dedicated agent OWNS the stop decision. It is dormant
+# until the question minimum is met, then on EVERY turn it judges whether the
+# interview should continue. When it says STOP the SERVER ends the interview —
+# it does not depend on the interviewer model emitting [END_INTERVIEW].
+STOP_AGENT_MIN_Q = 8        # dormant until this many answered questions
+STOP_AGENT_HARD_MAX = 30    # absolute ceiling — always stop here
+
+def _count_answered(session) -> int:
+    return sum(1 for e in session.get("conversation", [])
+               if (e.get("question") or "").strip() and e.get("answer") is not None)
+
+def _stop_agent_transcript(session, max_chars: int = 4000) -> str:
+    lines = []
+    for e in session.get("conversation", []):
+        q = (e.get("question") or "").strip()
+        if not q:
+            continue
+        a = (e.get("answer") or "").strip()
+        lines.append(f"Q: {q}\nA: {a or '(no answer)'}")
+    t = "\n\n".join(lines)
+    return t[-max_chars:]
+
+def _stop_agent_closing(session) -> str:
+    return ("That's everything I wanted to cover today. Thanks for taking the time and "
+            "for walking me through your work — we'll be in touch about the next steps. All the best.")
+
+def _stop_agent_decide(session) -> tuple[bool, str]:
+    """Decide whether to END the interview now. Only meaningful once the minimum
+    is met. Returns (should_stop, short_reason). Fails safe to CONTINUE."""
+    q = _count_answered(session)
+    if q < STOP_AGENT_MIN_Q:
+        return False, "below_min"
+    if q >= STOP_AGENT_HARD_MAX:
+        return True, "hard_max"
+    model = RUNTIME_CONFIG.get("stop_agent_model") or "gpt-4o-mini"
+    level = session.get("resume", {}).get("level", "") or "unknown"
+    transcript = _stop_agent_transcript(session)
+    prompt = f"""You are the STOP CONTROLLER for a live technical interview. Your ONLY job is to decide whether to END the interview now or let it CONTINUE. You never ask questions.
+
+State: {q} questions answered. The minimum of {STOP_AGENT_MIN_Q} is met; the hard maximum is {STOP_AGENT_HARD_MAX}.
+Candidate level applied for: {level}.
+
+Decide END when the interview has already settled — i.e. either:
+- the candidate is consistently weak / vague / wrong, so more questions won't change the verdict (end promptly, don't drag a clearly weak candidate toward the maximum), OR
+- the candidate is consistently strong and has proven it across enough questions.
+Decide CONTINUE only when more questions would still meaningfully change the assessment (borderline candidate, or strong and worth probing harder).
+
+Transcript so far:
+{transcript}
+
+Return ONLY JSON: {{"decision": "end" | "continue", "reason": "<max 8 words>"}}"""
+    try:
+        raw, _ = call_llm([{"role": "user", "content": prompt}], model_id=model,
+                          temperature=0.0, max_tokens=40)
+        m = re.search(r'\{.*\}', raw, re.S)
+        data = json.loads(m.group(0)) if m else {}
+        decision = str(data.get("decision", "continue")).strip().lower()
+        reason = str(data.get("reason", ""))[:60]
+        return (decision == "end"), (reason or decision)
+    except Exception as e:
+        log.warning(f"[StopAgent] decision failed ({e}) — continuing")
+        return False, "error"
+
+
 # ── Candidate Behavior Guard ───────────────────────────────────────────
 
 def send_abuse_email(session, answer: str):
@@ -2969,6 +3035,24 @@ def stream_answer(data: dict):
             yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended'})}\n\n"
             return
 
+        # Stop agent — server-enforced early ending. Active only after the minimum;
+        # on every turn it decides whether the interview should continue. This is the
+        # authority on ending, independent of whether the interviewer emits a tag.
+        if _count_answered(session) >= STOP_AGENT_MIN_Q:
+            stop_now, stop_reason = _stop_agent_decide(session)
+            if stop_now:
+                session["phase"] = "ended"
+                log.info(f"[StopAgent] Ending at {_count_answered(session)} questions — {stop_reason}")
+                closing = _stop_agent_closing(session)
+                audio_bytes = tts_chunk(closing)
+                sessions[sid] = session
+                _evaluate_async(session)
+                yield f"data: {json.dumps({'type': 'text', 'content': closing, 'done': True, 'should_end': True})}\n\n"
+                if audio_bytes:
+                    yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended', 'should_end': True})}\n\n"
+                return
+
         # Build prompt
         messages = build_interview_prompt(session)
         turn = session["turn"]
@@ -2977,31 +3061,11 @@ def stream_answer(data: dict):
         pacing = f"\nPHASE: {phase} | Turn: {turn}"
         if topics_covered:
             pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
-        # Turn-aware ending control — the model won't reliably self-count, so tell it
-        # explicitly where it stands relative to the 8-question minimum.
-        # Turn-aware ending control. The interview closes only at sweet spots — 8,
-        # 16, or 24 questions — or at the hard maximum of 30. At each sweet spot the
-        # model decides by performance: not clearly strong → close; clearly strong →
-        # push on to the next sweet spot. Between sweet spots it keeps going.
-        q_asked = len(session.get("conversation", []))
-        SWEET_SPOTS = (8, 16, 24)
-        HARD_MAX = 30
-        if q_asked < 8:
-            pacing += (f"\nProgress: {q_asked} questions asked. The minimum is 8 — "
-                       "do NOT end yet, keep asking.")
-        elif q_asked >= HARD_MAX:
-            pacing += (f"\nProgress: {q_asked} questions asked — this is the hard maximum of {HARD_MAX}. "
-                       "END NOW no matter how strong they are: give one short closing line and include [END_INTERVIEW].")
-        elif q_asked in SWEET_SPOTS:
-            nxt = next(s for s in (16, 24, HARD_MAX) if s > q_asked)
-            pacing += (f"\nProgress: {q_asked} questions asked — a decision checkpoint. Decide now on performance: "
-                       "if the candidate is NOT clearly strong (any vague, incomplete, or wrong answers), "
-                       "END NOW with one short closing line and [END_INTERVIEW]. "
-                       f"Only if they've been clearly strong across the board, continue and probe harder toward the next checkpoint at {nxt}.")
-        else:
-            nxt = next(s for s in (*SWEET_SPOTS, HARD_MAX) if s >= q_asked)
-            pacing += (f"\nProgress: {q_asked} questions asked — between checkpoints. Keep going with fresh, "
-                       f"harder questions; do NOT end here and do NOT repeat a covered topic. Next checkpoint is at {nxt}.")
+        # Ending is owned by the stop agent (server-enforced), NOT the interviewer.
+        # So the interviewer just keeps asking fresh questions and never ends on its
+        # own — that prevents it from closing while the stop agent wants to continue.
+        pacing += ("\nKeep asking fresh, non-repeated questions. Do NOT end the interview yourself "
+                   "and do NOT output [END_INTERVIEW] — ending is handled separately.")
         messages.append({"role": "user", "content": answer + pacing})
 
         # Stream LLM tokens, buffer into sentences
