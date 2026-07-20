@@ -396,7 +396,7 @@
 
     // Render a clarifying question with clickable options. Picking one resends
     // the original question narrowed by the chosen option.
-    function showClarify(msgDiv, question, options, originalQ, facet, optionValues) {
+    function showClarify(msgDiv, question, options, originalQ, facet, optionValues, priorFacets) {
       const bubble = msgDiv.querySelector(".bubble");
       let html = render(question)
         + '<div class="clarify-hint">Pick one to continue</div>'
@@ -415,14 +415,21 @@
         btn.addEventListener("click", () => {
           const i = btn.dataset.i;
           const choice = options[i];
-          // Facet-based options hard-filter the corpus (e.g. provider=SNPS);
-          // LLM-based options just narrow the query text.
-          const facets = (facet && optionValues) ? { [facet]: optionValues[i] } : null;
           // Drop the whole clarify exchange (the "which do you mean?" prompt)
           // and don't echo the pick as a "You" message — leave just the
           // original question and the final answer.
           msgDiv.remove();
-          ask(choice, `${originalQ} - specifically: ${choice}`, false, facets, false);
+          if (facet && optionValues) {
+            // Facet-based pick hard-filters the corpus. ACCUMULATE it onto any
+            // previously chosen facets and keep clarify ON, so the next facet
+            // can still be asked (e.g. after stage, ask Synopsys vs Cadence).
+            // The question text stays the pristine original — the facets narrow.
+            const facets = Object.assign({}, priorFacets || {}, { [facet]: optionValues[i] });
+            ask(originalQ, originalQ, true, facets, false);
+          } else {
+            // LLM-based option: just narrow the query text and stop chaining.
+            ask(choice, `${originalQ} - specifically: ${choice}`, false, priorFacets || null, false);
+          }
         });
       });
     }
@@ -447,7 +454,7 @@
         });
         const data = await res.json();
         if (data.clarify && Array.isArray(data.options) && data.options.length) {
-          showClarify(thinking, data.question, data.options, queryOverride || question, data.facet, data.option_values);
+          showClarify(thinking, data.question, data.options, queryOverride || question, data.facet, data.option_values, facets);
           return;
         }
         let html = render(data.answer || "(no answer)");
