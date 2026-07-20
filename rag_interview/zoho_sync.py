@@ -44,9 +44,10 @@ API = f"https://www.zohoapis.{DC}/workdrive/api/v1"
 DOWNLOAD = f"https://download.zoho.{DC}/v1/workdrive/download"
 
 TARGET_DIR = _PARENT           # where the RAG globs TC-*.html
-# Noise / non-lab content, plus the duplicate+mislabeled R2N labs we set aside.
-SKIP_FOLDERS = {"Deleted", "Lab exams", "Videos",
-                "LEC-CDN-R2N", "LEC-SNPS-R2N"}
+# Noise / non-lab content. LEC-CDN-R2N is skipped: it's a mislabeled duplicate
+# of LEC-SNPS-R2N (Synopsys Formality content, 0 Cadence/Conformal refs). The
+# correct LEC-SNPS-R2N (AES + CVA6 RTL-to-Gate LEC) IS synced.
+SKIP_FOLDERS = {"Deleted", "Lab exams", "Videos", "LEC-CDN-R2N"}
 
 
 def corpus_name(name):
