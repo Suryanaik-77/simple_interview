@@ -755,6 +755,44 @@ async function testMic() {
 }
 
 // ── CAMERA ──
+// True when the lobby webcam track is missing, ended, disabled, or muted.
+function lobbyCameraOff() {
+  const st = S.mediaStream;
+  if (!st) return true;
+  const tracks = st.getVideoTracks ? st.getVideoTracks() : [];
+  if (!tracks.length) return true;
+  const t = tracks[0];
+  return t.readyState === 'ended' || t.enabled === false || t.muted === true;
+}
+
+// Camera was turned off after being enabled — revoke the "passed" state so the
+// interview can't start until it's re-enabled.
+function markCameraOff() {
+  if (!S.camPassed) return;
+  S.camPassed = false;
+  const btn = document.getElementById('cam-btn');
+  const chip = document.getElementById('cam-chip');
+  const dot = document.getElementById('dot-cam');
+  const video = document.getElementById('cam-preview');
+  const placeholder = document.getElementById('cam-placeholder');
+  video.classList.add('hidden');
+  placeholder.classList.remove('hidden');
+  chip.textContent = 'Camera off'; chip.className = 'text-[10px] font-semibold text-danger';
+  dot.className = 'w-2 h-2 rounded-full bg-danger';
+  btn.disabled = false; btn.textContent = 'Re-enable';
+  btn.className = 'px-4 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors';
+  updateChecks();
+}
+
+let _camMonitor = null;
+function startCameraMonitor() {
+  if (_camMonitor) return;
+  // Track events aren't fired reliably across every "turn off" path, so poll too.
+  _camMonitor = setInterval(() => {
+    if (S.camPassed && lobbyCameraOff()) markCameraOff();
+  }, 1000);
+}
+
 async function enableCamera() {
   const btn = document.getElementById('cam-btn');
   const chip = document.getElementById('cam-chip');
@@ -770,6 +808,13 @@ async function enableCamera() {
     chip.textContent = 'Active'; chip.className = 'text-[10px] font-semibold text-success';
     dot.className = 'w-2 h-2 rounded-full bg-success';
     S.camPassed = true;
+    // Detect if the camera is stopped/muted after being enabled.
+    const track = S.mediaStream.getVideoTracks()[0];
+    if (track) {
+      track.onended = markCameraOff;
+      track.onmute = markCameraOff;
+    }
+    startCameraMonitor();
     updateChecks();
   } catch(e) {
     chip.textContent = 'Denied'; chip.className = 'text-[10px] font-semibold text-danger';
