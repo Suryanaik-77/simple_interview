@@ -93,11 +93,18 @@ _sanitize_paths = sanitize_paths
 
 VERIFY_PROMPT = (
     "You select which retrieved sections are actually relevant to the user's "
-    "question. Consider the specific lab/testcase the user names. Return STRICT "
-    "JSON: {\"relevant\": [<indices>]}. Include an index only if that section "
-    "genuinely helps answer THIS question for the lab asked about. If the user "
-    "names a lab and a section is from a different lab, exclude it. If nothing "
-    "is relevant, return an empty list."
+    "question AND judge whether they are enough to answer it. Consider the "
+    "specific lab/testcase the user names. Return STRICT JSON: "
+    "{\"relevant\": [<indices>], \"sufficient\": <bool>}.\n"
+    "- relevant: include an index only if that section genuinely helps answer "
+    "THIS question for the lab asked about. If the user names a lab and a "
+    "section is from a different lab, exclude it. If nothing is relevant, "
+    "return an empty list.\n"
+    "- sufficient: true ONLY if the relevant sections above already contain "
+    "everything needed to answer the question completely and specifically "
+    "(exact command, value, file, or steps asked for). Set it false if they "
+    "are only partially on-topic, look truncated, or hint at the answer "
+    "without stating it — those need the full section pulled in."
 )
 
 
@@ -110,10 +117,18 @@ class AskRequest(BaseModel):
 
 
 def _verify_relevant(question, hits):
-    """Small agent: pick indices of hits that truly answer the question."""
+    """Small agent: pick indices of relevant hits and judge sufficiency.
+
+    Returns (relevant_indices, sufficient). `sufficient` is True when those
+    sub-chunks already contain enough to answer completely — the caller then
+    skips full-section expansion. When False, the caller expands the winning
+    chunks to their full sections before answering.
+    """
+    # Give the verifier the full sub-chunk (not a 220-char preview) so its
+    # sufficiency judgement is made on the actual retrieved text.
     listing = "\n".join(
         f"{i}. [lab: {h['lab_name']} | section: {h['heading']}] "
-        f"{_sanitize_paths(h['content'][:220])}"
+        f"{_sanitize_paths(h['content'])}"
         for i, h in enumerate(hits)
     )
     try:
@@ -133,10 +148,12 @@ def _verify_relevant(question, hits):
         data = json.loads(resp.choices[0].message.content)
         idxs = [int(i) for i in data.get("relevant", [])
                 if isinstance(i, (int, float)) and 0 <= int(i) < len(hits)]
-        return idxs
+        sufficient = bool(data.get("sufficient", False))
+        return idxs, sufficient
     except Exception:
-        # On any failure, fall back to the top-3 retrieved chunks.
-        return list(range(min(3, len(hits))))
+        # On any failure, fall back to the top-3 retrieved chunks and expand
+        # them (treat as insufficient) so the answer gets full context.
+        return list(range(min(3, len(hits)))), False
 
 
 # Facets whose value materially changes the answer, in the order we'd ask about
@@ -272,8 +289,9 @@ def api_ask(req: AskRequest):
                     "sources": [],
                 }
 
-    # 3. Verifier agent: keep only the sub-chunks that truly match.
-    keep = _verify_relevant(req.question, hits)
+    # 3. Verifier agent: keep the sub-chunks that truly match AND judge whether
+    #    they already suffice to answer.
+    keep, sufficient = _verify_relevant(req.question, hits)
     # If nothing passes strict verification, don't dead-end. Fall back to the
     # closest retrieved sections (still ONLY lab content, already restricted to
     # the chosen lab/tool) so the answer can say what ISN'T there AND point to
@@ -283,24 +301,31 @@ def api_ask(req: AskRequest):
     if not keep:
         keep = list(range(min(3, len(hits))))
         fallback = True
+        sufficient = False  # nothing verified -> always expand for full context
 
-    # 4. Expand each winning sub-chunk back to its FULL section (all sibling
-    #    chunks sharing the same lab+heading), de-duplicated in order.
+    # 4. Build the context sections. If the verified sub-chunks are already
+    #    sufficient, use them as-is (cheaper, tighter). If NOT sufficient, expand
+    #    each winning sub-chunk back to its FULL section (all sibling chunks
+    #    sharing the same lab+heading) to give the answer more context.
     sections, seen = [], set()
     for i in keep:
         h = hits[i]
-        key = (h["lab_name"], h["heading"])
+        # When expanding, all sub-chunks of one section resolve to the same full
+        # section, so de-dup by (lab, heading). When the sub-chunks are used
+        # as-is, each is distinct content, so de-dup by the chunk text instead.
+        key = (h["lab_name"], h["heading"]) if not sufficient else h["content"]
         if key in seen:
             continue
         seen.add(key)
+        content = h["content"] if sufficient else engine.get_section(
+            h["lab_name"], h["heading"])
         sections.append({
             "lab_name": h["lab_name"],
             "heading": h["heading"],
             "source": h["source"],
             "score": round(h["score"], 3),
             "facets": h.get("facets") or {},
-            "content": _sanitize_paths(engine.get_section(h["lab_name"],
-                                                          h["heading"])),
+            "content": _sanitize_paths(content),
         })
 
     # 5. Final answer from the reassembled full sections.
