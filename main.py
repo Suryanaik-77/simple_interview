@@ -2910,6 +2910,48 @@ def start_interview(data: dict):
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
 
+    # ── Face gate ──────────────────────────────────────────────────────────
+    # Verify the live camera frame matches the registered reference BEFORE the
+    # interview starts. The interviewer never checks this itself, so the start
+    # endpoint owns it. Only enforced when face verification is enabled, a
+    # reference face exists for this candidate, and Rekognition is available.
+    # Fails OPEN on unexpected AWS errors (the per-minute compare loop still
+    # guards the session) but CLOSED on a genuine mismatch / missing frame.
+    if ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
+        ref_b64 = session.get("face_ref_image")
+        if ref_b64 and rekognition_client:
+            live_b64 = data.get("face_image") or ""
+            if not live_b64:
+                raise HTTPException(428, "Camera is off or no frame was captured. "
+                                         "Enable your camera so we can verify your identity, then try again.")
+            try:
+                resp = rekognition_client.compare_faces(
+                    SourceImage={"Bytes": base64.b64decode(ref_b64)},
+                    TargetImage={"Bytes": base64.b64decode(live_b64)},
+                    SimilarityThreshold=0.0,
+                )
+                matches = resp.get("FaceMatches", [])
+                similarity = matches[0]["Similarity"] if matches else 0.0
+                gate_ok = similarity >= FACE_COMPARE_THRESHOLD
+                session.setdefault("anticheat_log", []).append({
+                    "event_type": "face_gate",
+                    "turn": 0, "timestamp": time.time(),
+                    "metadata": f"start similarity={similarity:.1f}% ok={gate_ok}",
+                })
+                if not gate_ok:
+                    log.info(f"[FaceGate] Session {sid[:8]}: start BLOCKED (similarity={similarity:.1f}%)")
+                    raise HTTPException(403, "Face verification failed — the person on camera does "
+                                             "not match the registered face. Make sure the registered "
+                                             "candidate is clearly visible, then try again.")
+                log.info(f"[FaceGate] Session {sid[:8]}: start verified (similarity={similarity:.1f}%)")
+            except HTTPException:
+                raise
+            except rekognition_client.exceptions.InvalidParameterException:
+                raise HTTPException(422, "No face detected on camera. Make sure your face is clearly "
+                                         "visible and well-lit, then try again.")
+            except Exception as e:
+                log.error(f"[FaceGate] compare failed, allowing start: {e}")
+
     greeting = generate_greeting(session)
     audio, tts_ms = synthesize_speech(greeting)
     session["phase"] = "interview"

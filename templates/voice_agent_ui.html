@@ -589,6 +589,33 @@
     function setOrb(s) { orbState = s; document.getElementById('orb').className = 'orb ' + s; }
     function fmt(s) { return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; }
 
+    // Set true once the webcam has actually been live, so we don't false-alarm
+    // during initial warmup — only an on→off transition counts as "camera off".
+    let cameraWasEverOn = false;
+
+    // True when the webcam track is missing, ended, disabled, or hardware-muted
+    // (i.e. the candidate turned the camera off or it was blocked).
+    function isCameraOff() {
+        const v = document.getElementById('cam-video');
+        if (!v || !v.srcObject) return true;
+        const tracks = v.srcObject.getVideoTracks ? v.srcObject.getVideoTracks() : [];
+        if (!tracks.length) return true;
+        const t = tracks[0];
+        return t.readyState === 'ended' || t.enabled === false || t.muted === true;
+    }
+
+    // Grab a JPEG (base64, no data-url prefix) from the live webcam, or null if
+    // the camera isn't ready. Used for the pre-interview face gate.
+    function captureCamFrameB64() {
+        const v = document.getElementById('cam-video');
+        if (!v || !v.srcObject || v.readyState < 2 || isCameraOff()) return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = v.videoWidth || 320;
+        canvas.height = v.videoHeight || 240;
+        canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+    }
+
     // ════════════════════════════════════════════════════════════
     // CANDIDATE CAMERA PIP
     // ════════════════════════════════════════════════════════════
@@ -858,25 +885,42 @@
         // ── Main check loop ──
         async function checkPresence() {
             if (!sessionOn || interviewEnded || detecting) return;
-            if (!video.srcObject || video.readyState < 2) return;
-            if (!mediapipeReady || !faceMesh) return;
+
+            const camReady = !!(video.srcObject && video.readyState >= 2 && !isCameraOff());
+            if (camReady) cameraWasEverOn = true;
+
+            // Camera turned OFF after having been on — previously this state
+            // early-returned silently, letting a candidate kill the camera to
+            // escape face checks. Now treat it as face-absence so the same
+            // warn → pause → terminate path fires.
+            const camOff = faceDetectEnabled && cameraWasEverOn && !camReady;
+
+            if (!camOff) {
+                if (!video.srcObject || video.readyState < 2) return; // stream warming up
+                if (!mediapipeReady || !faceMesh) return;
+            }
 
             detecting = true;
 
-            // Send frame to MediaPipe
-            try {
-                await faceMesh.send({ image: video });
-            } catch(e) {
-                detecting = false;
-                return;
+            let present, headTurned, direction, eyeReading, eyeDirection, eyeScanning;
+            if (camOff) {
+                present = false; headTurned = false; direction = null;
+                eyeReading = false; eyeDirection = null; eyeScanning = false;
+            } else {
+                // Send frame to MediaPipe
+                try {
+                    await faceMesh.send({ image: video });
+                } catch(e) {
+                    detecting = false;
+                    return;
+                }
+                ({ present, headTurned, direction, eyeReading, eyeDirection, eyeScanning } = latestResult);
             }
-
-            const { present, headTurned, direction, eyeReading, eyeDirection, eyeScanning } = latestResult;
             const isAnswering = orbState === 'listening' || isRecording;
 
             // Update visible status on camera PIP
             if (!present) {
-                faceStatus.textContent = 'NO FACE!';
+                faceStatus.textContent = camOff ? 'CAMERA OFF!' : 'NO FACE!';
                 faceStatus.style.color = '#f44';
             } else if (headTurned) {
                 faceStatus.textContent = 'HEAD TURNED ' + direction + '!';
@@ -896,29 +940,33 @@
             if (!faceDetectEnabled) { noFaceCount = 0; }
             else if (present) {
                 noFaceCount = 0;
-                // Auto-resume if paused for face
-                if (interviewPaused && pauseReason === 'face_not_detected') {
+                // Auto-resume if paused for face or camera-off
+                if (interviewPaused && (pauseReason === 'face_not_detected' || pauseReason === 'camera_off')) {
                     resumeInterview();
                 }
             } else {
                 noFaceCount++;
-                console.log(`[FaceDetection] No face (${noFaceCount}/${NO_FACE_LIMIT})`);
+                console.log(`[FaceDetection] ${camOff ? 'Camera off' : 'No face'} (${noFaceCount}/${NO_FACE_LIMIT})`);
 
                 if (noFaceCount >= NO_FACE_LIMIT) {
                     cameraWarnings++;
-                    sendAntiCheat('face_not_detected', `warnings:${cameraWarnings}`);
+                    sendAntiCheat(camOff ? 'camera_off' : 'face_not_detected', `warnings:${cameraWarnings}`);
 
                     if (cameraWarnings < 3) {
                         const warnText = cameraWarnings >= 2
                             ? 'Warning ' + cameraWarnings + ' of 2 — next time the interview will end.'
                             : 'Warning ' + cameraWarnings + ' of 2';
-                        pauseInterview('face_not_detected',
-                            'We can\'t see your face on camera.<br>Please make sure you\'re visible and well-lit.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your face is detected.</span>',
+                        pauseInterview(camOff ? 'camera_off' : 'face_not_detected',
+                            camOff
+                              ? 'Your camera appears to be turned off.<br>Please turn your camera back on to continue.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your camera is on and your face is visible.</span>'
+                              : 'We can\'t see your face on camera.<br>Please make sure you\'re visible and well-lit.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your face is detected.</span>',
                             warnText);
                     } else {
-                        sendAntiCheat('face_absence_termination', `no_face_${cameraWarnings}_times`);
+                        sendAntiCheat(camOff ? 'camera_off_termination' : 'face_absence_termination', `${camOff ? 'camera_off' : 'no_face'}_${cameraWarnings}_times`);
                         if (interviewPaused) resumeInterview();
-                        endSessionWithMessage('Interview ended — candidate not detected on camera.');
+                        endSessionWithMessage(camOff
+                          ? 'Interview ended — camera was turned off.'
+                          : 'Interview ended — candidate not detected on camera.');
                     }
                     noFaceCount = 0;
                 }
@@ -1464,12 +1512,37 @@
     async function initInterview() {
         if (interviewEnded) return;
 
+        // ── Face gate ──────────────────────────────────────────────────────
+        // Capture a live webcam frame so the server can verify the candidate's
+        // identity BEFORE any question is asked. Wait briefly for the camera to
+        // come up (it starts async on page load).
+        let faceImage = null;
+        for (let i = 0; i < 20 && !faceImage; i++) {   // up to ~5s
+            faceImage = captureCamFrameB64();
+            if (!faceImage) await new Promise(r => setTimeout(r, 250));
+        }
+
         try {
             const r = await fetch('/api/start-interview', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session_id: sessionId })
+                body: JSON.stringify({ session_id: sessionId, face_image: faceImage })
             });
+
+            // Server blocked the start on face verification — do NOT begin.
+            if (r.status === 403 || r.status === 422 || r.status === 428) {
+                const err = await r.json().catch(() => ({}));
+                const msg = err.detail || 'Face verification failed.';
+                setOrb('idle');
+                sessionOn = false;
+                document.getElementById('live-badge').textContent = 'verification failed';
+                document.getElementById('footer-tag').textContent = 'face verification failed';
+                document.getElementById('question-text').textContent =
+                    msg + ' Make sure the registered candidate is clearly visible on camera, then reload this page to try again.';
+                sendAntiCheat('face_gate_blocked', `status:${r.status}`);
+                return;
+            }
+
             const data = await r.json();
 
             // Update candidate UI if resume info is in response
