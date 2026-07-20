@@ -182,6 +182,7 @@ let isPlaying = false;
 let sessionStart = null;
 let turnCount = 0;
 let lastUserSpeechEnd = 0;
+let interviewStarted = false;  // guards the one-time opening response.create
 let currentAssistantMsg = null;
 let totalTokens = { input: 0, output: 0 };
 
@@ -345,6 +346,7 @@ async function connect() {
       setStatus('connected', 'Connected');
       document.getElementById('btnDisconnect').disabled = false;
       sessionStart = Date.now();
+      interviewStarted = false;  // re-arm the opening kickoff for this session
       addMessage('system', 'Connected to OpenAI Realtime — speak into your microphone');
       updateDuration();
 
@@ -356,7 +358,7 @@ async function connect() {
       // question when the candidate said nothing / VAD false-fired on noise.
       const turnDetection = vadType === 'semantic_vad'
         ? { type: 'semantic_vad', eagerness: document.getElementById('vadEagerness').value, create_response: false, interrupt_response: true }
-        : { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 700, create_response: false, interrupt_response: true };
+        : { type: 'server_vad', threshold: 0.75, prefix_padding_ms: 300, silence_duration_ms: 700, create_response: false, interrupt_response: true };
 
       ws.send(JSON.stringify({
         type: 'session.update',
@@ -369,6 +371,9 @@ async function connect() {
               format: { type: 'audio/pcm', rate: SAMPLE_RATE },
               turn_detection: turnDetection,
               transcription: { model: 'gpt-4o-mini-transcribe' },
+              // Suppress background/room noise before VAD + STT see it, so the
+              // buffer isn't committed on near-silence (fewer phantom transcripts).
+              noise_reduction: { type: 'near_field' },
             },
             output: {
               format: { type: 'audio/pcm', rate: SAMPLE_RATE },
@@ -515,6 +520,14 @@ function handleServerEvent(evt) {
     case 'session.created':
     case 'session.updated':
       addMessage('system', `Session ${evt.type.split('.')[1]} — model: ${evt.session?.model || 'realtime-2.1-mini'}`);
+      // Kick off the interview once the session is configured. Because we set
+      // create_response:false (so the model never auto-answers on VAD/phantom
+      // transcripts), the interviewer has no trigger to speak first — we must
+      // explicitly ask for the opening greeting + first question exactly once.
+      if (evt.type === 'session.updated' && !interviewStarted) {
+        interviewStarted = true;
+        ws.send(JSON.stringify({ type: 'response.create' }));
+      }
       break;
 
     case 'input_audio_buffer.speech_started':
@@ -530,12 +543,12 @@ function handleServerEvent(evt) {
     case 'conversation.item.input_audio_transcription.completed':
       if (evt.transcript) {
         const t = evt.transcript.trim();
-        addMessage('user', t);
-        // Only NOW do we let the interviewer respond — and only if the
-        // candidate actually said something substantive. This is what stops
-        // the model auto-generating/hallucinating questions on silence or
-        // noise (VAD false-fires + Whisper phantom "you"/"Thank you.").
+        // Only surface the transcript AND let the interviewer respond if the
+        // candidate actually said something substantive. Filtering here (not
+        // just gating the response) stops phantom "you"/"Thank you." lines from
+        // ever showing in the chat when STT hallucinates on silence/noise.
         if (isRealSpeech(t)) {
+          addMessage('user', t);
           ws.send(JSON.stringify({ type: 'response.create' }));
         }
       }
