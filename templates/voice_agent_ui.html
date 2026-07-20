@@ -525,6 +525,10 @@
     let interviewEnded = false;  // Flag to completely stop interview
     let interviewPaused = false; // Pause state — UI frozen, background monitoring active
     let pauseReason = '';        // Which violation caused the pause
+    // Freeze bookkeeping: what was happening when a warning paused the interview,
+    // so we can resume exactly that when the warning clears.
+    let _audioWasPlaying = false;      // agent was mid-sentence when frozen
+    let _resumeToRecording = false;    // candidate was answering (or awaited) when frozen
     let pauseStartTime = 0;     // Track how long paused
 
     // ── Pause overlay (non-dismissible — auto-resumes when violation clears) ──
@@ -561,6 +565,7 @@
         document.getElementById('pause-reason').innerHTML = message;
         document.getElementById('pause-warning-count').textContent = warningText || '';
         pauseOverlay.style.display = 'flex';
+        freezeInterview();
         sendAntiCheat('interview_paused', `reason:${reason}`);
         console.log(`[Pause] Interview paused — ${reason}`);
     }
@@ -573,6 +578,58 @@
         interviewPaused = false;
         pauseReason = '';
         pauseOverlay.style.display = 'none';
+        unfreezeInterview();
+    }
+
+    // ── Freeze / unfreeze the interview while a warning overlay is shown ──────
+    // Everything behind the overlay must stop: the agent's speech pauses, the
+    // candidate's recording is suspended (and NOT submitted), and the VAD /
+    // silence monitors halt so the turn can't auto-advance. On resume we put
+    // things back exactly where they were.
+    function freezeInterview() {
+        // What was happening at the moment of the freeze?
+        _audioWasPlaying = !!(currentAudio && !currentAudio.paused && !currentAudio.ended);
+        _resumeToRecording = isRecording || _postCommitMonitorActive || _hadCommitInPause;
+
+        // Pause the agent mid-sentence.
+        if (_audioWasPlaying) { try { currentAudio.pause(); } catch(e) {} }
+
+        // Suspend the candidate's recording without committing the partial answer.
+        // Detach onstop first so the discarded recorder can't fire
+        // sendAudioForTranscription and race the next recording's chunks.
+        if (isRecording) {
+            isRecording = false;            // stops the checkAudio RAF loop
+            stopVadAudioStream();
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                try { mediaRecorder.onstop = null; mediaRecorder.stop(); } catch(e) {}
+            }
+            audioChunks = [];
+        }
+
+        // Halt the silence / post-commit monitors and clear stale pause timers so
+        // they don't finalize the turn the instant we resume.
+        _postCommitMonitorActive = false;
+        _pauseStartedAt = null;
+        _hadCommitInPause = false;
+
+        setOrb('idle');
+        document.getElementById('status-txt').textContent = 'paused';
+    }
+
+    function unfreezeInterview() {
+        if (interviewEnded) return;
+        if (_audioWasPlaying && currentAudio) {
+            // Agent finishes the question it was asking; recording auto-starts on end.
+            _audioWasPlaying = false;
+            setOrb('speaking');
+            try { currentAudio.play(); } catch(e) {}
+        } else if (_resumeToRecording) {
+            // Candidate was answering — start a fresh recording so they can continue.
+            _resumeToRecording = false;
+            startRecording();
+        }
+        _audioWasPlaying = false;
+        _resumeToRecording = false;
     }
 
     // Update pause timer every second
@@ -1804,7 +1861,7 @@
         // Audio level monitoring — uses Silero neural VAD if available,
         // falls back to volume threshold otherwise. All timing logic same.
         const checkAudio = () => {
-            if (!isRecording || interviewEnded) return;
+            if (!isRecording || interviewEnded || interviewPaused) return;
 
             analyser.getByteFrequencyData(dataArray);
             const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
@@ -1898,6 +1955,12 @@
 
     async function sendAudioForTranscription() {
         if (interviewEnded) return;
+
+        // A warning froze the interview while this fired — discard, don't submit.
+        if (interviewPaused) {
+            audioChunks = [];
+            return;
+        }
 
         // _autoChunk covers two distinct triggers (use _pauseCommit to tell them apart):
         //   - 30s mid-speech chunk: restart recorder immediately for zero-gap continuous speech
@@ -2006,6 +2069,7 @@
 
         const tick = () => {
             if (interviewEnded) { _postCommitMonitorActive = false; return; }
+            if (interviewPaused) { _postCommitMonitorActive = false; return; }
             // If something else started a recorder (e.g. the LLM finished and called startRecording),
             // the monitor's job is done.
             if (isRecording) { _postCommitMonitorActive = false; return; }
@@ -2486,6 +2550,9 @@
             if (document.hidden) {
                 if (currentAudio) { try { currentAudio.pause(); } catch(e) {} }
             } else {
+                // Don't un-pause the agent while a warning has frozen the interview —
+                // resumeInterview() owns that.
+                if (interviewPaused) return;
                 if (currentAudio && currentAudio.paused) { try { currentAudio.play(); } catch(e) {} }
             }
         });
