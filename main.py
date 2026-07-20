@@ -1456,10 +1456,14 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "step, an actual example, or 'walk me through exactly what you did'). Push once.\n"
         "- If they honestly say they don't know or didn't work on it, don't labour the point — "
         "move on to something else.\n"
-        "Also keep the interview broad: look at what you have ALREADY asked above and avoid "
-        "circling the same theme repeatedly. If you've already probed an area two or so times, "
-        "deliberately switch to a different part of the candidate's background you haven't "
-        "explored yet.")
+        "\nKEEP THE INTERVIEW BROAD (this governs a NEW question, NOT an immediate follow-up "
+        "drill): before asking a new question, scan the list of questions you already asked "
+        "above and note the narrow sub-topic of each. Do NOT ask about a narrow sub-topic you "
+        "have already covered — not even reworded, from a different angle, or on a different "
+        "project. One question per sub-topic for the whole interview. Spread your questions "
+        "across as many different projects, tools, and skills from the candidate's background "
+        "as you can, and never let one project or one area dominate. When choosing what to ask "
+        "next, prefer the project or skill you have touched LEAST so far.")
 
     system = base_prompt + candidate_info + asked_block + judgment_rules + returning_block
 
