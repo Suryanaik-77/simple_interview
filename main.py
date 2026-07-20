@@ -1443,15 +1443,25 @@ Test whether the candidate has genuinely improved or just memorized answers from
             "moved on from. Each new top-level question must explore a NEW project, tool, or "
             f"concept not already in this list:\n{asked_lines}")
 
-    # ── Drill weak answers instead of rotating topics ─────────────────────
-    weak_answer_rule = (
-        "\n\nIF THE LAST ANSWER IS WEAK (vague, generic, textbook, evasive, or the candidate "
-        "admits low familiarity — e.g. 'minimal', 'not sure', 'we just did basic'): do NOT move "
-        "on to a new topic. Ask ONE sharp, specific follow-up that forces concreteness — a real "
-        "number, a specific scenario, or 'walk me through exactly what you did'. Only move on "
-        "after they show real depth or clearly cannot.")
+    # ── Follow-up vs move-on, and theme balance ───────────────────────────
+    # Both are the interviewer's judgment calls, described here — no hardcoded
+    # keyword lists. The model sees the full ledger of asked questions above and
+    # the candidate's latest answer below, and decides for itself.
+    judgment_rules = (
+        "\n\nDECIDING YOUR NEXT MOVE — use your judgment on the candidate's last answer:\n"
+        "- If it was specific and solid, move on to a fresh area.\n"
+        "- If it was vague, evasive, or low-effort (dodging the question, hand-waving, or "
+        "claiming they did something without any concrete detail), do NOT move on — ask ONE "
+        "pointed follow-up on the SAME topic that forces a real detail (a number, a specific "
+        "step, an actual example, or 'walk me through exactly what you did'). Push once.\n"
+        "- If they honestly say they don't know or didn't work on it, don't labour the point — "
+        "move on to something else.\n"
+        "Also keep the interview broad: look at what you have ALREADY asked above and avoid "
+        "circling the same theme repeatedly. If you've already probed an area two or so times, "
+        "deliberately switch to a different part of the candidate's background you haven't "
+        "explored yet.")
 
-    system = base_prompt + candidate_info + asked_block + weak_answer_rule + returning_block
+    system = base_prompt + candidate_info + asked_block + judgment_rules + returning_block
 
     messages = [{"role": "system", "content": system}]
     # Add conversation history — inject expected points when available
