@@ -1422,7 +1422,36 @@ These questions were already asked in previous sessions:
 This is a completely NEW interview. Ask fresh questions from different angles on the same topics.
 Test whether the candidate has genuinely improved or just memorized answers from before."""
 
-    system = base_prompt + candidate_info + returning_block
+    # ── Anti-repetition ledger ────────────────────────────────────────────
+    # The message history below is capped at the last 10 turns, so questions
+    # asked earlier scroll out of context and the model re-asks them (the #1
+    # source of duplicate questions — e.g. metal-spacing DRC or multi-clock CTS
+    # asked twice). Give it a compact list of everything already asked this
+    # session so it always knows what's been covered, even beyond the window.
+    asked = [e["question"] for e in history
+             if e.get("question") and not _is_pause_prompt(e["question"])]
+    # Drop the opening greeting/intro so it isn't treated as a topic.
+    asked = [q for q in asked if not any(g in q.lower() for g in
+             ("tell me about yourself", "introduce yourself", "little about yourself"))]
+    asked_block = ""
+    if asked:
+        asked_lines = "\n".join(f"- {q}" for q in asked)
+        asked_block = (
+            "\n\nALREADY COVERED THIS SESSION — do NOT ask any of these again, and do NOT "
+            "ask a reworded version of the same topic. You may still drill deeper on the "
+            "candidate's MOST RECENT answer, but never re-open an earlier topic you already "
+            "moved on from. Each new top-level question must explore a NEW project, tool, or "
+            f"concept not already in this list:\n{asked_lines}")
+
+    # ── Drill weak answers instead of rotating topics ─────────────────────
+    weak_answer_rule = (
+        "\n\nIF THE LAST ANSWER IS WEAK (vague, generic, textbook, evasive, or the candidate "
+        "admits low familiarity — e.g. 'minimal', 'not sure', 'we just did basic'): do NOT move "
+        "on to a new topic. Ask ONE sharp, specific follow-up that forces concreteness — a real "
+        "number, a specific scenario, or 'walk me through exactly what you did'. Only move on "
+        "after they show real depth or clearly cannot.")
+
+    system = base_prompt + candidate_info + asked_block + weak_answer_rule + returning_block
 
     messages = [{"role": "system", "content": system}]
     # Add conversation history — inject expected points when available
