@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Realtime 2.1-mini — Voice Test</title>
+<style>
+  :root { --bg: #0f1117; --card: #1a1d27; --border: #2a2d3a; --accent: #6c63ff; --accent2: #00d4aa; --text: #e4e4e7; --dim: #71717a; --red: #ef4444; --green: #22c55e; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+  .status-badge.disconnected { background: #2a1a1a; color: var(--red); }
+  .status-badge.connecting { background: #2a2a1a; color: #eab308; }
+  .status-badge.connected { background: #1a2a1a; color: var(--green); }
+
+  .grid { display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); margin-bottom: 14px; }
+
+  label { display: block; font-size: 13px; color: var(--dim); margin-bottom: 4px; margin-top: 12px; }
+  label:first-of-type { margin-top: 0; }
+  select, input[type="text"] { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; outline: none; }
+  select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+  textarea { width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; font-family: 'JetBrains Mono', monospace; resize: vertical; outline: none; line-height: 1.5; }
+
+  .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: #5b53ee; }
+  .btn-danger { background: var(--red); color: white; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+
+  .chat-area { height: 520px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 4px; }
+  .msg { padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.5; max-width: 85%; word-wrap: break-word; }
+  .msg.user { background: #1e293b; align-self: flex-end; border-bottom-right-radius: 2px; }
+  .msg.assistant { background: #1a1a2e; border-left: 3px solid var(--accent); align-self: flex-start; border-bottom-left-radius: 2px; }
+  .msg.system { background: transparent; color: var(--dim); font-size: 12px; text-align: center; align-self: center; }
+  .msg .role { font-size: 11px; color: var(--dim); margin-bottom: 3px; }
+
+  .visualizer-wrap { margin-top: 16px; padding: 12px; background: var(--bg); border-radius: 8px; text-align: center; }
+  canvas#visualizer { width: 100%; height: 60px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--dim); }
+  .stat-val { font-size: 16px; font-weight: 600; color: var(--text); }
+
+  .vad-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--dim); margin-left: 8px; vertical-align: middle; }
+  .vad-indicator.speaking { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  .upload-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .upload-row input[type=file] { font-size: 12px; color: var(--dim); max-width: 100%; }
+  .upload-row input[type=file]::file-selector-button { padding: 6px 12px; margin-right: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .upload-row input[type=file]::file-selector-button:hover { border-color: var(--accent); }
+  .upload-note { font-size: 12px; color: var(--dim); }
+  .upload-note.ok { color: var(--green); }
+  .upload-note.err { color: #e06c6c; }
+  .prep-info { margin-top: 14px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--accent2); border-radius: 6px; font-size: 12px; line-height: 1.6; }
+  .prep-info b { color: var(--text); }
+  .prep-info .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #1a2a1a; color: var(--green); font-size: 11px; margin-left: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1><span>Realtime 2.1-mini</span> — Voice Test</h1>
+    <div>
+      <span class="status-badge disconnected" id="statusBadge">Disconnected</span>
+      <span class="vad-indicator" id="vadDot"></span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Left: Config Panel -->
+    <div>
+      <div class="panel">
+        <h2>Configuration</h2>
+
+        <label>Voice</label>
+        <select id="voiceSelect">
+          <option value="ash">Ash</option>
+          <option value="alloy">Alloy</option>
+          <option value="ballad">Ballad</option>
+          <option value="coral">Coral</option>
+          <option value="echo">Echo</option>
+          <option value="sage">Sage</option>
+          <option value="shimmer">Shimmer</option>
+          <option value="verse">Verse</option>
+          <option value="marin">Marin</option>
+          <option value="cedar">Cedar</option>
+        </select>
+
+        <label>VAD Mode</label>
+        <select id="vadMode">
+          <option value="semantic_vad">Semantic VAD (Smart)</option>
+          <option value="server_vad">Server VAD (Energy)</option>
+        </select>
+
+        <label>Eagerness (Semantic VAD)</label>
+        <select id="vadEagerness">
+          <option value="auto">Auto</option>
+          <option value="low">Low (Patient)</option>
+          <option value="medium">Medium</option>
+          <option value="high">High (Quick)</option>
+        </select>
+
+        <label>Candidate Email <span style="color:var(--dim)">(fetches last 2 sessions)</span></label>
+        <input type="text" id="email" placeholder="candidate@example.com" />
+
+        <label>Domain</label>
+        <select id="domain">
+          <option value="">Auto (from resume)</option>
+          <option value="physical_design">Physical Design</option>
+          <option value="design_verification">Design Verification</option>
+          <option value="analog_layout">Analog Layout</option>
+        </select>
+
+        <label>Level</label>
+        <select id="level">
+          <option value="">Auto (from resume)</option>
+          <option value="fresh_graduate">Fresh Graduate</option>
+          <option value="trained_fresher">Trained Fresher</option>
+          <option value="experienced_junior">Experienced Junior (1-5y)</option>
+          <option value="experienced_senior">Experienced Senior (5y+)</option>
+        </select>
+
+        <label>Resume — upload a file, or paste below</label>
+        <div class="upload-row">
+          <input type="file" id="resumeFile" accept=".pdf,.docx,.txt,.md" onchange="uploadResume()" />
+          <span id="uploadNote" class="upload-note"></span>
+        </div>
+        <textarea id="resume" rows="8" placeholder="Upload a PDF/DOCX/TXT above, or paste the resume text here. It is parsed for name, projects, skills, tools, level and domain..."></textarea>
+
+        <div id="prepInfo" class="prep-info" style="display:none"></div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnConnect" onclick="connect()">Prepare &amp; Connect</button>
+          <button class="btn btn-danger" id="btnDisconnect" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+
+        <details id="promptPreview" style="display:none; margin-top:14px;">
+          <summary style="cursor:pointer; font-size:12px; color:var(--dim);">Built interviewer prompt</summary>
+          <textarea id="builtPrompt" rows="10" readonly style="margin-top:8px; font-size:11px;"></textarea>
+        </details>
+      </div>
+
+      <div class="visualizer-wrap">
+        <canvas id="visualizer"></canvas>
+        <div class="stats">
+          <div>Latency<br><span class="stat-val" id="statLatency">—</span></div>
+          <div>Duration<br><span class="stat-val" id="statDuration">0:00</span></div>
+          <div>Turns<br><span class="stat-val" id="statTurns">0</span></div>
+          <div>Tokens<br><span class="stat-val" id="statTokens">—</span></div>
+          <div>Cost<br><span class="stat-val" id="statCost" title="Exact, from per-modality token usage">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Chat Panel -->
+    <div class="panel">
+      <h2>Conversation</h2>
+      <div class="chat-area" id="chatArea"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SAMPLE_RATE = 24000;
+let ws = null;
+let audioCtx = null;
+let micStream = null;
+let scriptNode = null;
+let sourceNode = null;
+let playbackQueue = [];
+let isPlaying = false;
+let sessionStart = null;
+let turnCount = 0;
+let lastUserSpeechEnd = 0;
+let currentAssistantMsg = null;
+let totalTokens = { input: 0, output: 0 };
+
+// gpt-realtime-2.1-mini pricing, USD per 1M tokens (OpenAI official).
+// Cost is computed EXACTLY from the per-modality token split in usage —
+// audio input is ~16x text input, so the split matters.
+const PRICE = {
+  text:  { input: 0.60, cached: 0.06, output: 2.40 },
+  audio: { input: 10.00, cached: 0.30, output: 20.00 },
+};
+let totalCost = 0; // running USD across the session
+
+// Exact cost for one response's usage object. Cached tokens are a subset of
+// input tokens, billed at the cheaper cached rate; the rest at full input rate.
+function costOfUsage(u) {
+  if (!u) return 0;
+  const i = u.input_token_details || {};
+  const o = u.output_token_details || {};
+  const c = i.cached_tokens_details || {};
+  const cachedText = c.text_tokens || 0;
+  const cachedAudio = c.audio_tokens || 0;
+  // input_token_details.{text,audio}_tokens are totals INCLUDING cached.
+  const inText = Math.max((i.text_tokens || 0) - cachedText, 0);
+  const inAudio = Math.max((i.audio_tokens || 0) - cachedAudio, 0);
+  const outText = o.text_tokens || 0;
+  const outAudio = o.audio_tokens || 0;
+  const usd =
+    inText      * PRICE.text.input   +
+    cachedText  * PRICE.text.cached  +
+    inAudio     * PRICE.audio.input  +
+    cachedAudio * PRICE.audio.cached +
+    outText     * PRICE.text.output  +
+    outAudio    * PRICE.audio.output;
+  return usd / 1e6;
+}
+
+// Visualizer
+const canvas = document.getElementById('visualizer');
+const canvasCtx = canvas.getContext('2d');
+let analyser = null;
+
+function setStatus(state, text) {
+  const badge = document.getElementById('statusBadge');
+  badge.className = 'status-badge ' + state;
+  badge.textContent = text || state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function addMessage(role, text, append) {
+  const area = document.getElementById('chatArea');
+  if (append && currentAssistantMsg) {
+    currentAssistantMsg.querySelector('.content').textContent += text;
+    area.scrollTop = area.scrollHeight;
+    return currentAssistantMsg;
+  }
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  if (role === 'system') {
+    div.textContent = text;
+  } else {
+    div.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'Assistant'}</div><div class="content">${text}</div>`;
+  }
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+  if (role === 'assistant') currentAssistantMsg = div;
+  return div;
+}
+
+let fullInstructions = '';
+
+async function uploadResume() {
+  // Upload a resume file; the server extracts plain text (pdf/docx/txt) and we
+  // drop it into the resume box so the normal prepare() flow parses it.
+  const inp = document.getElementById('resumeFile');
+  const note = document.getElementById('uploadNote');
+  const file = inp.files && inp.files[0];
+  if (!file) return;
+  note.className = 'upload-note';
+  note.textContent = `Extracting text from ${file.name}…`;
+  try {
+    const buf = await file.arrayBuffer();
+    const res = await fetch('api/extract_resume?filename=' + encodeURIComponent(file.name), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: buf,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'extraction failed');
+    document.getElementById('resume').value = data.text;
+    note.className = 'upload-note ok';
+    note.innerHTML = `✓ Loaded <b>${file.name}</b> — ${data.chars.toLocaleString()} chars. Review below, then Prepare &amp; Connect.`;
+  } catch (e) {
+    note.className = 'upload-note err';
+    note.textContent = 'Upload failed: ' + e.message + ' — paste the resume text instead.';
+  }
+}
+
+async function prepare() {
+  // Ask the server to build the interviewer prompt from the resume + the
+  // candidate's previous 2 sessions (fetched by email), using the shared
+  // prompts/{level}_{domain}.md persona files.
+  const payload = {
+    email: document.getElementById('email').value.trim(),
+    resume_text: document.getElementById('resume').value.trim(),
+  };
+  const domain = document.getElementById('domain').value;
+  const level = document.getElementById('level').value;
+  if (domain) payload.domain = domain;
+  if (level) payload.level = level;
+
+  addMessage('system', 'Preparing interview (parsing resume, fetching history)...');
+  const res = await fetch('api/prepare', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('prepare failed: ' + (await res.text()));
+  const data = await res.json();
+
+  fullInstructions = data.instructions;
+  const m = data.meta || {};
+  const r = data.resume || {};
+
+  // Show what was built.
+  const info = document.getElementById('prepInfo');
+  const prevN = m.previous_sessions || 0;
+  info.style.display = 'block';
+  info.innerHTML =
+    `<b>${r.candidate_name || 'Candidate'}</b> · ${(m.level || '').replace(/_/g,' ')} · ${(m.domain || '').replace(/_/g,' ')}` +
+    `<br>Previous sessions: <span class="pill">${prevN}</span>` +
+    (prevN ? ` · avoiding <b>${(m.prev_questions || []).length}</b> prior questions` : ' · new candidate');
+
+  const preview = document.getElementById('promptPreview');
+  preview.style.display = 'block';
+  document.getElementById('builtPrompt').value = fullInstructions;
+
+  addMessage('system', `Interview prepared — ${prevN} previous session(s) loaded.`);
+}
+
+async function connect() {
+  try {
+    setStatus('connecting', 'Preparing...');
+    document.getElementById('btnConnect').disabled = true;
+
+    await prepare();
+
+    setStatus('connecting', 'Connecting...');
+    addMessage('system', 'Connecting to relay server...');
+
+    // Connect to our relay WebSocket (server proxies to OpenAI).
+    // Over HTTPS (production behind nginx) use the same-origin wss path so it
+    // rides the TLS cert; for local http dev connect directly to the WS port.
+    let wsUrl;
+    if (window.location.protocol === 'https:') {
+      wsUrl = `wss://${window.location.host}/realtime-ws`;
+    } else {
+      wsUrl = `ws://${window.location.hostname}:8101`;
+    }
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      setStatus('connected', 'Connected');
+      document.getElementById('btnDisconnect').disabled = false;
+      sessionStart = Date.now();
+      addMessage('system', 'Connected to OpenAI Realtime — speak into your microphone');
+      updateDuration();
+
+      // Send session config in the GA Realtime schema (nested audio.* + type).
+      const vadType = document.getElementById('vadMode').value;
+      // create_response:false — the model must NOT auto-answer on every VAD
+      // stop. We gate responses ourselves on a real transcript (see
+      // input_audio_transcription.completed) so it never hallucinates a
+      // question when the candidate said nothing / VAD false-fired on noise.
+      const turnDetection = vadType === 'semantic_vad'
+        ? { type: 'semantic_vad', eagerness: document.getElementById('vadEagerness').value, create_response: false, interrupt_response: true }
+        : { type: 'server_vad', threshold: 0.6, prefix_padding_ms: 300, silence_duration_ms: 700, create_response: false, interrupt_response: true };
+
+      ws.send(JSON.stringify({
+        type: 'session.update',
+        session: {
+          type: 'realtime',
+          instructions: fullInstructions,
+          output_modalities: ['audio'],
+          audio: {
+            input: {
+              format: { type: 'audio/pcm', rate: SAMPLE_RATE },
+              turn_detection: turnDetection,
+              transcription: { model: 'gpt-4o-mini-transcribe' },
+            },
+            output: {
+              format: { type: 'audio/pcm', rate: SAMPLE_RATE },
+              voice: document.getElementById('voiceSelect').value,
+            },
+          },
+        },
+      }));
+
+      startMicrophone();
+    };
+
+    ws.onmessage = (evt) => handleServerEvent(JSON.parse(evt.data));
+
+    ws.onerror = (e) => {
+      console.error('WS error:', e);
+      addMessage('system', 'WebSocket error');
+    };
+
+    ws.onclose = (e) => {
+      setStatus('disconnected');
+      document.getElementById('btnConnect').disabled = false;
+      document.getElementById('btnDisconnect').disabled = true;
+      addMessage('system', `Disconnected (code: ${e.code})`);
+      stopMicrophone();
+    };
+
+  } catch (err) {
+    setStatus('disconnected');
+    document.getElementById('btnConnect').disabled = false;
+    addMessage('system', 'Error: ' + err.message);
+    console.error(err);
+  }
+}
+
+function disconnect() {
+  if (ws) { ws.close(); ws = null; }
+  stopMicrophone();
+}
+
+// ── Microphone capture at 24kHz PCM16 ──────────────────────────────────────
+
+async function startMicrophone() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+
+  sourceNode = audioCtx.createMediaStreamSource(micStream);
+
+  // Analyser for visualizer
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  sourceNode.connect(analyser);
+  drawVisualizer();
+
+  // Capture PCM via AudioWorklet or ScriptProcessor
+  const bufferSize = 4096;
+  scriptNode = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+  scriptNode.onaudioprocess = (e) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const float32 = e.inputBuffer.getChannelData(0);
+    const pcm16 = float32ToPcm16(float32);
+    const b64 = arrayBufferToBase64(pcm16.buffer);
+    ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: b64 }));
+  };
+  sourceNode.connect(scriptNode);
+  scriptNode.connect(audioCtx.destination);
+}
+
+function stopMicrophone() {
+  if (scriptNode) { scriptNode.disconnect(); scriptNode = null; }
+  if (sourceNode) { sourceNode.disconnect(); sourceNode = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+}
+
+function float32ToPcm16(float32) {
+  const pcm16 = new Int16Array(float32.length);
+  for (let i = 0; i < float32.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32[i]));
+    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return pcm16;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// ── Audio playback ─────────────────────────────────────────────────────────
+
+function enqueueAudio(base64Pcm16) {
+  const buffer = base64ToArrayBuffer(base64Pcm16);
+  const int16 = new Int16Array(buffer);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 0x8000;
+  playbackQueue.push(float32);
+  if (!isPlaying) playNextChunk();
+}
+
+function playNextChunk() {
+  if (!audioCtx || playbackQueue.length === 0) { isPlaying = false; return; }
+  isPlaying = true;
+  const samples = playbackQueue.shift();
+  const audioBuffer = audioCtx.createBuffer(1, samples.length, SAMPLE_RATE);
+  audioBuffer.getChannelData(0).set(samples);
+  const src = audioCtx.createBufferSource();
+  src.buffer = audioBuffer;
+  src.connect(audioCtx.destination);
+  src.onended = () => playNextChunk();
+  src.start();
+}
+
+// ── Server event handler ───────────────────────────────────────────────────
+
+// Reject empty/phantom transcripts so the interviewer never responds to
+// nothing. Whisper-family models emit these on silence/noise.
+const NOISE_TRANSCRIPTS = new Set([
+  'you', 'thank you', 'thank you.', 'thanks', 'bye', 'bye.', '.', '. .',
+  'thank you for watching', 'thank you for watching.', 'you.', 'so', 'so.',
+  'okay', 'okay.', 'ok', 'yeah', 'mm', 'mhm', 'hmm', 'uh', 'um',
+]);
+
+function isRealSpeech(t) {
+  if (!t) return false;
+  const clean = t.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+  if (clean.length < 3) return false;         // too short to be a real answer
+  if (NOISE_TRANSCRIPTS.has(t.toLowerCase().trim())) return false;
+  if (!/[a-z0-9]/.test(clean)) return false;  // punctuation only
+  return true;
+}
+
+function handleServerEvent(evt) {
+  switch (evt.type) {
+    case 'session.created':
+    case 'session.updated':
+      addMessage('system', `Session ${evt.type.split('.')[1]} — model: ${evt.session?.model || 'realtime-2.1-mini'}`);
+      break;
+
+    case 'input_audio_buffer.speech_started':
+      document.getElementById('vadDot').classList.add('speaking');
+      lastUserSpeechEnd = 0;
+      break;
+
+    case 'input_audio_buffer.speech_stopped':
+      document.getElementById('vadDot').classList.remove('speaking');
+      lastUserSpeechEnd = Date.now();
+      break;
+
+    case 'conversation.item.input_audio_transcription.completed':
+      if (evt.transcript) {
+        const t = evt.transcript.trim();
+        addMessage('user', t);
+        // Only NOW do we let the interviewer respond — and only if the
+        // candidate actually said something substantive. This is what stops
+        // the model auto-generating/hallucinating questions on silence or
+        // noise (VAD false-fires + Whisper phantom "you"/"Thank you.").
+        if (isRealSpeech(t)) {
+          ws.send(JSON.stringify({ type: 'response.create' }));
+        }
+      }
+      break;
+
+    // Audio deltas — GA (output_audio) + beta (audio) event names.
+    case 'response.output_audio.delta':
+    case 'response.audio.delta':
+      if (evt.delta) enqueueAudio(evt.delta);
+      break;
+
+    case 'response.output_text.delta':
+    case 'response.text.delta':
+      if (evt.delta) addMessage('assistant', evt.delta, true);
+      break;
+
+    case 'response.created':
+      currentAssistantMsg = null;
+      if (lastUserSpeechEnd > 0) {
+        const latency = Date.now() - lastUserSpeechEnd;
+        document.getElementById('statLatency').textContent = latency + 'ms';
+      }
+      break;
+
+    // Assistant transcript deltas — GA (output_audio_transcript) + beta.
+    case 'response.output_audio_transcript.delta':
+    case 'response.audio_transcript.delta':
+      if (evt.delta) addMessage('assistant', evt.delta, true);
+      break;
+
+    case 'response.done':
+      turnCount++;
+      document.getElementById('statTurns').textContent = turnCount;
+      if (evt.response?.usage) {
+        const u = evt.response.usage;
+        totalTokens.input += u.input_tokens || 0;
+        totalTokens.output += u.output_tokens || 0;
+        document.getElementById('statTokens').textContent =
+          `${totalTokens.input}/${totalTokens.output}`;
+        totalCost += costOfUsage(u);
+        // 4 decimals so a single turn is visible; shows exact running total.
+        document.getElementById('statCost').textContent = '$' + totalCost.toFixed(4);
+      }
+      currentAssistantMsg = null;
+      break;
+
+    case 'error':
+      addMessage('system', 'Error: ' + (evt.error?.message || JSON.stringify(evt.error)));
+      console.error('Realtime error:', evt.error);
+      break;
+
+    default:
+      console.log('Event:', evt.type, evt);
+  }
+}
+
+// ── Visualizer ─────────────────────────────────────────────────────────────
+
+function drawVisualizer() {
+  if (!analyser) return;
+  requestAnimationFrame(drawVisualizer);
+  const bufLen = analyser.frequencyBinCount;
+  const data = new Uint8Array(bufLen);
+  analyser.getByteFrequencyData(data);
+
+  canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+  canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+  const w = canvas.width, h = canvas.height;
+  canvasCtx.clearRect(0, 0, w, h);
+
+  const barW = (w / bufLen) * 2.5;
+  let x = 0;
+  for (let i = 0; i < bufLen; i++) {
+    const barH = (data[i] / 255) * h;
+    const hue = 250 + (i / bufLen) * 60;
+    canvasCtx.fillStyle = `hsla(${hue}, 70%, 60%, 0.8)`;
+    canvasCtx.fillRect(x, h - barH, barW - 1, barH);
+    x += barW;
+  }
+}
+
+// ── Duration timer ─────────────────────────────────────────────────────────
+
+function updateDuration() {
+  if (!sessionStart) return;
+  const sec = Math.floor((Date.now() - sessionStart) / 1000);
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  document.getElementById('statDuration').textContent = `${m}:${s.toString().padStart(2, '0')}`;
+  setTimeout(updateDuration, 1000);
+}
+</script>
+</body>
+</html>
