@@ -52,6 +52,17 @@ jobs:
               sudo journalctl -u rag.service -n 30 --no-pager || true
               exit 1
             fi
+
+            # Restart the realtime voice-test app (systemd unit rt-app, :8110/8111,
+            # proxied by nginx at /realtime/). Non-fatal: don't fail the deploy.
+            sudo systemctl restart rt-app.service || true
+            sleep 6
+            if curl -sf -m 8 http://127.0.0.1:8110/ > /dev/null; then
+              echo "Realtime app restarted successfully"
+            else
+              echo "WARN: realtime app not responding"
+              sudo journalctl -u rt-app.service -n 20 --no-pager || true
+            fi
           ENDSSH
 
           rm -f /tmp/key.pem
