@@ -48,6 +48,16 @@ TARGET_DIR = _PARENT           # where the RAG globs TC-*.html
 # of LEC-SNPS-R2N (Synopsys Formality content, 0 Cadence/Conformal refs). The
 # correct LEC-SNPS-R2N (AES + CVA6 RTL-to-Gate LEC) IS synced.
 SKIP_FOLDERS = {"Deleted", "Lab exams", "Videos", "LEC-CDN-R2N"}
+# The LEC-SNPS-R2N *folder* also holds stray files mis-named TC-LEC-CDN-R2N-*
+# (same Synopsys content, wrong CDN label). Skip those files by name too, so a
+# folder skip isn't enough to miss them. Matched case-insensitively by prefix.
+SKIP_FILE_PREFIXES = ("TC-LEC-CDN-R2N",)
+
+
+def _skip_file(name):
+    """True if this html file name is excluded from the corpus."""
+    n = (name or "").lower()
+    return any(n.startswith(p.lower()) for p in SKIP_FILE_PREFIXES)
 
 
 def corpus_name(name):
@@ -111,6 +121,8 @@ def walk_html(token, folder_id, prefix=""):
                 continue
             out += walk_html(token, rid, prefix + name + "/")
         elif (a.get("extn") or "").lower() == "html":
+            if _skip_file(name):
+                continue
             out.append({"id": rid, "name": name, "path": prefix + name})
     return out
 

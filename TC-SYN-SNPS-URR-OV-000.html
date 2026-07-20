@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synthesis and Linking Lab &mdash; Physical Design Lab</title>
+    <link rel="stylesheet" href="./common/styles.css">
+</head>
+<body>
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Lab 01: Synthesis and Linking in Design Compiler</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#128218; Course: Physical Design</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128295; Tools: Design Compiler (DC)</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201;&#65039; Duration: 4-6 hours</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#127919; Difficulty: Intermediate</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Learning Objectives -->
+        <div class="content-box">
+            <h2 class="section-title">&#127919; Learning Objectives</h2>
+            <div class="section-content">
+                <p>By the end of this lab, you will be able to:</p>
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                    <li>Understand the synthesis and linking flow in Design Compiler</li>
+                    <li>Identify and resolve unresolved reference errors during synthesis</li>
+                    <li>Properly manage RTL file lists and library configurations</li>
+                    <li>Debug LINK warnings and errors (UID-341, LINK-5)</li>
+                    <li>Fix missing module references by adding files to the file list.</li>
+                    <li>Apply best practices for hierarchical design compilation</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128736;&#65039; Prerequisites</h2>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                <li><strong>Tcl Scripting:</strong> Basic knowledge of variables, lists, and path sourcing for synthesis scripts.</li>
+                <li><strong>RTL Fundamentals:</strong> Understanding of Verilog module hierarchy and instantiation.</li>
+                <li><strong>Synthesis Flow:</strong> Familiarity with the synthesis process, specifically Elaboration and Linking stages.</li>
+                <li><strong>Library Management:</strong> Understanding of technology libraries, specifically managing target_library, link_library, and .db files.</li>
+                <li><strong>Hierarchical Navigation:</strong> Experience tracing dependencies in complex hierarchical designs.</li>
+            </ul>
+        </div>
+
+        <!-- Theory Section -->
+        <div class="content-box">
+            <h2 class="section-title">&#128214; Theory and Background</h2>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">What is Synthesis?</h3>
+                <p>In VLSI, synthesis is the process of translating your Register-Transfer Level (RTL) design, written in languages like Verilog or VHDL, into a gate-level netlist. The synthesis tool optimizes for Power, Performance, and Area (PPA) during this conversion.</p>
+            </div>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Understanding the Linking Phase</h3>
+                <p>After reading your RTL files, Design Compiler performs a "linking" operation. This process happens during the elaboration stage, where the tool prepares your design for synthesis.</p>
+                <p>During this phase, the tool performs three essential checks:</p>
+                <ul style="margin-left: 30px; margin-top: 10px; line-height: 1.8;">
+                    <li><strong>Resolves module references:</strong> Connects instantiated modules to their definitions</li>
+                    <li><strong>Checks hierarchy:</strong> Ensures all submodules are available</li>
+                    <li><strong>Validates library cells:</strong> Confirms standard cells exist in the technology library</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Common Unresolved Reference Errors</h3>
+
+                <div class="info-card">
+                    <strong>UID-341 Warning:</strong> UID-341  (warning) Design '%s' has '%d' unresolved references. For more detailed information, use the "link" command.
+                    <p style="margin-top: 10px;">This indicates Design Compiler cannot find the definition of a module that is instantiated in your design.</p>
+                </div>
+
+                <div class="info-card">
+                    <strong>LINK-5 Warning: </strong>LINK-5 (warning) Unable to resolve reference '%s' in '%s'.
+                    <p style="margin-top: 10px;">Similar to UID-341, this appears during the link command and indicates missing module definitions.</p>
+                </div>
+
+                <h4 style="margin-top: 20px; color: #2c3e50;">Root Causes:</h4>
+                <ul style="margin-left: 30px; margin-top: 10px; line-height: 1.8;">
+                    <li><strong>Missing RTL file:</strong> The file containing the module definition wasn't added to the filelist</li>
+                    <li><strong>Typo in module name:</strong> Instantiation name doesn't match the defined module name</li>
+                    <li><strong>Missing library file:</strong> Standard cell not found in technology library (for std cells)</li>
+                    <li><strong>Incorrect search path:</strong> DC cannot locate the file even if it exists</li>
+                    <li><strong>Port mismatch:</strong> Module definition has different ports than instantiation</li>
+                </ul>
+
+                <div class="section" style="margin-top: 25px; padding: 20px; background-color: #f1f4ff; border-radius: 8px; border: 1px solid #d1d9ff;">
+                    <h4 style="color: #2c3e50; margin-bottom: 10px;">&#128161; Lab Focus: The Two Main Culprits</h4>
+                    <p>Throughout these testcases, you will be solving the two most frequent issues encountered in synthesis:</p>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.6;">
+                        <li><strong>Missing Source Files:</strong> Adding missing RTL files to the filelist.</li>
+                        <li><strong>Library Configuration Issues:</strong> Resolving path errors or missing macro/standard cell databases in the link_library variable.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+
+            <div class="quiz-container">
+                <div class="quiz-question">
+                    <h3>Question 1: What does the LINK-5 warning indicate?</h3>
+                    <ul class="quiz-options" id="q1-options">
+                        <li onclick="selectAnswer('q1', 0, false)">A. Syntax error in the RTL code</li>
+                        <li onclick="selectAnswer('q1', 1, true)">B. Design Compiler cannot find the definition of an instantiated module</li>
+                        <li onclick="selectAnswer('q1', 2, false)">C. Timing constraint violation</li>
+                        <li onclick="selectAnswer('q1', 3, false)">D. Library cell is missing</li>
+                    </ul>
+                    <div id="q1-feedback" class="feedback"></div>
+                    <div id="q1-answer" class="answer">
+                        <p><strong>Correct!</strong> LINK-5 warnings appear during the linking phase when Design Compiler has read a module that instantiates another module, but it cannot find the definition of that instantiated module.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 2: Which command is used to connect module instantiations to their definitions in DC?</h3>
+                    <ul class="quiz-options" id="q3-options">
+                        <li onclick="selectAnswer('q3', 0, false)">A. compile</li>
+                        <li onclick="selectAnswer('q3', 1, false)">B. synthesize</li>
+                        <li onclick="selectAnswer('q3', 2, true)">C. link</li>
+                        <li onclick="selectAnswer('q3', 3, false)">D. analyze</li>
+                    </ul>
+                    <div id="q3-feedback" class="feedback"></div>
+                    <div id="q3-answer" class="answer">
+                        <p><strong>Correct!</strong> The link command in Design Compiler resolves all module references and connects instantiated modules to their definitions.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 3: Which variable is primarily used to resolve standard cell and macro library databases (.db files)?</h3>
+                    <ul class="quiz-options" id="q4-options">
+                        <li onclick="selectAnswer('q4', 0, false)">A. search_path</li>
+                        <li onclick="selectAnswer('q4', 1, true)">B. link_library &amp; target_library</li>
+                        <li onclick="selectAnswer('q4', 2, false)">C. synthetic_library</li>
+                        <li onclick="selectAnswer('q4', 3, false)">D. rtl_files</li>
+                    </ul>
+                    <div id="q4-feedback" class="feedback"></div>
+                    <div id="q4-answer" class="answer">
+                        <p><strong>Correct!</strong> The link_library variable is used to reference required memory macros and standard cell databases, which helps avoid library-related errors.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 4: At which stage does Design Compiler validate that standard cells exist in the technology library?</h3>
+                    <ul class="quiz-options" id="q5-options">
+                        <li onclick="selectAnswer('q5', 0, false)">A. Reading RTL</li>
+                        <li onclick="selectAnswer('q5', 1, true)">B. Linking Phase</li>
+                        <li onclick="selectAnswer('q5', 2, false)">C. Post-Synthesis Timing Analysis</li>
+                        <li onclick="selectAnswer('q5', 3, false)">D. Floorplanning</li>
+                    </ul>
+                    <div id="q5-feedback" class="feedback"></div>
+                    <div id="q5-answer" class="answer">
+                        <p><strong>Correct!</strong> During the linking phase of the elaboration stage, the tool validates that all standard cells exist in the technology library.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Testcase Overview -->
+        <div class="content-box">
+            <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Testcase</th>
+                        <th>Type</th>
+                        <th>Focus Area</th>
+                        <th>Difficulty</th>
+                        <th>Estimated Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="TC-SYN-SNPS-URR-GD-001/TC-SYN-SNPS-URR-GD-001.html" style="color: #667eea; text-decoration: none;">Testcase 1</a></td>
+                        <td><span class="type-guided">Guided</span></td>
+                        <td>Top design with missing RTL file in filelist</td>
+                        <td>&#11088; Easy</td>
+                        <td>45-60 min</td>
+                    </tr>
+                    <tr>
+                        <td><a href="TC-SYN-SNPS-URR-CH-001/TC-SYN-SNPS-URR-CH-001.html" style="color: #667eea; text-decoration: none;">Testcase 2</a></td>
+                        <td><span class="type-independent">Challenge</span></td>
+                        <td>AES cipher design with library issues</td>
+                        <td>&#11088;&#11088; Medium</td>
+                        <td>90-120 min</td>
+                    </tr>
+                    <tr>
+                        <td><a href="TC-SYN-SNPS-URR-CH-002/TC-SYN-SNPS-URR-CH-002.html" style="color: #667eea; text-decoration: none;">Testcase 3</a></td>
+                        <td><span class="type-independent">Challenge</span></td>
+                        <td>Iguana Soc design with multiple missing modules</td>
+                        <td>&#11088;&#11088;&#11088; Hard</td>
+                        <td>120-180 min</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div style="margin-top: 30px;">
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">Testcase 1: Guided Exercise</h3>
+                <p>In this guided testcase, you will learn the complete process of identifying and fixing unresolved reference errors. The scenario involves a missing rtl module and library path issues that causes LINK-5 warnings. You'll follow step-by-step instructions to locate the missing file, add it to the filelist, and verify successful linking.</p>
+
+                <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Testcase 2: Challenge Assignment</h3>
+                <p>You are given an AES cipher design that fails during synthesis with multiple unresolved references. Using your knowledge from Testcase 1 to resolve the warnings. Only the problem statement and success criteria are provided.</p>
+
+                <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Testcase 3: Challenge Assignment</h3>
+                <p>The most complex scenario involves a Tile design with hierarchical instantiation. You must trace through the design hierarchy to identify all dependencies, including both missing RTL modules and missing macro libraries. Only the problem statement and success criteria are provided.</p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="content-box">
+            <h2 class="section-title">&#128640; Begin the Lab</h2>
+            <p>Start with Testcase 1 (Guided Exercise) to learn the fundamental concepts, then progress to the challenge assignments.</p>
+
+            <div class="action-buttons">
+                <a href="TC-SYN-SNPS-URR-GD-001/TC-SYN-SNPS-URR-GD-001.html" class="btn btn-primary">Start Testcase 1 (Guided) &#8594;</a>
+                <a href="TC-SYN-SNPS-URR-CH-001/TC-SYN-SNPS-URR-CH-001.html" class="btn btn-secondary">Jump to Testcase 2 &#8594;</a>
+                <a href="TC-SYN-SNPS-URR-CH-002/TC-SYN-SNPS-URR-CH-002.html" class="btn btn-secondary">Jump to Testcase 3 &#8594;</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="./common/interactive.js"></script>
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        function selectAnswer(questionId, optionIndex, isCorrect) {
+            const options = document.querySelectorAll(`#${questionId}-options li`);
+            const feedback = document.getElementById(`${questionId}-feedback`);
+            const answer = document.getElementById(`${questionId}-answer`);
+
+            // Remove previous selections for this question
+            options.forEach(opt => {
+                opt.classList.remove('selected', 'correct-answer', 'wrong-answer');
+            });
+
+            // Mark selected option
+            const selectedOption = options[optionIndex];
+            selectedOption.classList.add('selected');
+
+            // Show feedback
+            feedback.style.display = 'block';
+            if (isCorrect) {
+                selectedOption.classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '&#9989; Correct! Well done.';
+                if (answer) answer.style.display = 'block';
+            } else {
+                selectedOption.classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '&#10060; Incorrect. Try again!';
+                if (answer) answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lab PV: CDL Generation and LVS — Calibre</title>
+    <link rel="stylesheet" href="common/styles.css">
+</head>
+<body>
+    <div class="scroll-progress" id="scrollProgress"></div>
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">CDL Generation and LVS using Calibre</h1>
+            <div class="lab-meta">
+                <div class="meta-item"><span>🔬 Skill: Physical Verification</span></div>
+                <div class="meta-item"><span>📦 Module: CDL Generation and LVS</span></div>
+                <div class="meta-item"><span>🛠️ Tool: Calibre / v2lvs (Siemens EDA)</span></div>
+                <div class="meta-item"><span>⏱️ Estimated Time: 90 minutes</span></div>
+                <div class="meta-item"><span>⭐ Difficulty: Advanced</span></div>
+            </div>
+        </div>
+    </header>
+    <div class="container">
+
+        <div class="content-box">
+            <h2 class="section-title">🎯 Learning Objectives</h2>
+            <div class="section-content">
+                <ul style="margin-left:20px; line-height:2;">
+                    <li>Understand what Layout vs. Schematic (LVS) checks and why it is required before tapeout</li>
+                    <li>Use <code>v2lvs</code> to convert a post-route Verilog (PG) netlist to CDL format</li>
+                    <li>Configure a Calibre LVS runset and run LVS successfully</li>
+                    <li>Identify and fix errors in CDL generation and LVS runset configuration</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">📚 Background: CDL Generation and LVS</h2>
+            <div class="section-content">
+                <p><strong>Layout vs. Schematic (LVS)</strong> verifies that the physical layout (GDS)
+                   matches the circuit netlist (schematic). It extracts a netlist from the layout and
+                   compares it to the reference netlist. Any mismatch — missing connections, extra devices,
+                   swapped pins — is reported as an LVS violation.</p>
+                <p style="margin-top:15px;">For digital ASIC designs, the reference netlist is the
+                   post-route power-ground annotated Verilog (<code>.pg.vg</code>). Calibre LVS
+                   expects a SPICE/CDL format schematic, so a conversion step is needed first.</p>
+                <p style="margin-top:15px;"><strong>Step 1 — CDL generation</strong> using <code>v2lvs</code>:</p>
+                <pre class="code-block">v2lvs -v aes_cipher_top.pg.vg \
+      -s tcbn28hpcplusbwp40p140_110a.spi \
+      -o aes_cipher_top.cdl \
+      -i aes_cipher_top</pre>
+                <p style="margin-top:15px;"><strong>Step 2 — LVS run</strong> using Calibre:</p>
+                <pre class="code-block">calibre -turbo 2 -hier -lvs lvs_runset.rule</pre>
+                <p style="margin-top:15px;">The LVS runset points <code>SOURCE PATH</code> to the generated CDL and
+                   <code>LAYOUT PATH</code> to the fill-merged GDS. A successful LVS ends with <code>PASS</code>
+                   in the report file.</p>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">🧠 Knowledge Check</h2>
+            <div class="quiz-container">
+                <div class="quiz-question">
+                    <h3>1. What does LVS verify?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">That the design meets timing constraints</li>
+                        <li onclick="checkAnswer(this, true)">That the physical layout matches the circuit netlist</li>
+                        <li onclick="checkAnswer(this, false)">That all metal layers have sufficient density</li>
+                        <li onclick="checkAnswer(this, false)">That DRC violations are zero</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> LVS compares extracted layout netlist against the reference schematic/CDL.</div>
+                </div>
+                <div class="quiz-question">
+                    <h3>2. Why is v2lvs needed before running Calibre LVS?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">Calibre cannot read GDS directly</li>
+                        <li onclick="checkAnswer(this, true)">Calibre LVS expects a SPICE/CDL schematic; the post-route netlist is in Verilog format</li>
+                        <li onclick="checkAnswer(this, false)">v2lvs compresses the netlist for faster LVS</li>
+                        <li onclick="checkAnswer(this, false)">v2lvs adds power/ground pins missing from the Verilog</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> v2lvs converts Verilog → CDL (SPICE) so Calibre can parse the schematic side of LVS.</div>
+                </div>
+                <div class="quiz-question">
+                    <h3>3. In the LVS runset, SOURCE PATH points to:</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">The original post-route Verilog (.pg.vg)</li>
+                        <li onclick="checkAnswer(this, true)">The generated CDL file (aes_cipher_top.cdl)</li>
+                        <li onclick="checkAnswer(this, false)">The fill-merged GDS</li>
+                        <li onclick="checkAnswer(this, false)">The PDK SPICE library</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> SOURCE PATH is the schematic (CDL) side; LAYOUT PATH is the GDS side.</div>
+                </div>
+                <div class="quiz-question">
+                    <h3>4. A successful Calibre LVS run ends with what text in the report?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">LVS COMPLETE</li>
+                        <li onclick="checkAnswer(this, true)">PASS</li>
+                        <li onclick="checkAnswer(this, false)">TOTAL RESULTS 0</li>
+                        <li onclick="checkAnswer(this, false)">MATCH</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Calibre LVS prints "PASS" in the LVS report when layout and schematic match.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">🗂️ Lab Structure</h2>
+            <div class="section-content">
+                <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+                    <tr style="background:#667eea; color:#fff;">
+                        <th style="padding:10px; text-align:left;">Testcase</th>
+                        <th style="padding:10px; text-align:left;">Type</th>
+                        <th style="padding:10px; text-align:left;">What you will do</th>
+                    </tr>
+                    <tr style="border-bottom:1px solid #eee;">
+                        <td style="padding:10px;"><a href="TC-PV-SIE-LVS-GD-001/TC-PV-SIE-LVS-GD-001.html">Guided</a></td>
+                        <td style="padding:10px;">Guided</td>
+                        <td style="padding:10px;">Generate CDL and run LVS, verify PASS result</td>
+                    </tr>
+                    <tr style="border-bottom:1px solid #eee; background:#f9f9f9;">
+                        <td style="padding:10px;"><a href="TC-PV-SIE-LVS-CH-001/TC-PV-SIE-LVS-CH-001.html">Challenge 1</a></td>
+                        <td style="padding:10px;">Challenge</td>
+                        <td style="padding:10px;">Fix wrong input netlist in run_cdl.sh</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:10px;"><a href="TC-PV-SIE-LVS-CH-002/TC-PV-SIE-LVS-CH-002.html">Challenge 2</a></td>
+                        <td style="padding:10px;">Challenge</td>
+                        <td style="padding:10px;">Fix wrong SOURCE PATH in LVS runset</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="TC-PV-SIE-LVS-GD-001/TC-PV-SIE-LVS-GD-001.html" class="btn btn-success">Begin Guided →</a>
+            </div>
+        </div>
+
+    </div>
+    <script>
+        var LAB_ID       = 'PV-SIE-LVS';
+        var TESTCASE_NUM = '0';
+    </script>
+    <script src="common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function() { const el=document.getElementById('scrollProgress'); el.style.width=(window.scrollY/(document.documentElement.scrollHeight-window.innerHeight)*100)+'%'; });
+        function checkAnswer(option, isCorrect) {
+            const parent=option.parentElement, container=parent.parentElement;
+            const feedback=container.querySelector('.feedback'), answer=container.querySelector('.answer');
+            parent.querySelectorAll('li').forEach(o=>o.style.pointerEvents='none');
+            if(isCorrect){option.classList.add('correct-answer');feedback.textContent='Correct!';feedback.className='feedback correct';feedback.style.display='block';if(answer)answer.style.display='block';}
+            else{option.classList.add('wrong-answer');feedback.textContent='Incorrect. Try again.';feedback.className='feedback incorrect';feedback.style.display='block';}
+        }
+    </script>
+</body>
+</html>

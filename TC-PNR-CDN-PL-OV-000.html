@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Standard Cell Placement — PNR-CDN-PL</title>
+    <link rel="stylesheet" href="common/styles.css">
+    <style>
+        code { color: #333; }
+        .btn-check-answer {
+            background: #2563eb; color: #fff; border: none;
+            padding: 8px 18px; border-radius: 6px; cursor: pointer;
+            font-size: 0.95em; margin-top: 12px;
+        }
+        .btn-check-answer:hover:not(:disabled) { background: #1d4ed8; }
+        .btn-check-answer:disabled { background: #9ca3af; cursor: not-allowed; }
+        .quiz-options li.selected { background: #eff6ff; border-left: 4px solid #2563eb; color: #1e3a8a; }
+        .goal-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .goal-card {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 14px 16px;
+        }
+        .goal-card h4 { color: #667eea; margin-bottom: 8px; font-size: 0.95em; }
+        .goal-card ul { margin-left: 16px; line-height: 1.9; font-size: 0.93em; }
+        @media (max-width: 700px) { .goal-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Standard Cell Placement with Cadence Innovus</h1>
+            <div class="lab-meta">
+                <div class="meta-item"><span>&#128218; Topic: Physical Design — Placement Stage</span></div>
+                <div class="meta-item"><span>&#128295; Tool: Cadence Innovus (innovus)</span></div>
+                <div class="meta-item"><span>&#9201; Duration: 3–5 hours</span></div>
+                <div class="meta-item"><span>&#127919; Difficulty: Intermediate</span></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <!-- Learning Objectives -->
+        <div class="content-box">
+            <h2 class="section-title">&#127919; Learning Objectives</h2>
+            <div class="section-content">
+                <p>By the end of this lab, you will be able to:</p>
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                    <li>Explain the two phases of standard cell placement: global placement and legalization</li>
+                    <li>Describe why power rail connectivity must be established before placement begins</li>
+                    <li>Explain the role of IO buffers and why they require cell padding around them</li>
+                    <li>Justify why LVT cells are excluded from logic placement but kept available for CTS</li>
+                    <li>Describe what spare cells are and why they are distributed during placement rather than added later</li>
+                    <li>Interpret post-placement reports: <code>check_place</code>, congestion map, and timing summary</li>
+                    <li>Understand the relationship between placement density, routing congestion, and timing quality</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Prerequisites -->
+        <div class="content-box">
+            <h2 class="section-title">&#128295; Prerequisites</h2>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                <li><strong>PNR-CDN-DI (init_design):</strong> Comfortable loading a gate-level netlist, LEF/LIB files, and MMMC configuration into Innovus.</li>
+                <li><strong>PNR-CDN-FP (Floorplan):</strong> Understanding of die/core area definition, power ring planning, and macro pre-placement.</li>
+                <li><strong>Tcl Scripting:</strong> Ability to read and reason about <code>set_db</code> commands, <code>get_lib_cells</code> queries, and Tcl list syntax.</li>
+                <li><strong>Standard Cell Concepts:</strong> Familiarity with cell threshold types (HVT/SVT/LVT), drive strength naming conventions, and row-based placement.</li>
+                <li><strong>Density and Utilization:</strong> Understanding that core utilization equals total cell area divided by core area and must remain below 1.0.</li>
+            </ul>
+        </div>
+
+        <!-- Theory -->
+        <div class="content-box">
+            <h2 class="section-title">&#128214; Theory and Background</h2>
+
+            <!-- What is Placement -->
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">What is Standard Cell Placement?</h3>
+                <p>After floorplanning defines the die boundaries and places hard macros, the next task is to assign every standard cell — every NAND gate, flip-flop, buffer, and MUX — to a legal physical position on the die. This step is called <strong>standard cell placement</strong>.</p>
+                <p style="margin-top: 12px;">A legal position means the cell sits inside a standard cell row, does not overlap any other cell or macro, and aligns to the site grid (the smallest addressable unit in the technology, typically the width of the narrowest standard cell). The placement tool must assign positions to potentially millions of cells while simultaneously optimizing for timing, congestion, and power.</p>
+                <p style="margin-top: 12px;">In Cadence Innovus, placement is performed by the <strong><code>place_opt_design</code></strong> command, which combines global placement, legalization, and post-placement optimization in a single invocation.</p>
+            </div>
+
+            <!-- Goals and Aims of Placement -->
+            <div class="section" style="margin-top: 30px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">&#127945; Goals and Aims of Standard Cell Placement</h3>
+                <p>Standard cell placement must simultaneously satisfy five engineering objectives. Every <code>set_db</code> parameter in the placement script exists to serve one or more of these goals:</p>
+
+                <div class="goal-grid">
+                    <div class="goal-card">
+                        <h4>&#9200; Timing Closure</h4>
+                        <ul>
+                            <li>Place cells to <strong>minimize wire length on critical paths</strong> — at 28nm, wire capacitance dominates propagation delay; shorter wires directly reduce path delay</li>
+                            <li>The placer uses estimated wire delays to move timing-critical cells close to each other during global placement</li>
+                            <li>Post-placement WNS (Worst Negative Slack) from <code>time_design -pre_cts</code> must be manageable — if WNS is –500 ps or worse, CTS and routing alone cannot recover timing</li>
+                            <li>Controlled by: <code>place_global_timing_effort medium</code></li>
+                        </ul>
+                    </div>
+                    <div class="goal-card">
+                        <h4>&#128260; Routing Congestion Avoidance</h4>
+                        <ul>
+                            <li>Cells must be distributed so that no local region has more routing demand than the available metal tracks supply</li>
+                            <li>The global router divides the core into GR tiles — overflow (demand > supply) in any tile predicts routing failure at the detail routing stage</li>
+                            <li>Setting <code>place_global_max_density 0.65</code> leaves 35% of row sites empty as routing headroom</li>
+                            <li>Controlled by: <code>place_global_cong_effort high</code> — spreads cells aggressively to eliminate hotspots</li>
+                        </ul>
+                    </div>
+                    <div class="goal-card">
+                        <h4>&#9989; Placement Legality</h4>
+                        <ul>
+                            <li>Every cell must sit in a standard cell row, aligned to the site grid, not overlapping any other cell or macro</li>
+                            <li>Cells must be oriented so their VDD/VSS rails align with the row's power rails — flipped cells must match the row polarity</li>
+                            <li>Macros with embedded memory require halo keepout zones — standard cells cannot be packed against macro pin access areas</li>
+                            <li>Verified by: <code>check_place</code> — zero violations required before CTS</li>
+                        </ul>
+                    </div>
+                    <div class="goal-card">
+                        <h4>&#9633; Area Efficiency</h4>
+                        <ul>
+                            <li>The core area is fixed by the floorplan — every µm² of underutilized area is wasted die cost</li>
+                            <li>Too sparse (below 50%) wastes silicon; too dense (above 70–75%) causes routing failure — 65% is the engineering balance point for TSMC 28nm</li>
+                            <li>Spare cells, tieoff cells, and IO buffers all consume real placement area and must be accounted for during placement, not added later</li>
+                            <li>Controlled by: <code>place_global_max_density 0.65</code></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="goal-card" style="margin-top: 16px;">
+                    <h4>&#9889; Power Delivery Consistency</h4>
+                    <ul>
+                        <li>Cells with high switching activity draw short bursts of current from the power grid when they switch — clustering high-activity cells creates local IR drop spikes</li>
+                        <li>Even distribution across the core prevents current concentration hotspots that exceed the IR drop budget (typically 5% of VDD)</li>
+                        <li>After placement, power rail connections must be re-established with <code>connect_global_net</code> for all newly inserted cells (tieoffs, optimizer-added buffers) so the power grid analysis sees a complete and connected network</li>
+                    </ul>
+                </div>
+
+                <div class="info-card" style="margin-top: 20px; background: #e8f4f8; border-left-color: #2196f3;">
+                    <strong>&#128270; How placement parameters map to goals in this lab:</strong>
+                    <table style="width:100%; margin-top: 10px; font-size: 0.93em;">
+                        <thead><tr style="background:#2c3e50; color:#fff;">
+                            <th style="padding:8px;">set_db parameter</th>
+                            <th style="padding:8px;">Value</th>
+                            <th style="padding:8px;">Goal it serves</th>
+                        </tr></thead>
+                        <tbody>
+                            <tr style="background:#f8f9fa;"><td style="padding:8px;"><code>place_global_cong_effort</code></td><td style="padding:8px;">high</td><td style="padding:8px;">Congestion avoidance</td></tr>
+                            <tr><td style="padding:8px;"><code>place_global_timing_effort</code></td><td style="padding:8px;">medium</td><td style="padding:8px;">Timing closure</td></tr>
+                            <tr style="background:#f8f9fa;"><td style="padding:8px;"><code>place_global_max_density</code></td><td style="padding:8px;">0.65</td><td style="padding:8px;">Area efficiency + congestion</td></tr>
+                            <tr><td style="padding:8px;"><code>place_detail_legalization_inst_gap</code></td><td style="padding:8px;">2</td><td style="padding:8px;">Legality + local routing</td></tr>
+                            <tr style="background:#f8f9fa;"><td style="padding:8px;"><code>add_tieoffs_max_distance</code></td><td style="padding:8px;">50 µm</td><td style="padding:8px;">Legality (tieoff proximity)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Two Phases -->
+            <div class="section" style="margin-top: 30px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Two Phases: Global Placement and Legalization</h3>
+                <div class="info-card">
+                    <strong>Phase 1: Global Placement</strong>
+                    <p style="margin-top: 8px;">The global placement engine distributes cells across the core area to minimize the total estimated wire length. It treats cells as floating objects that can be positioned at any location within the core. The result is an approximate placement where cells may overlap each other — legally invalid but a good starting point for timing and congestion estimation.</p>
+                    <p style="margin-top: 8px;">Global placement is timing-aware: it models estimated wire delays based on predicted wire lengths and moves cells closer to the other cells they connect to most. Critical timing paths are given priority, with cells on those paths placed to minimize their estimated delay.</p>
+                </div>
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Phase 2: Legalization</strong>
+                    <p style="margin-top: 8px;">Legalization resolves all overlaps and snaps cells to legal site positions while minimizing displacement from the globally-placed positions. Each cell must be assigned to a row, aligned to the site grid, and oriented so its VDD/VSS rails align with the power rail of its row (cells may be flipped vertically to achieve this).</p>
+                    <p style="margin-top: 8px;">After legalization, every cell has a unique, non-overlapping, row-legal position. The tool then runs post-placement optimization (PPO) to fix timing violations introduced by the displacement from global placement to legal positions.</p>
+                </div>
+            </div>
+
+            <!-- Power Rail Connectivity -->
+            <div class="section" style="margin-top: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Power Rail Connectivity and Standard Cell Rows</h3>
+                <p>Standard cells in a technology library are designed so that their power (VDD) and ground (VSS) pins connect through the top and bottom edges of the cell to horizontal power rails that run the full width of each standard cell row. These rails are pre-routed as part of the power plan and connect to the power ring through power stripes.</p>
+                <p style="margin-top: 10px;">Before placement begins, Innovus must know which net in the design is the power supply and which is ground. This knowledge is used when the placement engine flips cells vertically — it must ensure that a flipped cell's VDD pin aligns with the VDD rail of its row, not the VSS rail. The <strong><code>connect_global_net</code></strong> command makes this association explicit.</p>
+                <p style="margin-top: 10px;">If this association is wrong — if VDD and VSS are swapped — cells will be inserted upside-down relative to the power rail, causing catastrophic short circuits. This is why power connectivity setup is the very first action in the placement script.</p>
+            </div>
+
+            <!-- IO Buffers -->
+            <div class="section" style="margin-top: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">IO Buffers and Cell Padding</h3>
+                <p>Every signal entering or leaving the design boundary must pass through an IO buffer. These buffers serve as the electrical interface between the block's internal logic and the wires that connect to other blocks at the chip level. They provide adequate drive strength to drive the potentially long inter-block wires and protect the internal logic from noise on the boundary wires.</p>
+                <p style="margin-top: 10px;">IO buffers need extra empty space around them to accommodate the routing that connects them to the block boundary pins. This extra space is reserved using <strong>cell padding</strong>. IO buffers are placed with a status of <em>softfixed</em>, meaning the placer positions them near their associated port but can optimize their exact location slightly.</p>
+                <p style="margin-top: 10px;">Cell padding is applied specifically to the IO buffer instances after they are inserted; it is not applied to all cells of the same type (which would waste significant area).</p>
+            </div>
+
+            <!-- Cell Threshold Variants -->
+            <div class="section" style="margin-top: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Cell Threshold Variants: HVT, SVT, and LVT</h3>
+                <p>TSMC 28nm provides standard cells in three threshold voltage variants. Understanding the tradeoff is essential for placement configuration:</p>
+                <table style="margin-top: 12px; font-size: 0.9em;">
+                    <thead>
+                        <tr style="background: #FA9600; color: #fff;">
+                            <th style="padding: 10px;">Variant</th>
+                            <th style="padding: 10px;">Threshold Voltage</th>
+                            <th style="padding: 10px;">Switching Speed</th>
+                            <th style="padding: 10px;">Leakage Power</th>
+                            <th style="padding: 10px;">Typical Use</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 10px;">HVT</td>
+                            <td style="padding: 10px;">High</td>
+                            <td style="padding: 10px;">Slower</td>
+                            <td style="padding: 10px;">Lowest</td>
+                            <td style="padding: 10px;">Non-critical logic paths, low-power areas</td>
+                        </tr>
+                        <tr style="background: #f9f9f9;">
+                            <td style="padding: 10px;">SVT</td>
+                            <td style="padding: 10px;">Standard</td>
+                            <td style="padding: 10px;">Moderate</td>
+                            <td style="padding: 10px;">Moderate</td>
+                            <td style="padding: 10px;">General logic paths</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px;">LVT</td>
+                            <td style="padding: 10px;">Low</td>
+                            <td style="padding: 10px;">Fastest</td>
+                            <td style="padding: 10px;">Highest</td>
+                            <td style="padding: 10px;">Clock trees only (reserved for CTS)</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p style="margin-top: 12px;">In a standard 28nm flow, LVT cells are marked as <strong>dont_use</strong> before placement. This prevents the optimizer from inserting LVT cells into logic paths, where the extra leakage power is not justified by the speed gain. LVT cells are then made available again during Clock Tree Synthesis, where their speed advantage is critical for minimizing clock insertion delay.</p>
+                <p style="margin-top: 10px;">Clock-specific cells (CKBD, CKND, CKAN, CKMUX) and very large drive-strength variants are also marked dont_use to prevent them from appearing in logic paths where they would waste area and power.</p>
+            </div>
+
+            <!-- Spare Cells -->
+            <div class="section" style="margin-top: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Spare Cells and Tieoff Cells</h3>
+                <p><strong>Spare cells</strong> are standard cell instances that are not connected to any logic function in the current design. They are intentionally placed and distributed across the core area as resources for future in-metal Engineering Change Orders (ECOs).</p>
+                <p style="margin-top: 10px;">After a chip is manufactured and a functional bug is discovered, it is extremely expensive to change the diffusion or poly layers (which requires a full re-fabrication cycle). However, metal layers can be changed at much lower cost by modifying only the upper metal masks. Spare cells — pre-placed MUX, NAND, NOR, inverter, and buffer cells — can be reprogrammed through metal connections to implement small bug fixes without re-doing the underlying transistor layers.</p>
+                <p style="margin-top: 10px;">Spare cells must be placed during the placement stage, not later. Inserting them after routing would displace already-legalized cells, potentially worsen congestion, and require re-routing large portions of the design.</p>
+                <p style="margin-top: 10px;"><strong>Tieoff cells</strong> (tie-hi and tie-lo cells) connect constant-value logic nodes to VDD or VSS through dedicated cells rather than direct power connections. This prevents latch-up conditions and provides well-defined static logic levels.</p>
+            </div>
+
+            <!-- Placement Quality -->
+            <div class="section" style="margin-top: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Placement Quality: Density, Congestion, and Timing</h3>
+                <p>Three metrics define placement quality and must all be within acceptable limits before proceeding to CTS:</p>
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Core Utilization (Density)</strong>
+                    <p style="margin-top: 8px;">Utilization is the ratio of total placed cell area to total core area. If utilization is too high (above ~70%), there is insufficient space for routing wires to pass between cells, causing the router to fail or produce DRC violations. The tile design targets a maximum density of 65% to leave adequate routing headroom.</p>
+                </div>
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Routing Congestion</strong>
+                    <p style="margin-top: 8px;">Congestion occurs when more routing demand exists in a region than the available routing tracks can supply. The placement engine estimates congestion by dividing the core into a grid of global routing tiles and computing demand vs. supply in each tile. High congestion at placement predicts routing failures later. Setting a high congestion effort during placement causes the tool to spread cells more aggressively to reduce local demand hotspots.</p>
+                </div>
+                <div class="info-card" style="margin-top: 12px;">
+                    <strong>Pre-CTS Timing</strong>
+                    <p style="margin-top: 8px;">After placement, timing is analyzed using estimated wire delays (since actual wire routing has not occurred yet). The Worst Negative Slack (WNS) and Total Negative Slack (TNS) at this stage predict whether timing closure is achievable after routing. If WNS is severely negative at placement, routing and CTS alone are unlikely to recover the timing, and the placement parameters or constraints must be revisited.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+            <p style="color: #555; margin-bottom: 20px;">Test your understanding of placement concepts before starting the testcases.</p>
+            <div class="quiz-container">
+
+                <div class="quiz-question" id="q1">
+                    <h3>1. Why must power rail connectivity be established before placement begins?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)" data-correct="false">To assign metal layer routing to power stripes before cells are placed</li>
+                        <li onclick="selectOption(this)" data-correct="true">The placement engine must know which nets are power and ground so it can correctly orient cells — flipping them vertically to align their VDD/VSS rails with the power rail of their assigned row</li>
+                        <li onclick="selectOption(this)" data-correct="false">Because Innovus cannot read the netlist until power nets are connected</li>
+                        <li onclick="selectOption(this)" data-correct="false">To generate the power ring coordinates before the core area is defined</li>
+                    </ul>
+                    <div class="feedback" style="display:none;"></div>
+                    <div class="answer" style="display:none;"><strong>Correct!</strong> Standard cell rows have alternating VDD/VSS rails. When the placer inserts a cell, it may flip the cell vertically so its rails align with the row's rails. To do this correctly, Innovus must know which net is VDD and which is VSS. An incorrect power declaration causes cells to be inserted with reversed polarity, which is a catastrophic functional error.</div>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q2">
+                    <h3>2. What is the purpose of marking LVT cells as dont_use before placement?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)" data-correct="false">To prevent LVT cells from being used in the clock tree during CTS</li>
+                        <li onclick="selectOption(this)" data-correct="true">To prevent the optimizer from inserting LVT cells into logic paths, reserving them exclusively for the clock tree added during CTS where their speed advantage justifies the higher leakage</li>
+                        <li onclick="selectOption(this)" data-correct="false">To remove LVT cells from the technology library so they are not loaded into memory</li>
+                        <li onclick="selectOption(this)" data-correct="false">To reduce the library size and speed up the placement engine runtime</li>
+                    </ul>
+                    <div class="feedback" style="display:none;"></div>
+                    <div class="answer" style="display:none;"><strong>Correct!</strong> LVT cells switch faster but consume more leakage power. In a typical flow they are reserved exclusively for clock tree buffers, where every picosecond of insertion delay matters. Using LVT cells in ordinary logic paths would raise static power unnecessarily without a meaningful timing benefit on non-critical paths.</div>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q3">
+                    <h3>3. Why are spare cells placed during the placement stage rather than inserted after routing?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)" data-correct="false">Because spare cells are required by the tool to generate placement quality reports</li>
+                        <li onclick="selectOption(this)" data-correct="false">Because spare cells replace filler cells and must be inserted before fillers are added</li>
+                        <li onclick="selectOption(this)" data-correct="true">So they are evenly distributed across the core during placement and included in the congestion map — inserting them after routing would displace legalized cells and potentially require re-routing large regions</li>
+                        <li onclick="selectOption(this)" data-correct="false">Because spare cells cannot be inserted into a design that already has routing</li>
+                    </ul>
+                    <div class="feedback" style="display:none;"></div>
+                    <div class="answer" style="display:none;"><strong>Correct!</strong> Spare cells occupy real silicon area. Distributing them during placement allows the congestion estimator to account for their presence and allows the router to plan around them. Adding spare cells post-route would require displacing existing cells, potentially violating legalization rules and forcing the router to redo connections in the affected areas.</div>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                </div>
+
+                <div class="quiz-question" id="q4">
+                    <h3>4. What does the core utilization target of 65% achieve compared to placing cells at 85% or higher utilization?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="selectOption(this)" data-correct="false">Lower utilization reduces the number of metal layers needed for routing</li>
+                        <li onclick="selectOption(this)" data-correct="false">65% utilization is the maximum the N28 technology allows for standard cell designs</li>
+                        <li onclick="selectOption(this)" data-correct="true">Lower utilization leaves more empty sites between cells, giving the router adequate space for wires to pass between cells without creating congestion hotspots that lead to DRC violations</li>
+                        <li onclick="selectOption(this)" data-correct="false">Lower utilization reduces leakage power by spreading cells further apart on the die</li>
+                    </ul>
+                    <div class="feedback" style="display:none;"></div>
+                    <div class="answer" style="display:none;"><strong>Correct!</strong> Routing wires must physically pass between and around cells. At very high utilization, the cells are packed so tightly that there is insufficient space for wires to travel without violating metal spacing rules. The 35% of empty space left by a 65% utilization target becomes the routing resource that allows all signals to be connected without congestion failures.</div>
+                    <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Lab Structure -->
+        <div class="content-box">
+            <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Testcase</th>
+                        <th>Type</th>
+                        <th>Focus Area</th>
+                        <th>Difficulty</th>
+                        <th>Estimated Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="TC-PNR-CDN-PL-GD-001/TC-PNR-CDN-PL-GD-001.html" style="color: #667eea; text-decoration: none;">TC-PNR-CDN-PL-GD-001</a></td>
+                        <td><span class="type-guided">Guided</span></td>
+                        <td>tile design — complete standard cell placement flow walkthrough</td>
+                        <td>&#11088; Easy</td>
+                        <td>90–120 min</td>
+                    </tr>
+                    <tr>
+                        <td><a href="TC-PNR-CDN-PL-CH-001/TC-PNR-CDN-PL-CH-001.html" style="color: #667eea; text-decoration: none;">TC-PNR-CDN-PL-CH-001</a></td>
+                        <td><span class="type-independent">Challenge</span></td>
+                        <td>aes_cipher_top — identify and add missing macro halo command</td>
+                        <td>&#11088;&#11088; Medium</td>
+                        <td>90–120 min</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div style="margin-top: 30px;">
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">TC-PNR-CDN-PL-GD-001: Guided Exercise</h3>
+                <p>You will run the complete standard cell placement flow for the <strong>tile</strong> design using Cadence Innovus. Starting from a loaded floorplan database, the script walks through every stage of production placement: power rail connectivity, IO buffer insertion and padding, cell library constraints, placement configuration parameters, tieoff and spare cell setup, OCV derate sourcing, <code>place_opt_design</code>, post-placement power reconnection, and the full set of quality reports. Every command is explained so you understand what it does and why it is there.</p>
+
+                <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">TC-PNR-CDN-PL-CH-001: Challenge Assignment</h3>
+                <p>A placement script for the <strong>aes_cipher_top</strong> design contains a missing command that causes macro-to-standard-cell overlap errors (IMPLG-500). Using your knowledge from the guided testcase, independently investigate the log, identify what is missing, add the correct command, and achieve a clean placement that passes all verification checks.</p>
+            </div>
+        </div>
+
+        <!-- Begin -->
+        <div class="content-box">
+            <h2 class="section-title">&#128640; Begin the Lab</h2>
+            <p>Start with Testcase 1 to master the full placement flow, then advance to the independent challenge.</p>
+            <div class="action-buttons">
+                <a href="TC-PNR-CDN-PL-GD-001/TC-PNR-CDN-PL-GD-001.html" class="btn btn-primary">Start Guided Testcase &#8594;</a>
+                <a href="TC-PNR-CDN-PL-CH-001/TC-PNR-CDN-PL-CH-001.html" class="btn btn-secondary">Jump to Challenge &#8594;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        var LAB_ID = 'PNR-CDN-PL';
+
+        function selectOption(option) {
+            var qc = option.closest('.quiz-question');
+            if (qc.dataset.answered === 'true') return;
+            qc.querySelectorAll('.quiz-options li').forEach(function(o) {
+                o.classList.remove('selected');
+                o.classList.remove('wrong-answer');
+            });
+            option.classList.add('selected');
+            var fb = qc.querySelector('.feedback');
+            if (fb) { fb.textContent = ''; fb.className = 'feedback'; fb.style.display = 'none'; }
+        }
+
+        function submitAnswer(button) {
+            var qc = button.closest('.quiz-question');
+            var sel = qc.querySelector('.quiz-options li.selected');
+            var fb = qc.querySelector('.feedback');
+            var ans = qc.querySelector('.answer');
+            if (!sel) {
+                fb.textContent = 'Please select an answer first.';
+                fb.className = 'feedback incorrect';
+                fb.style.display = 'block';
+                return;
+            }
+            var ok = sel.dataset.correct === 'true';
+            if (ok) {
+                sel.classList.remove('selected');
+                sel.classList.add('correct-answer');
+                fb.textContent = '\u2705 Correct!';
+                fb.className = 'feedback correct';
+                fb.style.display = 'block';
+                if (ans) ans.style.display = 'block';
+                qc.querySelectorAll('.quiz-options li').forEach(function(o) { o.style.pointerEvents = 'none'; });
+                button.disabled = true;
+                qc.dataset.answered = 'true';
+            } else {
+                sel.classList.remove('selected');
+                sel.classList.add('wrong-answer');
+                sel.style.pointerEvents = 'none';
+                fb.textContent = '\u274C Incorrect. Try again!';
+                fb.className = 'feedback incorrect';
+                fb.style.display = 'block';
+            }
+        }
+
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+    </script>
+    <script src="common/interactive.js"></script>
+</body>
+</html>

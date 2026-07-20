@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Placement in IC Compiler II (ICC2)</title>
+    <link rel="stylesheet" href="common/styles.css">
+    <style> code { color: #333; } </style>
+</head>
+<body>
+
+<!-- Scroll progress bar is created dynamically by interactive.js -->
+
+<!-- Header -->
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Placement in IC Compiler II (ICC2)</h1>
+        <div class="lab-meta">
+            <div class="meta-item"><span>&#128218; Topic: Physical Design Implementation</span></div>
+            <div class="meta-item"><span>&#128295; Tool: Synopsys IC Compiler II (icc2_shell)</span></div>
+            <div class="meta-item"><span>&#127919; Level: Intermediate</span></div>
+            <div class="meta-item"><span>&#9203; Read Time: ~25 min</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Learning Objectives -->
+    <div class="content-box">
+        <h2 class="section-title">&#127919; Learning Objectives</h2>
+        <div class="section-content">
+            <p>By the end of this lab, you will be able to:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Open a Floorplan Block:</strong> Open the floorplan NDM checkpoint saved by the PNR-SNPS-FP stage and prepare it for timing-driven placement.</li>
+                <li><strong>Configure Scenario Settings:</strong> Activate only setup scenarios during placement and explain why hold scenarios are deferred to the post-CTS stage.</li>
+                <li><strong>Insert IO Buffers:</strong> Use <code>add_buffer</code> and <code>magnet_placement</code> to insert and anchor IO buffers near design ports before placement runs.</li>
+                <li><strong>Apply Lib-Cell Dont-Use Rules:</strong> Restrict the optimizer from using clock cells, extreme-drive cells, delay cells, and LVT cells during placement optimization.</li>
+                <li><strong>Configure Placement Effort Settings:</strong> Set congestion effort, layer-aware analysis, density limits, fanout constraints, and net-length limits to guide <code>place_opt</code>.</li>
+                <li><strong>Run place_opt and Review Reports:</strong> Execute the complete placement flow and interpret utilization, congestion, timing, and legality reports to assess placement quality.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Prerequisites -->
+    <div class="content-box">
+        <h2 class="section-title">&#128295; Prerequisites</h2>
+        <div class="section-content">
+            <p>Before starting this lab, you should be comfortable with the following concepts:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Completed Floorplan Lab (PNR-SNPS-FP):</strong> You must have a valid <code>tile.ndm</code> with a <code>floorplan</code> block saved.</li>
+                <li><strong>Floorplanning (PNR-SNPS-FP):</strong> Understanding of die area definition, macro placement, power ring creation, and the floorplan block checkpoint that placement consumes.</li>
+                <li><strong>Timing-Driven Placement:</strong> Familiarity with how ICC2 uses timing slack to guide cell placement — cells on critical paths are placed to minimize wire length.</li>
+                <li><strong>Setup vs. Hold Scenarios:</strong> Understanding why setup is checked at the slow-corner (low voltage, high temp) and hold at the fast-corner (high voltage, low temp), and why they are optimized at different stages of the PnR flow.</li>
+                <li><strong>Congestion Analysis:</strong> Understanding of global routing estimation and how congestion overflow (GRC overflow) impacts routability after placement.</li>
+                <li><strong>MMMC and Scenario Management:</strong> Ability to read <code>report_scenarios</code> output and understand active/inactive scenario state.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- ASIC Flow Stage Table -->
+    <div class="content-box">
+        <h2 class="section-title">&#128200; Where are we in the ASIC Flow?</h2>
+        <div class="section">
+            <div style="overflow-x: auto; margin: 20px 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ASIC Flow Stage</th>
+                            <th>What Happens</th>
+                            <th>Output</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Synthesis</strong></td>
+                            <td>RTL compiled into standard cells; timing constraints applied</td>
+                            <td>Gate-level netlist + SDC</td>
+                        </tr>
+                        <tr>
+                            <td><strong>init_design</strong></td>
+                            <td>Netlist, tech file, NDMs, MMMC, and derates loaded into ICC2 database</td>
+                            <td>Initialized ICC2 block ready for floorplan</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Floorplanning</strong></td>
+                            <td>Die area, macro placement defined</td>
+                            <td>Floorplan block</td>
+                        </tr>
+                        <tr style="background: #f1f4ff;">
+                            <td><strong>Placement ← We are here</strong></td>
+                            <td>Standard cells placed on the die; timing-driven optimization with ideal clocks</td>
+                            <td>Placed block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>CTS</strong></td>
+                            <td>Clock tree synthesized and balanced across the design</td>
+                            <td>Clock tree block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Routing</strong></td>
+                            <td>Signal nets routed across metal layers</td>
+                            <td>Routed block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Chip Finish</strong></td>
+                            <td>Metal fill, DRC/LVS clean-up, and final sign-off checks</td>
+                            <td>GDSII</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Theory and Background -->
+    <div class="content-box">
+        <h2 class="section-title">&#128216; Theory and Background</h2>
+
+        <div class="section">
+            <h3 style="color: #667eea; margin-bottom: 15px;">What is Placement?</h3>
+            <p>Placement is the stage in the ASIC physical design flow where every standard cell in the gate-level netlist is assigned a physical location on the die, within the boundaries established by the floorplan. It proceeds in three major sub-phases:</p>
+            <ul style="margin-left: 30px; margin-top: 10px; line-height: 2.2;">
+                <li><strong>Coarse Placement (Global Placement):</strong> Cells are distributed across the floorplan based on connectivity and timing criticality. The objective is to minimize wire length while respecting congestion limits. Cells may overlap at this stage.</li>
+                <li><strong>Legalization:</strong> Cells are snapped to the site grid, overlaps are removed, and all cells are aligned to valid placement rows without violating design rules. Cell positions change only minimally from the coarse placement solution.</li>
+                <li><strong>Timing-Driven Optimization (place_opt):</strong> After legalization, ICC2 performs gate sizing, buffering, and limited logic restructuring to improve setup slack on critical paths. This is the most compute-intensive sub-phase and is what the ICC2 command <code>place_opt</code> invokes as an integrated flow covering all three sub-phases.</li>
+            </ul>
+            <p style="margin-top: 15px;">The quality of placement directly determines the achievable timing closure and routability in subsequent CTS and routing stages. A poor placement cannot be fully corrected by routing.</p>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">Why Setup-Only During Placement?</h3>
+            <p>During placement, the clock tree does not yet exist — clocks are propagated using ideal (zero-skew) assumptions. Under ideal clock propagation, hold timing analysis produces meaningless results because hold violations depend on clock skew between launch and capture flip-flops, which is zero by assumption. Running hold optimization at this stage would:</p>
+            <ul style="margin-left: 30px; margin-top: 10px; line-height: 2.2;">
+                <li>Insert hold buffers on paths that may not need them once real clock skew is introduced at CTS.</li>
+                <li>Waste area and increase congestion by adding unnecessary buffers.</li>
+                <li>Slow down <code>place_opt</code> with analysis that gives no useful signal.</li>
+            </ul>
+            <p style="margin-top: 12px;">Hold violations are fixed in the post-CTS optimization stage (<code>clock_opt -only_hold_time</code>) when the real clock tree and its skew are both known. ICC2 enforces this discipline by allowing you to deactivate hold scenarios with <code>set_scenario_status -active false</code> before placement runs.</p>
+
+            <div class="info-card" style="margin-top: 15px;">
+                <strong>Key rule:</strong> Activate only <code>*setup*</code> scenarios before running <code>place_opt</code>. Reactivate hold scenarios after CTS.
+            </div>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">IO Buffer Insertion and magnet_placement</h3>
+            <p>IO ports are the interface between the design and the outside world. During placement, standard cells connected directly to ports may be placed far from the ports, creating long, undriven wires and slowing down the paths. The solution is to insert buffers directly at the ports before placement runs:</p>
+            <ul style="margin-left: 30px; margin-top: 10px; line-height: 2.2;">
+                <li><strong><code>add_buffer</code>:</strong> Inserts a specified buffer cell (e.g., <code>BUFFD4BWP35P140</code>) on every data port, giving the optimizer a concrete driver cell to work with. The <code>-new_cell_names IO_buff</code> argument names these instances for later reference.</li>
+                <li><strong><code>magnet_placement</code>:</strong> With <code>-mark_legalize_only</code>, this command marks the IO buffer cells as "magnets" — during legalization, ICC2 will pull these cells as close to their associated port as possible. Without this, the legalizer may move IO buffers far from the port.</li>
+                <li><strong><code>set_dont_touch</code>:</strong> Prevents <code>place_opt</code> from removing or replacing the IO buffers during timing optimization. Without this, the optimizer may delete them to improve timing on other paths, defeating their purpose.</li>
+            </ul>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">Lib-Cell Dont-Use During Placement</h3>
+            <p>Not all cells in the standard cell library should be used during placement optimization. Using inappropriate cells leads to power problems, congestion, or downstream flow failures. The <code>set_lib_cell_purpose -exclude optimization</code> command prevents ICC2 from inserting or upsizing these cell types during <code>place_opt</code>:</p>
+            <ul style="margin-left: 30px; margin-top: 10px; line-height: 2.2;">
+                <li><strong><code>*/CK*</code> — Clock cells:</strong> Clock buffers and inverters are managed exclusively by the CTS engine. Inserting them during placement creates clock networks that conflict with the CTS solution.</li>
+                <li><strong><code>*/*D24*, */*D32*, */*D20*, */*D18*</code> — Very high drive-strength cells:</strong> These cells have large widths and create severe local congestion when placed in tight areas. They are only permitted if routing analysis confirms they are necessary.</li>
+                <li><strong><code>*/DEL*</code> — Delay cells:</strong> Pure delay cells are inserted only in specific scenarios (scan chain balancing, hold fixing). Allowing them during placement optimization produces false timing improvement that disappears post-routing.</li>
+                <li><strong><code>*/*D0*</code> — Minimum-drive cells:</strong> Cells with drive strength D0 are the weakest in the library and typically insufficient for any meaningful fanout. Using them during optimization leads to immediate upsizing and wasted iterations.</li>
+                <li><strong><code>*/*LVT</code> — Low-Vt cells:</strong> LVT cells have higher leakage power. During placement, the optimizer is not yet aware of final power budgets. Excluding LVT avoids power blowup; LVT cells are selectively permitted in post-route optimization if timing requires them.</li>
+            </ul>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">Congestion-Driven Placement Settings</h3>
+            <p>Congestion during placement is measured by the global routing congestion overflow — the ratio of routing demand to routing supply on each metal layer. If the placer creates too-dense clusters of cells, the router will not be able to complete all nets, producing an unroutable design. Key settings to control congestion:</p>
+            <ul style="margin-left: 30px; margin-top: 10px; line-height: 2.2;">
+                <li><strong><code>place_opt.place.congestion_effort high</code>:</strong> Tells <code>place_opt</code> to spend more CPU time spreading cells to reduce congestion, even at the cost of slightly worse initial timing.</li>
+                <li><strong><code>place.coarse.congestion_layer_aware true</code>:</strong> Enables per-layer congestion estimation during coarse placement, so that layers with heavy power stripes are accounted for and the placer avoids routing through them.</li>
+                <li><strong><code>place.coarse.cong_restruct_effort high</code>:</strong> Activates aggressive cell restructuring during coarse placement to break up congested clusters by re-clustering logic around multiple spreading centers.</li>
+                <li><strong><code>place.coarse.max_density 0.7</code>:</strong> Limits the local cell density to 70% of the available routing resources per tile. This leaves 30% headroom for routing and filler cells, reducing the risk of post-route DRC violations.</li>
+            </ul>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">CCD — Why Disabled at Placement</h3>
+            <p>Concurrent Clock and Data (CCD) optimization is an ICC2 technique that jointly optimizes clock tree topology and data path timing during a single pass. It is powerful but requires a nearly complete clock tree structure to make valid decisions. During placement, no clock tree exists — enabling CCD at this stage would cause ICC2 to make clock tree shape decisions based on synthetic estimates that will be discarded when the real CTS runs. The result is longer <code>place_opt</code> runtime with no quality benefit. CCD is enabled by default in the <code>clock_opt</code> command during the CTS stage, which is where it belongs.</p>
+
+            <div class="info-card" style="margin-top: 15px;">
+                <strong>Rule:</strong> Always set <code>place_opt.flow.enable_ccd false</code> before running <code>place_opt</code>. CCD is for CTS, not placement.
+            </div>
+        </div>
+    </div>
+
+    <!-- ASIC Flow Table -->
+    <div class="content-box">
+        <h2 class="section-title">&#128196; Where Placement Fits in the ASIC Flow</h2>
+        <p style="color: #555; margin-bottom: 20px;">The table below shows the complete physical design flow. Placement consumes the floorplan block and produces a placed block that becomes the input to Clock Tree Synthesis (CTS).</p>
+
+        <div style="overflow-x: auto; margin: 20px 0;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ASIC Flow Stage</th>
+                        <th>What Happens</th>
+                        <th>Output</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Synthesis</strong></td>
+                        <td>RTL compiled into standard cells; timing constraints applied</td>
+                        <td>Gate-level netlist + SDC</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Design Init</strong></td>
+                        <td>Netlist, tech file, NDMs, MMMC, and derates loaded into ICC2</td>
+                        <td>Initialized ICC2 block</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Floorplanning</strong></td>
+                        <td>Die area, power rings, macro placement, and power grid defined</td>
+                        <td>Floorplan block</td>
+                    </tr>
+                    <tr style="background: #f1f4ff;">
+                        <td><strong>Placement &#8592; We are here</strong></td>
+                        <td>Standard cells placed, legalized, and timing-optimized via place_opt</td>
+                        <td>Placed block</td>
+                    </tr>
+                    <tr>
+                        <td><strong>CTS</strong></td>
+                        <td>Clock tree synthesized and balanced; hold timing fixed</td>
+                        <td>Clock tree block</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Routing</strong></td>
+                        <td>Signal nets routed across metal layers</td>
+                        <td>Routed block</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Chip Finish</strong></td>
+                        <td>Metal fill, DRC/LVS clean-up, final sign-off checks</td>
+                        <td>GDSII</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+        <p style="color: #555; margin-bottom: 20px;">Test your understanding of the placement concepts covered above. Click on your answer.</p>
+
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. Why are hold scenarios deactivated before running <code>place_opt</code>?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Hold analysis requires a routed netlist — it cannot be computed on unplaced cells.</li>
+                    <li data-correct="false">Hold violations are impossible to fix during placement because the optimizer has no buffers available.</li>
+                    <li data-correct="true">The clock tree does not exist during placement, so ideal clock propagation produces zero skew. Hold optimization under zero skew inserts buffers that are unnecessary and harmful once real clock skew is introduced at CTS.</li>
+                    <li data-correct="false">ICC2 always ignores hold scenarios during place_opt regardless of the active scenario status setting.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Hold violations are skew-dependent. Under ideal clock propagation (zero skew), ICC2 would compute hold slack as if the clock arrives simultaneously at all flip-flops, which is never true in silicon. Hold fixing at this stage inserts unnecessary buffers that waste area and increase congestion. The correct stage for hold fixing is post-CTS optimization when the real clock tree and its skew are both known.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. What is the role of <code>magnet_placement</code> in the IO buffer insertion flow?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">It inserts the IO buffer cells into the netlist at each port location.</li>
+                    <li data-correct="true">It marks the IO buffer cells so that the legalizer pulls them as physically close to their associated port as possible, preventing the legalizer from moving them away from the port boundary.</li>
+                    <li data-correct="false">It assigns a dont-touch attribute to all IO buffers so they cannot be removed during place_opt.</li>
+                    <li data-correct="false">It routes a stub wire from each port pin to the closest IO buffer cell after legalization.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> <code>magnet_placement -mark_legalize_only</code> marks the IO buffer instances as legalization magnets. During the legalization phase of placement, ICC2 will pull these cells toward their associated ports rather than placing them at arbitrary legal positions in the standard cell rows. This minimizes the wire length from each port to its first buffer, reducing input/output path delays.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. What does the ICC2 command <code>place_opt</code> actually execute as an integrated flow?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Only global placement — <code>legalize_placement</code> and timing optimization must be run as separate commands afterward.</li>
+                    <li data-correct="false">Only timing-driven optimization on a pre-placed netlist — the designer must run coarse placement manually before calling <code>place_opt</code>.</li>
+                    <li data-correct="true">An integrated flow covering coarse (global) placement, legalization, and timing-driven optimization (gate sizing, buffering, limited logic restructuring) in a single command.</li>
+                    <li data-correct="false">Clock tree synthesis followed by placement — CCD mode is always enabled during <code>place_opt</code> by default.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> <code>place_opt</code> is ICC2's integrated placement command. It executes coarse placement to distribute cells based on timing and connectivity, legalizes the solution to remove overlaps and snap cells to the placement grid, and then performs timing-driven optimization including gate sizing, buffer insertion, and selective logic restructuring — all in one command call.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. Why are LVT (Low-Vt) cells excluded from optimization during placement using <code>set_lib_cell_purpose -exclude optimization</code>?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">LVT cells have slower timing than SVT cells and would worsen setup violations if used during placement.</li>
+                    <li data-correct="false">LVT cells cannot be legally placed in standard cell rows and must be placed in special LVT regions defined during floorplanning.</li>
+                    <li data-correct="true">LVT cells have higher leakage power. Allowing them during placement would cause the optimizer to use them freely throughout the design, blowing up static power before any power-timing tradeoff analysis has been done.</li>
+                    <li data-correct="false">LVT cells are only available in the hold timing library corners and are incompatible with the setup-only scenario mode used during placement.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> LVT cells are faster than SVT cells but consume significantly more leakage power due to their lower threshold voltage. Placing them freely during <code>place_opt</code> — before any power budget analysis — would cause the design to exceed its leakage power target. LVT cells are selectively re-enabled in post-route optimization only on paths that cannot close timing with SVT cells, after a power-aware timing analysis confirms the budget allows it.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Lab Structure Overview -->
+    <div class="content-box">
+        <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Testcase</th>
+                    <th>Type</th>
+                    <th>Design</th>
+                    <th>Difficulty</th>
+                    <th>Estimated Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><a href="TC-PNR-SNPS-PL-GD-001/TC-PNR-SNPS-PL-GD-001.html" style="color: #667eea; text-decoration: none;">Guided Testcase</a></td>
+                    <td><span class="type-guided">Guided</span></td>
+                    <td>tile</td>
+                    <td>&#11088; Easy</td>
+                    <td>60–90 min</td>
+                </tr>
+                <tr>
+                    <td><a href="TC-PNR-SNPS-PL-CH-001/TC-PNR-SNPS-PL-CH-001.html" style="color: #667eea; text-decoration: none;">Challenge Testcase</a></td>
+                    <td><span class="type-independent">Challenge</span></td>
+                    <td>iguana_soc</td>
+                    <td>&#11088;&#11088; Medium</td>
+                    <td>90–120 min</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div style="margin-top: 30px;">
+            <h3 style="color: #2c3e50; margin-bottom: 15px;">Guided Testcase</h3>
+            <p>In the Guided Testcase, you will perform a complete timing-driven global placement run on the <strong>tile</strong> processor core design. Every command is explained in detail — from opening the floorplan block and configuring scenario settings, through IO buffer insertion, lib-cell dont-use configuration, effort settings, and finally executing <code>place_opt</code> and reviewing all placement quality reports.</p>
+
+            <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Challenge Testcase</h3>
+            <p>You are given the <strong>iguana_soc</strong> placement script which contains deliberate errors — an incorrect lib-cell name for IO buffers, a misconfigured scenario status, and an overaggressive density setting. Using the knowledge from the Guided Testcase, you must independently diagnose and fix all errors, run the complete placement flow, and confirm that <code>check_legality</code> passes and utilization is within the acceptable range.</p>
+        </div>
+    </div>
+
+    <!-- Begin -->
+    <div class="content-box">
+        <h2 class="section-title">&#128640; Begin the Lab</h2>
+        <p>Start with the Guided Testcase for a complete step-by-step walkthrough of the ICC2 placement flow, then challenge yourself with the Challenge Testcase on a more complex design.</p>
+
+        <div class="action-buttons">
+            <a href="TC-PNR-SNPS-PL-GD-001/TC-PNR-SNPS-PL-GD-001.html" class="btn btn-primary">Start Guided Testcase &#8594;</a>
+            <a href="TC-PNR-SNPS-PL-CH-001/TC-PNR-SNPS-PL-CH-001.html" class="btn btn-secondary">Jump to Challenge Testcase &#8594;</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    var LAB_ID = '18';
+    var TESTCASE_NUM = '0';
+</script>
+<script src="common/interactive.js"></script>
+
+</body>
+</html>

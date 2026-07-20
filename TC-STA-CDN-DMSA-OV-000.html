@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lab 29: Signoff ECO Optimization with Tempus DMSA — Semicon Labs</title>
+    <link rel="stylesheet" href="common/styles.css">
+</head>
+<body>
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Lab 29: Signoff ECO Optimization with Tempus DMSA</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>📚 Course: Physical Design</span>
+                </div>
+                <div class="meta-item">
+                    <span>🔧 Tools: Tempus (Cadence)</span>
+                </div>
+                <div class="meta-item">
+                    <span>⏱️ Duration: 2-4 hours</span>
+                </div>
+                <div class="meta-item">
+                    <span>🎯 Difficulty: Advanced</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Learning Objectives -->
+        <div class="content-box">
+            <h2 class="section-title">🎯 Learning Objectives</h2>
+            <div class="section-content">
+                <p>By the end of this lab, you will be able to:</p>
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                    <li>Understand DMSA (Distributed Multi-Scenario Analysis) and its role in signoff ECO</li>
+                    <li>Load a pre-built timing session database from Tempus STA</li>
+                    <li>Define path groups for targeted setup/hold/DRV optimization</li>
+                    <li>Run opt_signoff for setup, hold, and DRV fixes sequentially</li>
+                    <li>Generate ECO scripts for back-annotation into Innovus</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Prerequisites -->
+        <div class="content-box">
+            <h2 class="section-title">🛠 Prerequisites</h2>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                <li><strong>Lab 28 (Tempus Signoff STA):</strong> Completion of Lab 28 is required. The timing session database generated in that lab serves as the input for this ECO flow.</li>
+                <li><strong>Setup/Hold Timing Concepts:</strong> Understanding of setup time, hold time, slack, and how timing violations manifest in static timing analysis reports.</li>
+                <li><strong>ECO Flow Familiarity:</strong> Knowledge of Engineering Change Order (ECO) methodology — making incremental post-PnR changes without re-running the full implementation flow.</li>
+                <li><strong>Design Rule Violations:</strong> Understanding of DRV types including max_transition, max_capacitance, and max_fanout, and why they must be fixed before tapeout.</li>
+            </ul>
+        </div>
+
+        <!-- Theory and Background -->
+        <div class="content-box">
+            <h2 class="section-title">📖 Theory and Background</h2>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">What is DMSA and Why Signoff ECO Matters</h3>
+                <p>After place-and-route (PnR) is complete, the design must pass signoff-quality static timing analysis across all process/voltage/temperature (PVT) corners and operating modes. Inevitably, some timing paths will have negative slack or design rule violations that the PnR tool could not fully resolve. Re-running the entire PnR flow to fix a handful of paths is prohibitively expensive in both runtime and risk of disrupting already-clean paths.</p>
+                <p style="margin-top: 15px;">This is where <strong>Distributed Multi-Scenario Analysis (DMSA)</strong> comes in. DMSA allows Tempus to analyze timing across multiple scenarios (corner/mode combinations) simultaneously and apply targeted ECO fixes that are valid across all scenarios. Instead of fixing one corner and breaking another, DMSA ensures that every change improves — or at minimum does not degrade — timing across the entire scenario space.</p>
+                <p style="margin-top: 15px;">Signoff ECO is the final gate-keeping step before tapeout. It takes the signoff-quality timing database produced by Tempus STA (Lab 28) and applies surgical, incremental changes — cell resizing, buffer insertion, cell relocation — to close any remaining violations. The result is an ECO script that can be back-annotated into Innovus to update the physical design.</p>
+            </div>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">The ECO Optimization Flow</h3>
+                <p>The signoff ECO flow in Tempus follows a well-defined sequence of stages. Understanding each stage and why they occur in this order is essential for producing clean results.</p>
+                <ul style="margin-left: 30px; margin-top: 10px; line-height: 1.8;">
+                    <li><strong>Read Timing Session Database:</strong> The flow begins by loading the timing database created during Tempus STA (Lab 28). This database contains the fully extracted and annotated timing graph for the design across all corners and modes.</li>
+                    <li><strong>Define Path Groups:</strong> Before optimization, you define path groups that tell Tempus which sets of timing paths to focus on. This allows targeted optimization of critical paths without wasting effort on paths that already have sufficient margin.</li>
+                    <li><strong>Fix Setup Violations:</strong> Setup violations are addressed first because setup fixes (upsizing cells, adding buffers) can introduce new hold violations but rarely create new DRV issues. Fixing setup first establishes the correct cell sizing baseline.</li>
+                    <li><strong>Fix Hold Violations:</strong> Hold fixes (inserting delay buffers) are applied after setup fixes are stable. Hold buffers add delay to short paths without affecting the critical setup paths that were just optimized.</li>
+                    <li><strong>Fix DRV Violations:</strong> Design rule violations (max_transition, max_capacitance, max_fanout) are fixed last. DRV fixes typically involve buffer insertion or cell resizing that can be done without disturbing the setup/hold closure achieved in the previous steps.</li>
+                    <li><strong>Generate ECO Script:</strong> Finally, Tempus writes out a TCL-based ECO script that captures all the incremental changes. This script is applied in Innovus to update the placed-and-routed design.</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Path Groups: Targeted Optimization</h3>
+                <p>In a real design with millions of timing paths, optimizing every path simultaneously is neither practical nor desirable. Path groups allow engineers to partition the design's timing paths into logical categories and apply different optimization strategies to each group.</p>
+                <p style="margin-top: 15px;">Common path group strategies include grouping by clock domain, by hierarchical block, or by criticality. For example, you might create a path group for all paths in the most timing-critical clock domain and another for I/O paths. Tempus can then prioritize effort on the groups with the worst violations while leaving well-timed groups untouched.</p>
+                <p style="margin-top: 15px;">Targeted optimization through path groups also reduces runtime significantly. Rather than analyzing and attempting changes on the entire design, the optimizer focuses its iterations on the paths most likely to benefit from ECO changes.</p>
+            </div>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Setup vs Hold vs DRV Fixing Order</h3>
+                <p>The order in which violations are fixed is not arbitrary — it reflects the physical dependencies between different types of timing changes.</p>
+
+                <div class="info-card">
+                    <strong>Why Setup First:</strong> Setup fixes involve upsizing cells to reduce delay on critical paths or inserting buffers to break long interconnects. These changes alter cell sizes and drive strengths throughout the design. If hold were fixed first, the subsequent setup changes could undo hold fixes by changing the delay characteristics of nearby paths.
+                </div>
+
+                <div class="info-card">
+                    <strong>Why Hold Second:</strong> Hold fixes primarily involve inserting small delay buffers on short paths to ensure data does not arrive too early at the capturing flip-flop. Since these buffers are added to non-critical (fast) paths, they do not interfere with the setup-critical paths that were just optimized. This ordering ensures setup closure is preserved while hold is being fixed.
+                </div>
+
+                <div class="info-card">
+                    <strong>Why DRV Last:</strong> DRV fixes address electrical rule violations (excessive transition time, capacitance, or fanout) by inserting buffers or resizing drivers. These are localized changes that rarely affect the timing slack of distant paths. By fixing DRV last, you avoid a situation where a DRV buffer insertion creates a new setup or hold violation that would require re-optimization.
+                </div>
+            </div>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">ECO Back-Annotation into Innovus</h3>
+                <p>The final output of the Tempus DMSA ECO flow is a TCL script (commonly named eco.tcl) that contains all the cell changes — insertions, deletions, resizings, and reconnections — needed to close timing. This script is written in a format that Innovus can directly source.</p>
+                <p style="margin-top: 15px;">Back-annotation is the process of applying this ECO script in Innovus so that the physical design (DEF, netlist) reflects the changes Tempus determined were necessary. After sourcing the ECO script, Innovus performs incremental placement of any newly inserted cells and incremental routing of any changed nets. The design can then be re-extracted and re-timed to confirm that all violations are resolved.</p>
+                <p style="margin-top: 15px;">This iterative loop — Tempus ECO followed by Innovus back-annotation followed by re-extraction — may need to run more than once for designs with tight margins. However, each iteration should show significant convergence, with the number of remaining violations decreasing rapidly.</p>
+            </div>
+        </div>
+
+        <!-- Knowledge Assessment Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">📝 Knowledge Assessment Quiz</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>Question 1: What is the primary advantage of DMSA over single-corner ECO optimization?</h3>
+                    <ul class="quiz-options" id="q1-options">
+                        <li onclick="selectAnswer('q1', 0, false)">A. DMSA runs faster because it analyzes fewer paths</li>
+                        <li onclick="selectAnswer('q1', 1, false)">B. DMSA only requires one PVT corner to produce valid results</li>
+                        <li onclick="selectAnswer('q1', 2, true)">C. DMSA ensures ECO fixes are valid across all corners and modes simultaneously</li>
+                        <li onclick="selectAnswer('q1', 3, false)">D. DMSA eliminates the need for back-annotation in Innovus</li>
+                    </ul>
+                    <div id="q1-feedback" class="feedback"></div>
+                    <div id="q1-answer" class="answer">
+                        <p><strong>Correct!</strong> DMSA analyzes all PVT corners and operating modes at the same time, ensuring that a fix applied for one scenario does not introduce new violations in another scenario. This multi-scenario awareness is the key benefit over single-corner optimization.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 2: Why are setup violations fixed before hold violations in the ECO flow?</h3>
+                    <ul class="quiz-options" id="q2-options">
+                        <li onclick="selectAnswer('q2', 0, false)">A. Setup violations are always more numerous than hold violations</li>
+                        <li onclick="selectAnswer('q2', 1, true)">B. Setup fixes (cell resizing, buffering) can change delay characteristics that affect hold paths, so hold must be fixed after setup is stable</li>
+                        <li onclick="selectAnswer('q2', 2, false)">C. Hold violations cannot be detected until setup violations are resolved</li>
+                        <li onclick="selectAnswer('q2', 3, false)">D. The tool requires setup to be clean before it can read hold timing data</li>
+                    </ul>
+                    <div id="q2-feedback" class="feedback"></div>
+                    <div id="q2-answer" class="answer">
+                        <p><strong>Correct!</strong> Setup fixes involve cell upsizing and buffer insertion that change delay characteristics across the design. If hold were fixed first, subsequent setup changes could undo those hold fixes. Fixing setup first establishes a stable baseline for hold optimization.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 3: What is the purpose of defining path groups before running ECO optimization?</h3>
+                    <ul class="quiz-options" id="q3-options">
+                        <li onclick="selectAnswer('q3', 0, false)">A. Path groups are required by Tempus and the tool will not run without them</li>
+                        <li onclick="selectAnswer('q3', 1, false)">B. Path groups automatically fix all violations within the group</li>
+                        <li onclick="selectAnswer('q3', 2, false)">C. Path groups convert setup violations into hold violations for easier fixing</li>
+                        <li onclick="selectAnswer('q3', 3, true)">D. Path groups focus optimization effort on specific sets of timing paths, improving both effectiveness and runtime</li>
+                    </ul>
+                    <div id="q3-feedback" class="feedback"></div>
+                    <div id="q3-answer" class="answer">
+                        <p><strong>Correct!</strong> Path groups allow engineers to partition timing paths by clock domain, hierarchy, or criticality. This enables the optimizer to concentrate on the most critical paths rather than spending effort on paths that already meet timing, significantly improving both optimization quality and runtime.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 4: What happens to the ECO script after Tempus generates it?</h3>
+                    <ul class="quiz-options" id="q4-options">
+                        <li onclick="selectAnswer('q4', 0, true)">A. It is sourced in Innovus to apply incremental placement and routing changes to the physical design</li>
+                        <li onclick="selectAnswer('q4', 1, false)">B. It is sent directly to the foundry as part of the GDSII package</li>
+                        <li onclick="selectAnswer('q4', 2, false)">C. It replaces the original netlist and no further steps are needed</li>
+                        <li onclick="selectAnswer('q4', 3, false)">D. It is used to re-run the entire place-and-route flow from scratch</li>
+                    </ul>
+                    <div id="q4-feedback" class="feedback"></div>
+                    <div id="q4-answer" class="answer">
+                        <p><strong>Correct!</strong> The ECO script is back-annotated into Innovus, where incremental placement and routing are performed to physically realize the changes. The design is then re-extracted and re-timed to confirm all violations are resolved.</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Lab Dependency and Session Flow -->
+        <div class="content-box">
+            <h2 class="section-title">🔗 Lab Dependency and Session Flow</h2>
+            <div class="info-card" style="margin-bottom: 20px; border-left: 4px solid #e74c3c; background-color: #fdf2f2;">
+                <strong>Prerequisite: Complete Lab 28 (Tempus Signoff STA) First</strong>
+                <p style="margin-top: 8px;">This lab cannot be started until you have completed <strong>Lab 28 (lab-28-signoff-sta-tempus)</strong> and run <code>make run</code> in its testcase1. The timing session database generated in Lab 28 is the direct input to this lab.</p>
+            </div>
+            <div class="section" style="margin-bottom: 20px;">
+                <h3 style="color: #667eea; margin-bottom: 12px;">How the Timing Database Flows from Lab 28 to This Lab</h3>
+                <p>
+                    When you run <code>make run</code> in Lab 28 testcase1, Tempus performs multi-corner multi-mode STA
+                    and saves the complete timing state into a single session database: <code>tile_session_timing.db</code>.
+                    This database contains all 4 analysis views (PVT corners) in one file.
+                </p>
+                <p style="margin-top: 12px;">
+                    After <code>make run</code> completes in Lab 28, this database is <strong>automatically copied</strong>
+                    to this lab's <code>inputs/</code> directory. No manual file copying is needed.
+                </p>
+            </div>
+            <div class="section" style="margin-bottom: 20px;">
+                <h3 style="color: #667eea; margin-bottom: 12px;">What the Session Database Captures</h3>
+                <p>
+                    The <code>tile_session_timing.db</code> is a self-contained snapshot of the entire timing environment.
+                    It captures:
+                </p>
+                <ul style="margin-left: 20px; margin-top: 10px; line-height: 2.0; list-style-type: disc;">
+                    <li>All loaded timing libraries for every PVT corner</li>
+                    <li>Annotated SPEF parasitics for each RC extraction corner</li>
+                    <li>Propagated clock trees and clock definitions</li>
+                    <li>Signal integrity (SI) crosstalk settings</li>
+                    <li>Fully computed delays, slacks, and violations across all views</li>
+                </ul>
+                <p style="margin-top: 12px;">
+                    Because the database captures everything, a single <code>read_db</code> command in this lab
+                    restores the complete multi-corner timing environment &mdash; no need to re-read LEFs, netlists,
+                    MMMC configurations, or SPEF files.
+                </p>
+            </div>
+            <div class="section" style="margin-bottom: 20px;">
+                <h3 style="color: #667eea; margin-bottom: 12px;">Why DMSA ECO Is Critical</h3>
+                <p>
+                    After place-and-route and signoff STA, there are always residual timing violations that the PnR
+                    tool could not fully resolve. DMSA ECO fixes them in-place without going back to PnR, generating
+                    lightweight ECO scripts that can be applied in Innovus. This is the final step before tapeout signoff.
+                </p>
+                <p style="margin-top: 12px;">
+                    DMSA mode in Tempus reads the session database and runs <code>opt_signoff</code>, which automatically
+                    fixes setup, hold, and DRV violations across all corners simultaneously. Every fix is validated against
+                    all scenarios at once, so you never fix one corner at the expense of another.
+                </p>
+            </div>
+            <div class="info-card" style="border-left: 4px solid #27ae60; background-color: #f0faf4;">
+                <strong>This is where you close the loop.</strong> Every violation you saw in Lab 28 gets fixed here.
+                The ECO script you generate is what goes back to the layout tool for the final tapeout-ready design.
+                After this lab, the design is ready for the foundry.
+            </div>
+        </div>
+
+        <!-- Lab Structure Overview -->
+        <div class="content-box">
+            <h2 class="section-title">📋 Lab Structure Overview</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Testcase</th>
+                        <th>Type</th>
+                        <th>Focus Area</th>
+                        <th>Difficulty</th>
+                        <th>Estimated Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="TC-STA-CDN-DMSA-GD-001/TC-STA-CDN-DMSA-GD-001.html" style="color: #667eea; text-decoration: none;">Testcase 1</a></td>
+                        <td><span class="type-guided">Guided</span></td>
+                        <td>DMSA ECO Full Flow</td>
+                        <td>⭐ Easy</td>
+                        <td>60-90 min</td>
+                    </tr>
+                    <tr>
+                        <td><a href="TC-STA-CDN-DMSA-CH-001/TC-STA-CDN-DMSA-CH-001.html" style="color: #667eea; text-decoration: none;">Testcase 2</a></td>
+                        <td><span class="type-independent">Challenge</span></td>
+                        <td>Write Your Own Script</td>
+                        <td>⭐⭐ Medium</td>
+                        <td>60-90 min</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div style="margin-top: 30px;">
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">Testcase 1: Guided Exercise</h3>
+                <p>In this guided testcase, you will walk through the complete DMSA signoff ECO flow step by step. Starting from a pre-built Tempus timing session database (generated in Lab 28), you will load the design, define path groups for targeted optimization, run setup fixing, hold fixing, and DRV fixing in sequence, and finally generate the ECO script for back-annotation into Innovus. Each step is explained with the reasoning behind it, so you understand not just what to do but why each action is necessary.</p>
+
+                <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Testcase 2: Challenge Assignment</h3>
+                <p>Building on what you learned in Testcase 1, you will write your own DMSA ECO optimization script from scratch. You are given the same timing database and design, but no pre-written script. You must construct the complete flow yourself — loading the session, defining appropriate path groups, running the optimization stages in the correct order, and generating the ECO output. Only high-level requirements and success criteria are provided; the specific implementation is up to you.</p>
+            </div>
+        </div>
+
+        <!-- Begin the Lab -->
+        <div class="content-box">
+            <h2 class="section-title">🚀 Begin the Lab</h2>
+            <p>Start with Testcase 1 (Guided Exercise) to learn the complete DMSA ECO flow, then progress to Testcase 2 where you will write the script independently.</p>
+            <div class="action-buttons">
+                <a href="TC-STA-CDN-DMSA-GD-001/TC-STA-CDN-DMSA-GD-001.html" class="btn btn-primary">Start Testcase 1 (Guided) →</a>
+                <a href="TC-STA-CDN-DMSA-CH-001/TC-STA-CDN-DMSA-CH-001.html" class="btn btn-secondary">Jump to Testcase 2 →</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        var LAB_ID       = '29';
+        var TESTCASE_NUM = '0';
+    </script>
+    <script src="common/interactive.js"></script>
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        function selectAnswer(questionId, optionIndex, isCorrect) {
+            const options  = document.querySelectorAll(`#${questionId}-options li`);
+            const feedback = document.getElementById(`${questionId}-feedback`);
+            const answer   = document.getElementById(`${questionId}-answer`);
+            options.forEach(opt => opt.classList.remove('selected', 'correct-answer', 'wrong-answer'));
+            options[optionIndex].classList.add('selected');
+            feedback.style.display = 'block';
+            if (isCorrect) {
+                options[optionIndex].classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '✅ Correct! Well done.';
+                if (answer) answer.style.display = 'block';
+            } else {
+                options[optionIndex].classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '❌ Incorrect. Try again!';
+                if (answer) answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

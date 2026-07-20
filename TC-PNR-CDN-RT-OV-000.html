@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal Net Routing in Cadence Innovus</title>
+    <link rel="stylesheet" href="common/styles.css">
+    <style> code { color: #333; } </style>
+</head>
+<body>
+
+<!-- Scroll progress bar is created dynamically by interactive.js -->
+
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Signal Net Routing in Cadence Innovus</h1>
+        <div class="lab-meta">
+            <div class="meta-item"><span>&#128218; Topic: Signal Net Routing</span></div>
+            <div class="meta-item"><span>&#128295; Tool: Cadence Innovus — <code>route_global</code> / <code>route_detail</code></span></div>
+            <div class="meta-item"><span>&#127919; Level: Intermediate</span></div>
+            <div class="meta-item"><span>&#9201; Read Time: ~25 min</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Learning Objectives -->
+    <div class="content-box">
+        <h2 class="section-title">&#127919; Learning Objectives</h2>
+        <div class="section-content">
+            <p>By the end of this lab, you will be able to:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Routing Options:</strong> Configure key routing parameters — antenna insertion loops, SI-driven routing, and via count minimization.</li>
+                <li><strong>Minimum Routing Layer:</strong> Set the correct minimum signal routing layer (<code>route_design_signal_min_layer</code>) and understand why M1 is restricted to local connections only.</li>
+                <li><strong>NDR for Clock Nets:</strong> Define and assign a Non-Default Routing Rule for clock propagated nets using <code>create_route_rule</code> and <code>assign_route_rules</code>.</li>
+                <li><strong>Global and Detail Routing:</strong> Run <code>route_global</code> to establish routing topologies and <code>route_detail</code> to complete all detailed wire assignments.</li>
+                <li><strong>Antenna Fixing:</strong> Run <code>route_fix_antenna</code> to repair antenna violations that arise from long metal stubs accumulating charge during manufacturing.</li>
+                <li><strong>Routing Verification:</strong> Run <code>verify_drc</code>, <code>verify_connectivity</code>, and <code>report_route_drc</code> to confirm a clean routed database.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Prerequisites -->
+    <div class="content-box">
+        <h2 class="section-title">&#128295; Prerequisites</h2>
+        <div class="section-content">
+            <p>You should have completed or be familiar with:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>PNR-CDN-CTS lab:</strong> Clock tree synthesis — <code>ccopt_design</code>, NDR rules, post-CTS timing.</li>
+                <li><strong>Metal Stack Architecture:</strong> Understanding of which metal layers are used for local vs. global routing (M1–M2 local, M3–M9 global) at TSMC 28nm.</li>
+                <li><strong>Signal Integrity (SI):</strong> Basic concepts of capacitive coupling between adjacent wires and how SI-driven routing mitigates crosstalk.</li>
+                <li><strong>Antenna Effect:</strong> How long metal stubs on gate oxide during manufacturing accumulate charge and can damage transistor gates.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Theory -->
+    <div class="content-box">
+        <h2 class="section-title">&#128214; Theory and Background</h2>
+
+        <div class="section">
+            <h3 style="color: #667eea; margin-bottom: 15px;">The Routing Flow</h3>
+            <p>Signal net routing is the final major physical operation before chip finishing. All standard cells are placed, the clock tree is built — now Innovus must connect every signal net by assigning metal wires and vias across the 9-layer metal stack, while satisfying DRC rules, meeting timing, and avoiding antenna violations.</p>
+
+            <div style="overflow-x: auto; margin: 20px 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Routing Phase</th>
+                            <th>What it does</th>
+                            <th>Innovus Command</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Global Routing</strong></td>
+                            <td>Assigns nets to coarse routing regions (G-cells) — establishes the routing topology without full DRC compliance</td>
+                            <td><code>route_global</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Detail Routing</strong></td>
+                            <td>Completes exact wire and via assignments within each region — meets all DRC spacing, width, and via rules</td>
+                            <td><code>route_detail</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Antenna Repair</strong></td>
+                            <td>Fixes antenna violations by inserting diodes or re-routing long stubs that accumulated charge during etch</td>
+                            <td><code>route_fix_antenna</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>DRC Verification</strong></td>
+                            <td>Confirms the fully routed design is DRC-clean</td>
+                            <td><code>verify_drc</code></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#128200; Metal Layer Routing Constraints at TSMC 28nm</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">Layer</th>
+                        <th style="width: 25%;">Direction</th>
+                        <th>Routing Use</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background: #f8f9fa;">
+                        <td><strong>M1</strong></td>
+                        <td>Horizontal (restricted)</td>
+                        <td><strong>Local connections only</strong> — cell internal wiring, standard cell pin access. Cannot be used for global signal routing.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>M2</strong></td>
+                        <td>Vertical</td>
+                        <td>Minimum layer for global signal routing. Short-distance connections between nearby cells.</td>
+                    </tr>
+                    <tr style="background: #f8f9fa;">
+                        <td><strong>M3–M5</strong></td>
+                        <td>Alternating H/V</td>
+                        <td>Intermediate signal routing — local fanout distribution within standard cell blocks.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>M6–M7</strong></td>
+                        <td>Alternating H/V</td>
+                        <td>Longer signal routing — block-to-block connections, used for clock trunk NDR routing.</td>
+                    </tr>
+                    <tr style="background: #f8f9fa;">
+                        <td><strong>M8–M9</strong></td>
+                        <td>H/V</td>
+                        <td>Power stripes primarily — signal routing only for very long global connections.</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="info-card" style="margin-top: 12px; background: #fff3cd; border-left-color: #ffc107;">
+                <strong>&#9888; Critical rule:</strong> Setting <code>route_design_signal_min_layer M1</code> is incorrect. M1 is used exclusively by standard cells for internal pin connections. If the signal router tries to use M1 for net connections, it creates DRC violations with cell internal routing and can cause shorts or opens. Always set the minimum to <strong>M2</strong>.
+            </div>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#9889; Antenna Effect and <code>route_fix_antenna</code></h3>
+            <p>During chip manufacturing, long metal wire stubs act as antennas that accumulate plasma charges during the etch process. If the accumulated charge exceeds the gate oxide breakdown threshold of the transistors connected to that wire, the transistors are permanently damaged. The <strong>antenna ratio</strong> is the ratio of the wire area to the gate area — a ratio above the PDK limit triggers an antenna violation.</p>
+            <p style="margin-top: 12px;"><code>route_fix_antenna</code> resolves antenna violations by: (1) inserting a protection diode at the antenna endpoint to drain accumulated charge, or (2) re-routing the wire to add a via that "jumps" to a higher metal layer, breaking the antenna length.</p>
+        </div>
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+        <p style="color: #555; margin-bottom: 20px;">Test your understanding of signal net routing concepts.</p>
+
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. Why is M1 restricted to local connections only and cannot be used as the minimum signal routing layer?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Because M1 is too thin to carry signal current without electromigration failures</li>
+                    <li data-correct="false">Because the Innovus router does not have routing grid definitions for M1</li>
+                    <li data-correct="true">M1 is used by standard cells for internal pin access wiring — if the signal router places global connections on M1, they will conflict with cell-internal M1 geometry, creating DRC spacing and width violations that cannot be resolved</li>
+                    <li data-correct="false">M1 routing requires a special license in Innovus that is not available in this lab environment</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Standard cells reserve M1 for their internal connections — the cell pins are accessed on M1. The routing grid for M1 within a cell is managed by the cell library, not by the signal router. If the global router also places connections on M1, it creates conflicts with cell-internal wiring that violate minimum spacing and enclosure rules. M2 is the first layer available to the signal router for general-purpose routing.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. What is the purpose of assigning a Non-Default Rule (NDR) to clock propagated nets before <code>route_detail</code>?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">To prevent the router from using clock nets for signal routing, reserving them for power</li>
+                    <li data-correct="false">To assign clock nets to dedicated routing tracks on M8–M9 away from signal congestion</li>
+                    <li data-correct="true">Clock nets require wider metal and increased spacing compared to signal nets — wider metal reduces resistivity (improving transition time) and extra spacing reduces capacitive coupling from adjacent signal nets that could inject glitches onto the clock</li>
+                    <li data-correct="false">NDR rules mark clock nets as don't-touch so <code>route_detail</code> does not move them from their CTS-assigned positions</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Clock nets are the most sensitive nets in the design — any glitch or noise coupling onto the clock causes metastability or setup/hold violations at every flip-flop the clock drives. NDR rules provide shielding by increasing the spacing between the clock wire and adjacent signal wires, reducing capacitive crosstalk. The wider metal reduces RC delay along the clock wire, maintaining sharp transitions.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. After <code>route_detail</code>, <code>verify_drc</code> reports 150 DRC violations. Before running <code>route_fix_antenna</code>, you want to separate antenna violations from other DRC errors. How can you distinguish them?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Antenna violations always appear on M1 — any DRC on M1 is an antenna error</li>
+                    <li data-correct="false">Antenna violations have slack values &lt; 0 in the timing report</li>
+                    <li data-correct="true">Run <code>report_route_drc</code> which categorizes violations by type — antenna violations appear as a separate category (typically labeled ANTENNA or ANT). Non-antenna DRC errors (spacing, width, enclosure) appear under different rule categories</li>
+                    <li data-correct="false">Antenna violations can only appear after <code>route_fix_antenna</code> runs, so all 150 violations are non-antenna DRC errors at this stage</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> <code>report_route_drc</code> provides a categorized summary of all DRC violations with rule names and counts. Antenna violations are reported as a distinct rule category (e.g., "ANTENNA" or "ANT_RATIO"). By checking this report before running <code>route_fix_antenna</code>, you can see exactly how many violations are antenna-related vs. spacing/width/enclosure issues, helping prioritize debugging.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. <code>route_design_concurrent_minimize_via_count_effort high</code> is set before routing. What effect does minimizing via count have on timing?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Fewer vias reduces the routing area, allowing more signal nets to fit on lower metal layers</li>
+                    <li data-correct="false">Via minimization has no effect on timing — only wire length determines signal delay</li>
+                    <li data-correct="true">Each via adds resistance and capacitance to a net's RC profile — fewer vias reduces net delay, improving timing slack especially for critical paths with multiple layer changes</li>
+                    <li data-correct="false">Via minimization reduces electromigration risk on power nets by spreading current across fewer contacts</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> A via contributes both resistance (typically 5–50 ohms per via depending on layer and process) and capacitance to the net. For a critical path with 10 layer changes, reducing each via stack from 2 contacts to 1 contact can save several tens of picoseconds of delay — significant when the slack budget is tight. Via minimization with "high" effort invests more CPU time but produces better timing results on critical nets.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Lab Structure -->
+    <div class="content-box">
+        <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Testcase</th>
+                    <th>Type</th>
+                    <th>Design</th>
+                    <th>Difficulty</th>
+                    <th>Estimated Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><a href="TC-PNR-CDN-RT-GD-001/TC-PNR-CDN-RT-GD-001.html" style="color: #667eea; text-decoration: none;">Guided Testcase</a></td>
+                    <td><span class="type-guided">Guided</span></td>
+                    <td> Tile</td>
+                    <td>&#11088; Easy</td>
+                    <td>60–90 min</td>
+                </tr>
+                <tr>
+                    <td><a href="TC-PNR-CDN-RT-CH-001/TC-PNR-CDN-RT-CH-001.html" style="color: #667eea; text-decoration: none;">Challenge Testcase</a></td>
+                    <td><span class="type-independent">Challenge</span></td>
+                    <td>Iguana SoC</td>
+                    <td>&#11088;&#11088; Medium</td>
+                    <td>90–120 min</td>
+                </tr>
+            </tbody>
+        </table>
+        <div style="margin-top: 30px;">
+            <h3 style="color: #2c3e50; margin-bottom: 15px;">Guided Testcase</h3>
+            <p>A complete walkthrough of the <strong> Tile</strong> routing flow — setting routing options, defining and assigning an NDR rule for clock nets, running global and detail routing, fixing antenna violations, running DRC verification, and saving the routed database.</p>
+            <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Challenge Testcase</h3>
+            <p>The <strong>Iguana SoC</strong> routing script has a critical bug: <code>route_design_signal_min_layer</code> is set to <code>M1</code> instead of <code>M2</code>. Find and fix the bug before running the routing flow.</p>
+        </div>
+    </div>
+
+    <!-- Begin -->
+    <div class="content-box">
+        <h2 class="section-title">&#128640; Begin the Lab</h2>
+        <div class="action-buttons">
+            <a href="TC-PNR-CDN-RT-GD-001/TC-PNR-CDN-RT-GD-001.html" class="btn btn-primary">Start Guided Testcase &#8594;</a>
+            <a href="TC-PNR-CDN-RT-CH-001/TC-PNR-CDN-RT-CH-001.html" class="btn btn-secondary">Jump to Challenge Testcase &#8594;</a>
+        </div>
+    </div>
+
+</div>
+
+<script src="common/interactive.js"></script>
+</body>
+</html>

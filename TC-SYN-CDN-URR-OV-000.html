@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SYN-CDN-URR: Synthesis — Unresolved References in Cadence Genus</title>
+    <link rel="stylesheet" href="common/styles.css">
+</head>
+<body>
+    <!-- Scroll Progress Bar -->
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">SYN-CDN-URR: Unresolved References in Cadence Genus</h1>
+            <div class="lab-meta">
+                <div class="meta-item">
+                    <span>&#128218; Course: Physical Design</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#128296; Tools: Cadence Genus</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#9201; Duration: 4&#8211;6 hours</span>
+                </div>
+                <div class="meta-item">
+                    <span>&#127919; Difficulty: Intermediate</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Learning Objectives -->
+        <div class="content-box">
+            <h2 class="section-title">&#127919; Learning Objectives</h2>
+            <div class="section-content">
+                <p>By the end of this lab, you will be able to:</p>
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                    <li>Understand the synthesis and linking flow in Cadence Genus</li>
+                    <li>Identify and resolve unresolved reference errors during elaboration</li>
+                    <li>Properly manage RTL file lists using <code>read_hdl</code> and Genus <code>set_db</code> variables</li>
+                    <li>Use <code>check_design.rpt</code> as the primary signal to identify and quantify unresolved references</li>
+                    <li>Fix missing module references by adding source files to the file list</li>
+                    <li>Apply best practices for hierarchical design compilation in Genus</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Prerequisites -->
+        <div class="content-box">
+            <h2 class="section-title">&#128736;&#65039; Prerequisites</h2>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                <li><strong>Tcl Scripting:</strong> Basic knowledge of variables, lists, and sourcing scripts in a Tcl environment.</li>
+                <li><strong>RTL Fundamentals:</strong> Understanding of Verilog module hierarchy and module instantiation.</li>
+                <li><strong>Synthesis Flow:</strong> Familiarity with the synthesis process, specifically the elaboration and mapping stages.</li>
+                <li><strong>Library Management:</strong> Understanding of technology libraries, specifically managing <code>target_library</code>, <code>link_library</code>, and <code>.lib</code> files in Genus.</li>
+                <li><strong>Hierarchical Navigation:</strong> Experience tracing dependencies in complex hierarchical designs.</li>
+            </ul>
+        </div>
+
+        <!-- Theory Section -->
+        <div class="content-box">
+            <h2 class="section-title">&#128214; Theory and Background</h2>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">What is Synthesis?</h3>
+                <p>In VLSI, synthesis is the process of translating a Register-Transfer Level (RTL) design written in Verilog or VHDL into an optimized gate-level netlist. The synthesis tool maps RTL constructs to standard cells from a technology library, optimizing for Power, Performance, and Area (PPA) during this conversion.</p>
+                <p style="margin-top: 12px;">Cadence Genus is an industry-standard synthesis tool that performs this transformation. Unlike Synopsys Design Compiler, Genus uses <code>set_db</code> database commands to configure its environment, and breaks the synthesis into three explicit phases: <code>syn_generic</code>, <code>syn_map</code>, and <code>syn_opt</code>.</p>
+            </div>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Understanding the Elaboration Phase in Genus</h3>
+                <p>After reading RTL files with <code>read_hdl</code>, Genus performs <strong>elaboration</strong> via the <code>elaborate</code> command. This is Genus's equivalent of Design Compiler's separate <code>analyze</code> + <code>elaborate</code> + <code>link</code> sequence — in Genus, all three happen together during <code>elaborate</code>.</p>
+                <p style="margin-top: 10px;">During elaboration, Genus performs three essential checks:</p>
+                <ul style="margin-left: 30px; margin-top: 10px; line-height: 1.8;">
+                    <li><strong>Resolves module references:</strong> Connects instantiated submodules to their Verilog definitions</li>
+                    <li><strong>Checks hierarchy:</strong> Ensures all submodule definitions have been read in via <code>read_hdl</code></li>
+                    <li><strong>Validates library cells:</strong> Confirms that standard cells exist in the technology library specified by <code>set_db link_library</code></li>
+                </ul>
+                <p style="margin-top: 15px;">After elaboration, running <code>check_design</code> generates a report showing the number of unresolved references. A clean design shows:</p>
+                <pre class="code-block">Unresolved References          0</pre>
+            </div>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 15px;">Genus TUI-273: The Unresolved Reference Warning</h3>
+
+                <div class="info-card">
+                    <strong>TUI-273 Warning:</strong>
+                    <pre style="margin-top: 8px; background: transparent; padding: 0; font-size: 0.9em;">[TUI-273] Unresolved reference to module 'module_name' in 'top_design'.</pre>
+                    <p style="margin-top: 10px;">This warning indicates that Genus encountered an instantiation of <code>module_name</code> inside <code>top_design</code>, but it cannot find the Verilog definition for that module among the files read with <code>read_hdl</code> or in the loaded libraries.</p>
+                </div>
+
+                <h4 style="margin-top: 20px; color: #2c3e50;">Root Causes of TUI-273:</h4>
+                <ul style="margin-left: 30px; margin-top: 10px; line-height: 1.8;">
+                    <li><strong>Missing RTL file:</strong> The <code>.v</code> file containing the module definition was not included in the <code>read_hdl</code> file list</li>
+                    <li><strong>Typo in module name:</strong> The instantiation name in the parent module doesn't exactly match the module's <code>module</code> declaration</li>
+                    <li><strong>Missing library file:</strong> A standard cell (e.g., an LVT cell) is not found in any library listed in <code>set_db link_library</code></li>
+                    <li><strong>Incorrect search path:</strong> The library file path in <code>set_db init_lib_search_path</code> does not include the directory containing the required <code>.lib</code> file</li>
+                </ul>
+
+                <div class="section" style="margin-top: 25px; padding: 20px; background-color: #f1f4ff; border-radius: 8px; border: 1px solid #d1d9ff;">
+                    <h4 style="color: #2c3e50; margin-bottom: 10px;">&#129514; Lab Focus: The Two Main Culprits</h4>
+                    <p>Throughout these testcases, you will solve the two most frequent unresolved reference scenarios:</p>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.6;">
+                        <li><strong>Missing Source Files:</strong> Adding missing Verilog files to the <code>read_hdl</code> file list so Genus can find module definitions.</li>
+                        <li><strong>Library Configuration Issues:</strong> Ensuring all required <code>.lib</code> files (standard cell HVT/SVT/LVT and SRAM macro libraries) are listed in <code>set_db link_library</code>.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Knowledge Assessment Quiz -->
+        <div class="content-box">
+            <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+
+            <div class="quiz-container">
+                <div class="quiz-question">
+                    <h3>Question 1: In Cadence Genus, which command is used to read RTL source files into the tool?</h3>
+                    <ul class="quiz-options" id="q1-options">
+                        <li onclick="selectAnswer('q1', 0, false)">A. <code>read_verilog</code></li>
+                        <li onclick="selectAnswer('q1', 1, false)">B. <code>analyze -format verilog</code></li>
+                        <li onclick="selectAnswer('q1', 2, true)">C. <code>read_hdl</code></li>
+                        <li onclick="selectAnswer('q1', 3, false)">D. <code>import_hdl</code></li>
+                    </ul>
+                    <div id="q1-feedback" class="feedback"></div>
+                    <div id="q1-answer" class="answer">
+                        <p><strong>Correct!</strong> Cadence Genus uses <code>read_hdl</code> to parse and load Verilog/VHDL source files. This is different from Design Compiler which uses <code>analyze -format verilog</code>. After reading all files, <code>elaborate</code> builds the design hierarchy.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 2: Which Genus message ID indicates that a module instantiation cannot be resolved to a definition?</h3>
+                    <ul class="quiz-options" id="q2-options">
+                        <li onclick="selectAnswer('q2', 0, false)">A. LINK-5</li>
+                        <li onclick="selectAnswer('q2', 1, false)">B. UID-341</li>
+                        <li onclick="selectAnswer('q2', 2, true)">C. TUI-273</li>
+                        <li onclick="selectAnswer('q2', 3, false)">D. ELAB-100</li>
+                    </ul>
+                    <div id="q2-feedback" class="feedback"></div>
+                    <div id="q2-answer" class="answer">
+                        <p><strong>Correct!</strong> TUI-273 is the Cadence Genus message code for an unresolved module reference. It is the Genus equivalent of Design Compiler's LINK-5 warning. You will see it in the <code>genus_synthesis.log</code> file when modules cannot be resolved during elaboration.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 3: In Genus, which <code>set_db</code> variable must include all standard cell and macro library <code>.lib</code> files to prevent unresolved cell references?</h3>
+                    <ul class="quiz-options" id="q3-options">
+                        <li onclick="selectAnswer('q3', 0, false)">A. <code>init_hdl_search_path</code></li>
+                        <li onclick="selectAnswer('q3', 1, true)">B. <code>link_library</code> and <code>target_library</code></li>
+                        <li onclick="selectAnswer('q3', 2, false)">C. <code>synthetic_library</code></li>
+                        <li onclick="selectAnswer('q3', 3, false)">D. <code>rtl_source_files</code></li>
+                    </ul>
+                    <div id="q3-feedback" class="feedback"></div>
+                    <div id="q3-answer" class="answer">
+                        <p><strong>Correct!</strong> <code>set_db link_library</code> lists all <code>.lib</code> files Genus uses to resolve library cell references during elaboration. <code>set_db target_library</code> specifies the cells available for technology mapping during <code>syn_map</code>. Both must be updated when adding new cell variants (e.g., LVT) or macro libraries (e.g., SRAMs).</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 4: After adding a missing Verilog file to the <code>read_hdl</code> file list, what must you do for the change to take effect?</h3>
+                    <ul class="quiz-options" id="q4-options">
+                        <li onclick="selectAnswer('q4', 0, false)">A. Reload only the modified file using <code>read_hdl</code> in the running Genus session</li>
+                        <li onclick="selectAnswer('q4', 1, false)">B. Run <code>check_design</code> again after elaborating</li>
+                        <li onclick="selectAnswer('q4', 2, true)">C. Re-run the complete synthesis flow (<code>make run</code>) so Genus re-elaborates with the old file</li>
+                        <li onclick="selectAnswer('q4', 3, false)">D. No action needed — Genus detects file changes automatically</li>
+                    </ul>
+                    <div id="q4-feedback" class="feedback"></div>
+                    <div id="q4-answer" class="answer">
+                        <p><strong>Correct!</strong> Elaboration happens early in the flow and builds the complete design hierarchy from all files that were read. After modifying the file list, you must restart Genus and re-run the full flow so it re-reads all files and rebuilds the hierarchy with the newly included module.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lab Structure Overview -->
+        <div class="content-box">
+            <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Testcase</th>
+                        <th>Type</th>
+                        <th>Focus Area</th>
+                        <th>Difficulty</th>
+                        <th>Estimated Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="TC-SYN-CDN-URR-GD-001/TC-SYN-CDN-URR-GD-001.html" style="color: #667eea; text-decoration: none;">TC-SYN-CDN-URR-GD-001</a></td>
+                        <td><span class="type-guided">Guided</span></td>
+                        <td>Top design — missing RTL file and LVT library path</td>
+                        <td>&#11088; Easy</td>
+                        <td>45&#8211;60 min</td>
+                    </tr>
+                    <tr>
+                        <td><a href="TC-SYN-CDN-URR-CH-001/TC-SYN-CDN-URR-CH-001.html" style="color: #667eea; text-decoration: none;">TC-SYN-CDN-URR-CH-001</a></td>
+                        <td><span class="type-independent">Challenge</span></td>
+                        <td>AES cipher design — missing module in file list</td>
+                        <td>&#11088;&#11088; Medium</td>
+                        <td>60&#8211;90 min</td>
+                    </tr>
+                    <tr>
+                        <td><a href="TC-SYN-CDN-URR-CH-002/TC-SYN-CDN-URR-CH-002.html" style="color: #667eea; text-decoration: none;">TC-SYN-CDN-URR-CH-002</a></td>
+                        <td><span class="type-independent">Challenge</span></td>
+                        <td>Tile (iguana_soc) — missing SRAM macro libraries</td>
+                        <td>&#11088;&#11088;&#11088; Hard</td>
+                        <td>120&#8211;180 min</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div style="margin-top: 30px;">
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">Testcase 1: Guided Exercise</h3>
+                <p>In this guided testcase, you will learn the complete Genus synthesis flow and understand how to identify and fix unresolved reference errors step by step. The scenario involves a top-level design with a missing RTL module in the file list and an incomplete library path configuration. You will follow detailed instructions to locate the missing file, add it to the <code>read_hdl</code> list, update the <code>set_db</code> library variables, and verify successful elaboration.</p>
+
+                <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Testcase 2: Challenge Assignment</h3>
+                <p>You are given an AES Cipher design that fails during Genus elaboration with unresolved module references. Using the knowledge gained from Testcase 1, independently check <code>reports/check_design.rpt</code>, find the missing module, update the file list, and complete synthesis with a clean report showing zero unresolved references. No step-by-step guidance is provided.</p>
+
+                <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Testcase 3: Challenge Assignment</h3>
+                <p>The most complex scenario involves the tile design from the iguana_soc OpenPiton-based SoC. The design instantiates multiple SRAM macros (L1/L2 cache arrays, tag arrays, state arrays) whose library <code>.lib</code> files are missing from <code>set_db link_library</code>. You must check <code>reports/check_design.rpt</code> after each run, use the log to identify missing macro libraries, update the script, and iterate until <code>Unresolved References 0</code>.</p>
+            </div>
+        </div>
+
+        <!-- Begin the Lab -->
+        <div class="content-box">
+            <h2 class="section-title">&#128640; Begin the Lab</h2>
+            <p>Start with Testcase 1 (Guided Exercise) to learn the Genus synthesis and linking fundamentals, then progress to the challenge assignments.</p>
+
+            <div class="action-buttons">
+                <a href="TC-SYN-CDN-URR-GD-001/TC-SYN-CDN-URR-GD-001.html" class="btn btn-primary">Start Guided Testcase &#8594;</a>
+                <a href="TC-SYN-CDN-URR-CH-001/TC-SYN-CDN-URR-CH-001.html" class="btn btn-secondary">Jump to Challenge 1 &#8594;</a>
+                <a href="TC-SYN-CDN-URR-CH-002/TC-SYN-CDN-URR-CH-002.html" class="btn btn-secondary">Jump to Challenge 2 &#8594;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>const LAB_ID = 'SYN-CDN-URR';</script>
+    <script src="common/interactive.js"></script>
+    <script>
+        // Scroll progress bar
+        window.addEventListener('scroll', function() {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrolled = (window.scrollY / scrollableHeight) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        function selectAnswer(questionId, optionIndex, isCorrect) {
+            const options = document.querySelectorAll(`#${questionId}-options li`);
+            const feedback = document.getElementById(`${questionId}-feedback`);
+            const answer = document.getElementById(`${questionId}-answer`);
+
+            options.forEach(opt => {
+                opt.classList.remove('selected', 'correct-answer', 'wrong-answer');
+            });
+
+            const selectedOption = options[optionIndex];
+            selectedOption.classList.add('selected');
+
+            feedback.style.display = 'block';
+            if (isCorrect) {
+                selectedOption.classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '\u2705 Correct! Well done.';
+                if (answer) answer.style.display = 'block';
+            } else {
+                selectedOption.classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '\u274C Incorrect. Try again!';
+                if (answer) answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

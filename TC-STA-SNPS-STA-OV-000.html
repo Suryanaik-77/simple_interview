@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lab 27: Static Timing Analysis with PrimeTime</title>
+    <link rel="stylesheet" href="common/styles.css">
+    <style>
+        .content-box p  { color: #555; line-height: 1.7; }
+        .content-box ul,
+        .content-box ol { color: #555; line-height: 2.0; margin-left: 1.5rem; }
+    </style>
+</head>
+<body>
+
+    <div class="scroll-progress" id="scrollProgress"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Lab 27: Static Timing Analysis with Synopsys PrimeTime</h1>
+            <div class="lab-meta">
+                <div class="meta-item"><span>&#128218; Course: Physical Design</span></div>
+                <div class="meta-item"><span>&#128295; Tool: Synopsys PrimeTime (PT)</span></div>
+                <div class="meta-item"><span>&#9201; Duration: 4&ndash;6 hours</span></div>
+                <div class="meta-item"><span>&#11088;&#11088; Difficulty: Intermediate</span></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <div class="content-box">
+            <h2 class="section-title">&#127919; Learning Objectives</h2>
+            <div class="section-content">
+                <p>By the end of this lab, you will be able to:</p>
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                    <li>Understand what Static Timing Analysis (STA) is and why it is performed after place-and-route</li>
+                    <li>Explain the concept of PVT corners and why multiple corners are needed for signoff</li>
+                    <li>Understand the role of SPEF files in providing real parasitic data to PrimeTime</li>
+                    <li>Describe the difference between setup analysis (slow corners) and hold analysis (fast corners)</li>
+                    <li>Understand what OCV (On-Chip Variation) analysis is and why it is enabled</li>
+                    <li>Interpret PrimeTime timing reports including QoR, clock skew, and SI bottleneck reports</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128295; Prerequisites</h2>
+            <div class="section-content">
+                <ul style="margin-left: 20px; margin-top: 15px; line-height: 2;">
+                    <li><strong>Synthesis and P&amp;R:</strong> Completion of synthesis and place-and-route labs, understanding of gate-level netlists and routed designs.</li>
+                    <li><strong>SDC Basics:</strong> Familiarity with clock definitions, input/output delays, and timing constraints.</li>
+                    <li><strong>Timing Concepts:</strong> Understanding of setup time, hold time, slack, and critical paths.</li>
+                    <li><strong>Tcl Scripting:</strong> Basic familiarity with variables and sourcing scripts.</li>
+                    <li><strong>Linux Shell:</strong> Ability to navigate directories and run make targets from the terminal.</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128214; Theory and Background</h2>
+
+            <div class="section" style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 12px;">What is Static Timing Analysis?</h3>
+                <p>
+                    Static Timing Analysis (STA) is the process of verifying that a digital design meets all
+                    its timing requirements without running a simulation. Unlike dynamic simulation which
+                    requires input vectors, STA exhaustively checks every possible timing path in the design
+                    by computing signal arrival times and comparing them against required times.
+                </p>
+                <p style="margin-top: 12px;">
+                    STA is performed after place-and-route because only at that stage do we have the actual
+                    physical layout &mdash; real wire lengths, real cell placements, and extracted parasitic
+                    data (resistance and capacitance). PrimeTime uses this real parasitic data (provided as
+                    SPEF files) along with timing libraries to compute accurate path delays.
+                </p>
+            </div>
+
+            <div class="section" style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 12px;">PVT Corners and Multi-Corner STA</h3>
+                <p>
+                    Transistor and interconnect behavior varies with Process, Voltage, and Temperature (PVT).
+                    A design that meets timing at one PVT condition may fail at another. To ensure the chip
+                    works across all operating conditions, STA must be run at multiple PVT corners:
+                </p>
+                <table style="margin-top: 15px;">
+                    <thead>
+                        <tr><th>Corner</th><th>Process</th><th>Voltage</th><th>Temperature</th><th>RC Extraction</th><th>Primary Use</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>SS 0.81V &minus;40&deg;C cworst</strong></td><td>Slow-Slow</td><td>0.81V (low)</td><td>&minus;40&deg;C</td><td>Cworst &mdash; worst-case coupling and total capacitance (maximizes crosstalk and delay)</td><td>Setup analysis (worst-case delay)</td></tr>
+                        <tr><td><strong>SS 0.81V 125&deg;C rcworst</strong></td><td>Slow-Slow</td><td>0.81V (low)</td><td>125&deg;C</td><td>RCworst &mdash; worst-case resistance and capacitance together (maximizes RC delay)</td><td>Setup analysis (high temperature)</td></tr>
+                        <tr><td><strong>FF 0.99V &minus;40&deg;C cbest</strong></td><td>Fast-Fast</td><td>0.99V (high)</td><td>&minus;40&deg;C</td><td>Cbest &mdash; best-case (minimum) coupling and total capacitance (minimizes delay)</td><td>Hold analysis (fastest paths)</td></tr>
+                        <tr><td><strong>FF 0.99V 125&deg;C rcbest</strong></td><td>Fast-Fast</td><td>0.99V (high)</td><td>125&deg;C</td><td>RCbest &mdash; best-case (minimum) resistance and capacitance (minimizes RC delay)</td><td>Hold analysis (high temperature)</td></tr>
+                    </tbody>
+                </table>
+                <div class="info-card" style="margin-top: 15px;">
+                    <strong>Why 4 corners?</strong> Setup violations occur when paths are too slow (slow process,
+                    low voltage, worst parasitics). Hold violations occur when paths are too fast (fast process,
+                    high voltage, best parasitics). Both must be checked at extreme temperatures (&minus;40&deg;C
+                    and 125&deg;C). Each corner requires a matching pair: the correct timing library (.db) for
+                    that PVT condition AND the correct SPEF extracted at that RC condition. Using mismatched
+                    libraries and SPEFs gives inaccurate results.
+                </div>
+            </div>
+
+            <div class="section" style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 12px;">SPEF and Parasitic Annotation</h3>
+                <p>
+                    After place-and-route, a parasitic extraction tool (such as Cadence QRC or Synopsys StarRC)
+                    analyzes the physical layout &mdash; every routed metal wire, every via, every coupling
+                    between adjacent nets &mdash; and computes the resistance (R), grounded capacitance (C),
+                    and coupling capacitance (Cc) for each net segment. This data is written out in
+                    <strong>SPEF (Standard Parasitic Exchange Format)</strong>.
+                </p>
+                <p style="margin-top: 12px;">
+                    When PrimeTime reads a SPEF file, it <strong>annotates</strong> these extracted parasitics
+                    onto the design netlist. This means every net in the gate-level netlist gets its real R and C
+                    values from the physical layout, replacing any wire-load model estimates. The annotated
+                    parasitics are then used by the timing engine to compute accurate net delays, transition
+                    times, and crosstalk effects.
+                </p>
+                <p style="margin-top: 12px;">
+                    Each PVT corner requires its own SPEF file because metal resistance and capacitance change
+                    with temperature and process variation. The extraction tool runs at different conditions
+                    (cworst, rcworst, cbest, rcbest) to produce corner-specific parasitic data. It is critical
+                    to use the SPEF that matches the PVT corner being analyzed &mdash; a cworst SPEF with slow
+                    libraries for setup, a cbest SPEF with fast libraries for hold.
+                </p>
+            </div>
+
+            <div class="section">
+                <h3 style="color: #667eea; margin-bottom: 12px;">On-Chip Variation (OCV)</h3>
+                <p>
+                    Within a single chip, transistors and wires do not behave identically everywhere. The
+                    center of the die may be at a different temperature than the edges. Process variations
+                    cause some transistors to be faster or slower than others on the same die.
+                </p>
+                <p style="margin-top: 12px;">
+                    OCV analysis models this by applying different derating factors to the launch and capture
+                    paths of a timing check. This makes the analysis more pessimistic but more realistic,
+                    catching timing failures that would be missed with a single uniform timing model.
+                </p>
+            </div>
+
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#129504; Knowledge Assessment Quiz</h2>
+            <div class="quiz-container">
+
+                <div class="quiz-question">
+                    <h3>Question 1: Why is STA performed after place-and-route rather than after synthesis?</h3>
+                    <ul class="quiz-options" id="q1-options">
+                        <li onclick="selectAnswer('q1', 0, false)">A. STA requires RTL source files which are only available after P&amp;R.</li>
+                        <li onclick="selectAnswer('q1', 1, true)">B. Only after P&amp;R do we have the actual physical layout with real wire lengths and extracted parasitics for accurate timing.</li>
+                        <li onclick="selectAnswer('q1', 2, false)">C. PrimeTime cannot read gate-level netlists from synthesis.</li>
+                        <li onclick="selectAnswer('q1', 3, false)">D. STA is only needed for FPGA designs, not ASICs.</li>
+                    </ul>
+                    <div id="q1-feedback" class="feedback"></div>
+                    <div id="q1-answer" class="answer">
+                        <p><strong>Correct!</strong> After P&amp;R, the design has real cell placements and routed wires. Parasitic extraction produces SPEF files with actual R and C values, enabling PrimeTime to compute accurate path delays.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 2: Which PVT corner is primarily used for setup timing analysis?</h3>
+                    <ul class="quiz-options" id="q2-options">
+                        <li onclick="selectAnswer('q2', 0, false)">A. Fast-Fast, high voltage, best parasitics</li>
+                        <li onclick="selectAnswer('q2', 1, true)">B. Slow-Slow, low voltage, worst parasitics</li>
+                        <li onclick="selectAnswer('q2', 2, false)">C. Typical-Typical, nominal voltage</li>
+                        <li onclick="selectAnswer('q2', 3, false)">D. The corner does not matter for setup analysis.</li>
+                    </ul>
+                    <div id="q2-feedback" class="feedback"></div>
+                    <div id="q2-answer" class="answer">
+                        <p><strong>Correct!</strong> Setup violations occur when data arrives too late. The slow-slow corner with low voltage and worst parasitics gives the longest path delays, making it the hardest corner for setup timing.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 3: What does a SPEF file contain?</h3>
+                    <ul class="quiz-options" id="q3-options">
+                        <li onclick="selectAnswer('q3', 0, false)">A. The RTL source code of the design.</li>
+                        <li onclick="selectAnswer('q3', 1, false)">B. The timing library data for standard cells.</li>
+                        <li onclick="selectAnswer('q3', 2, true)">C. The extracted parasitic resistance and capacitance of every wire in the routed design.</li>
+                        <li onclick="selectAnswer('q3', 3, false)">D. The floorplan and macro placement data.</li>
+                    </ul>
+                    <div id="q3-feedback" class="feedback"></div>
+                    <div id="q3-answer" class="answer">
+                        <p><strong>Correct!</strong> SPEF (Standard Parasitic Exchange Format) contains the R and C values extracted from the routed layout. PrimeTime uses this to compute accurate wire delays.</p>
+                    </div>
+                </div>
+
+                <div class="quiz-question">
+                    <h3>Question 4: What does OCV (On-Chip Variation) analysis account for?</h3>
+                    <ul class="quiz-options" id="q4-options">
+                        <li onclick="selectAnswer('q4', 0, false)">A. Voltage variations between different chips in a wafer.</li>
+                        <li onclick="selectAnswer('q4', 1, false)">B. Temperature changes over time as the chip heats up.</li>
+                        <li onclick="selectAnswer('q4', 2, true)">C. Process and environmental variations within a single die, where different regions may have slightly different transistor and wire characteristics.</li>
+                        <li onclick="selectAnswer('q4', 3, false)">D. Variations between different technology libraries.</li>
+                    </ul>
+                    <div id="q4-feedback" class="feedback"></div>
+                    <div id="q4-answer" class="answer">
+                        <p><strong>Correct!</strong> OCV models the fact that transistors and wires on the same die do not behave identically everywhere. It applies different derating factors to launch and capture paths for more realistic analysis.</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Testcase</th>
+                        <th>Type</th>
+                        <th>Focus Area</th>
+                        <th>Difficulty</th>
+                        <th>Est. Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="TC-STA-SNPS-STA-GD-001/TC-STA-SNPS-STA-GD-001.html" style="color: #667eea; font-weight: 600;">Testcase 1</a></td>
+                        <td><span class="type-guided">Guided</span></td>
+                        <td>Run PrimeTime STA on the tile design across 4 PVT corners</td>
+                        <td>&#11088; Easy</td>
+                        <td>4&ndash;6 hours</td>
+                    </tr>
+                    <tr>
+                        <td><a href="TC-STA-SNPS-STA-CH-001/TC-STA-SNPS-STA-CH-001.html" style="color: #667eea; font-weight: 600;">Testcase 2</a></td>
+                        <td><span class="type-independent">Challenge</span></td>
+                        <td>Run PrimeTime STA independently on the iguana_soc design across 4 PVT corners</td>
+                        <td>&#11088;&#11088; Medium</td>
+                        <td>4&ndash;6 hours</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div style="margin-top: 30px;">
+                <h3 style="color: #2c3e50; margin-bottom: 12px;">Testcase 1: Guided Exercise (tile &mdash; 4 PVT Corners)</h3>
+                <p>
+                    You will run PrimeTime STA on the <strong>tile</strong> design from the OpenPiton processor.
+                    The design has been through place-and-route and four SPEF files are provided for four PVT
+                    corners. The first corner (SS 0.81V &minus;40&deg;C cworst) is explained command-by-command.
+                    For the remaining three corners, the matching library (.db) and SPEF inputs are provided
+                    so you can run them independently.
+                </p>
+
+                <h3 style="color: #2c3e50; margin-bottom: 12px; margin-top: 25px;">Testcase 2: Challenge Assignment (iguana_soc &mdash; 4 PVT Corners)</h3>
+                <p>
+                    Apply the same 4-corner PrimeTime STA flow independently on the <strong>iguana_soc</strong>
+                    design. PDK library paths and design information are provided. No step-by-step guidance.
+                </p>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">&#9654; Begin the Lab</h2>
+            <div class="section-content">
+                <p>
+                    Start with Testcase 1. The first PVT corner is fully guided. After understanding the flow,
+                    run the remaining three corners using the provided inputs.
+                </p>
+            </div>
+            <div class="action-buttons" style="margin-top: 20px;">
+                <a href="TC-STA-SNPS-STA-GD-001/TC-STA-SNPS-STA-GD-001.html" class="btn btn-primary">Start Testcase 1 (Guided) &rarr;</a>
+                <a href="TC-STA-SNPS-STA-CH-001/TC-STA-SNPS-STA-CH-001.html" class="btn btn-secondary">Jump to Testcase 2 &rarr;</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const LAB_ID = '27';
+    </script>
+    <script src="common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function () {
+            const scrollProgress = document.getElementById('scrollProgress');
+            const scrolled = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100;
+            scrollProgress.style.width = scrolled + '%';
+        });
+
+        function selectAnswer(questionId, optionIndex, isCorrect) {
+            const options = document.querySelectorAll('#' + questionId + '-options li');
+            const feedback = document.getElementById(questionId + '-feedback');
+            const answer = document.getElementById(questionId + '-answer');
+            options.forEach(function(opt) { opt.classList.remove('selected', 'correct-answer', 'wrong-answer'); });
+            var sel = options[optionIndex];
+            sel.classList.add('selected');
+            feedback.style.display = 'block';
+            if (isCorrect) {
+                sel.classList.add('correct-answer');
+                feedback.className = 'feedback correct';
+                feedback.textContent = '\u2705 Correct! Well done.';
+                if (answer) answer.style.display = 'block';
+            } else {
+                sel.classList.add('wrong-answer');
+                feedback.className = 'feedback incorrect';
+                feedback.textContent = '\u274C Incorrect. Try again!';
+                if (answer) answer.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

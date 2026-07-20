@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Routing in IC Compiler II (ICC2)</title>
+    <link rel="stylesheet" href="common/styles.css">
+    <style> code { color: #333; } </style>
+</head>
+<body>
+
+<!-- Scroll progress bar is created dynamically by interactive.js -->
+
+<!-- Header -->
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Routing in IC Compiler II (ICC2)</h1>
+        <div class="lab-meta">
+            <div class="meta-item"><span>&#128218; Topic: Physical Design Implementation</span></div>
+            <div class="meta-item"><span>&#128295; Tool: Synopsys IC Compiler II (icc2_shell)</span></div>
+            <div class="meta-item"><span>&#127919; Level: Advanced</span></div>
+            <div class="meta-item"><span>&#9201;&#65039; Read Time: ~30 min</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Learning Objectives -->
+    <div class="content-box">
+        <h2 class="section-title">&#127919; Learning Objectives</h2>
+        <div class="section-content">
+            <p>By the end of this lab, you will be able to:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Open Post-CTS Block:</strong> Load the clock-tree-synthesized design block from the NDM library and activate all timing scenarios in preparation for routing.</li>
+                <li><strong>Enable SI Analysis:</strong> Configure ICC2's signal integrity engine to account for crosstalk delta delay and glitch noise during routing and optimization.</li>
+                <li><strong>Configure Crosstalk-Driven Routing:</strong> Set global, track, and detail routing stages to use timing-driven and crosstalk-driven algorithms that minimize aggressor-victim coupling.</li>
+                <li><strong>Handle Antenna Violations:</strong> Configure diode insertion and layer-hop strategies to prevent plasma-induced gate oxide damage during the etching process.</li>
+                <li><strong>Run route_auto and Post-Route Optimization:</strong> Execute the full routing flow (route_auto) and post-route optimization (route_opt) including redundant via insertion and power grid reconnection.</li>
+                <li><strong>Apply Tightened Clock Uncertainty Post-Route:</strong> Update setup uncertainty from 0.255 ns (CTS) to 0.204 ns after routing parasitics are available, giving route_opt more margin to recover remaining setup violations.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Prerequisites -->
+    <div class="content-box">
+        <h2 class="section-title">&#128295; Prerequisites</h2>
+        <div class="section-content">
+            <p>Before diving in, you should be comfortable with the following:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Completed CTS Lab (PNR-SNPS-CTS):</strong> You must have a valid <code>tile.ndm</code> with a <code>cts</code> block saved.</li>
+                <li><strong>Signal Integrity Concepts:</strong> Understanding of aggressor and victim nets, coupling capacitance, crosstalk delta delay, and glitch noise is required to configure SI-aware routing correctly.</li>
+                <li><strong>Antenna Effect:</strong> Familiarity with how plasma-induced gate oxide damage occurs during the etching step and the two standard fix strategies (diode insertion and layer hopping).</li>
+                <li><strong>DRC/LVS Concepts:</strong> Understanding of design rule violations (spacing, width, shorts, opens) and how <code>check_routes</code> and <code>check_lvs</code> categorize them.</li>
+                <li><strong>ICC2 Block and Library Workflow:</strong> Comfort with <code>open_lib</code>, <code>open_block</code>, <code>save_block</code>, and the named block checkpoint system introduced in the init_design and CTS labs.</li>
+            </ul>
+            <div class="info-card" style="margin-top: 15px;">
+                &#128161; It is assumed that CTS has been completed and the <code>cts.design</code> block is saved inside <code>tile.ndm</code>. The routing stage reads this checkpoint directly.
+            </div>
+        </div>
+    </div>
+
+    <!-- ASIC Flow Stage Table -->
+    <div class="content-box">
+        <h2 class="section-title">&#128200; Where are we in the ASIC Flow?</h2>
+        <div class="section">
+            <div style="overflow-x: auto; margin: 20px 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ASIC Flow Stage</th>
+                            <th>What Happens</th>
+                            <th>Output</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Synthesis</strong></td>
+                            <td>RTL compiled into standard cells; timing constraints applied</td>
+                            <td>Gate-level netlist + SDC</td>
+                        </tr>
+                        <tr>
+                            <td><strong>init_design</strong></td>
+                            <td>Netlist, tech file, NDMs, MMMC, and derates loaded into ICC2 database</td>
+                            <td>Initialized ICC2 block ready for floorplan</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Floorplanning</strong></td>
+                            <td>Die area, macro placement defined</td>
+                            <td>Floorplan block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Placement</strong></td>
+                            <td>Standard cells placed on the die; timing-driven optimization with ideal clocks</td>
+                            <td>Placed block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>CTS</strong></td>
+                            <td>Clock tree synthesized and balanced across the design</td>
+                            <td>Clock tree block</td>
+                        </tr>
+                        <tr style="background: #f1f4ff;">
+                            <td><strong>Routing ← We are here</strong></td>
+                            <td>Signal nets routed across metal layers</td>
+                            <td>Routed block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Chip Finish</strong></td>
+                            <td>Metal fill, DRC/LVS clean-up, and final sign-off checks</td>
+                            <td>GDSII</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Theory and Background -->
+    <div class="content-box">
+        <h2 class="section-title">&#128214; Theory and Background</h2>
+
+        <!-- Section 1: Global + Detailed Routing -->
+        <div class="section">
+            <h3 style="color: #667eea; margin-bottom: 15px;">1. Global Routing, Track Assignment, and Detail Routing</h3>
+            <p>Routing is the physical design stage that connects every signal net in the placed design with actual metal wires on the available routing layers. ICC2 separates the routing problem into three hierarchical passes that progressively increase in precision:</p>
+
+            <div style="overflow-x: auto; margin: 20px 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Routing Stage</th>
+                            <th>What It Does</th>
+                            <th>Resolution</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f1f4ff;">
+                            <td><strong>Global Routing</strong></td>
+                            <td>Divides the die into rectangular tiles (GCells) and determines which GCells each net must traverse — produces a coarse routing topology without assigning specific tracks</td>
+                            <td>GCell level (~10 tracks wide)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Track Assignment</strong></td>
+                            <td>Assigns wires to specific routing tracks within each GCell, resolving conflicts between competing nets on the same layer</td>
+                            <td>Single track level</td>
+                        </tr>
+                        <tr style="background: #f1f4ff;">
+                            <td><strong>Detail Routing</strong></td>
+                            <td>Performs exact wire and via placement, ensuring all DRC rules (spacing, width, via enclosure) are satisfied while honoring the track assignments from the previous stage</td>
+                            <td>Exact wire geometry</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p style="margin-top: 15px;">The command <code>route_auto</code> runs all three stages in a single call — global routing, track assignment, and detail routing — without requiring you to invoke each step separately. This is the standard production flow in ICC2.</p>
+
+            <div class="info-card" style="margin-top: 15px;">
+                <strong>route_auto vs. manual stages:</strong> Earlier ICC2 versions required separate calls to <code>route_global</code>, <code>route_track</code>, and <code>route_detail</code>. The <code>route_auto</code> command executes the same sequence internally but with better inter-stage coordination, improved timing-driven decisions, and automatic congestion-aware rerouting between passes. Always prefer <code>route_auto</code> for production flows.
+            </div>
+        </div>
+
+        <!-- Section 2: Signal Integrity -->
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">2. Signal Integrity — Crosstalk-Driven Routing</h3>
+            <p>Signal integrity (SI) refers to the impact of coupling capacitance between adjacent wires on the timing and logic correctness of a design. In deep sub-micron processes (28nm and below), long parallel wires can run within a few tens of nanometers of each other, creating significant coupling capacitance. Two classes of SI problems arise:</p>
+
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Crosstalk Delta Delay:</strong> A switching aggressor net injects current into an adjacent quiet victim net via coupling capacitance. If aggressor and victim switch in the same direction, the victim transitions faster (negative delta delay — a hold risk). If they switch in opposite directions, the victim slows down (positive delta delay — a setup risk).</li>
+                <li><strong>Glitch Noise:</strong> A switching aggressor can induce a spurious voltage spike on a quiet victim. If the spike exceeds the logic threshold voltage, the victim may erroneously switch, causing functional failure independent of timing margins.</li>
+            </ul>
+
+            <p style="margin-top: 15px;">The app option <code>time.si_enable_analysis true</code> activates ICC2's SI engine, which computes coupling-aware delays using the extracted parasitic RC of the routed wires. The crosstalk-driven routing options (<code>route.global.crosstalk_driven</code>, <code>route.track.crosstalk_driven</code>) instruct the router to separate aggressor-victim pairs onto different layers or increase wire spacing where coupling is detected.</p>
+
+            <div class="info-card" style="margin-top: 15px; background: #fff8e1; border-left-color: #f0ad4e;">
+                <strong>&#9888;&#65039; SI analysis must be enabled before route_auto.</strong> If you enable SI analysis only after routing completes, ICC2 cannot use it during wire placement decisions. The router must know about SI constraints at global routing time so it can separate critical nets onto isolated layers and avoid parallel running wires on the most sensitive paths.
+            </div>
+        </div>
+
+        <!-- Section 3: Antenna Violations -->
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">3. Antenna Violations — Plasma-Induced Gate Oxide Damage</h3>
+            <p>Antenna violations arise during the semiconductor fabrication process, not during normal chip operation. During plasma etching of metal layers, long metal wire segments accumulate electric charge. If the accumulated charge has no discharge path to ground, it flows through the first completed connection it finds — typically the thin gate oxide of a connected MOSFET transistor. This can permanently damage or destroy the gate oxide, causing the transistor (and any flip-flop or logic gate it drives) to fail.</p>
+
+            <p style="margin-top: 15px;">The antenna ratio is the metric: it is the ratio of the exposed metal wire area to the gate oxide area it connects to. Foundry design rules specify a maximum antenna ratio (typically 200:1 to 400:1). ICC2 checks this during routing and offers two fix strategies:</p>
+
+            <div style="overflow-x: auto; margin: 20px 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fix Strategy</th>
+                            <th>Mechanism</th>
+                            <th>ICC2 Option</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #f1f4ff;">
+                            <td><strong>Diode Insertion</strong></td>
+                            <td>A reverse-biased diode cell is inserted at the gate input. The diode shunts accumulated charge safely to the substrate during etching without affecting normal operation.</td>
+                            <td><code>route.detail.insert_diodes_during_routing true</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Layer Hopping</strong></td>
+                            <td>The wire is routed up to a higher metal layer earlier in its path, reducing the effective antenna area on the lower (longer-etched) layer.</td>
+                            <td><code>route.detail.hop_layers_to_fix_antenna true</code></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="info-card" style="margin-top: 10px;">
+                <strong>Diode cell name matters:</strong> The <code>route.detail.diode_libcell_names</code> option must specify the exact library cell name of the antenna diode in your PDK. For the BWP35P140 standard cell library used in this lab, the correct cell is <code>ANTENNABWP35P140</code>. Using the wrong cell name causes the router to skip diode insertion silently, leaving antenna violations unresolved.
+            </div>
+        </div>
+
+        <!-- Section 4: Redundant Vias -->
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">4. Redundant Vias — Yield and Electromigration Improvement</h3>
+            <p>A standard single-cut via connects two metal layers through a single contact hole. If that contact hole is slightly misaligned or has an etching defect, the connection is open — the net fails. A redundant (multi-cut) via places two or more contact cuts in parallel for the same metal-to-metal connection. The wire still carries the same current, but now has two discharge paths: losing one cut still leaves the net connected.</p>
+
+            <p style="margin-top: 15px;">The command <code>add_redundant_vias</code> post-processes the routed design and replaces eligible single-cut vias with multi-cut versions wherever the routing tracks allow the extra geometry. Benefits include:</p>
+
+            <ul style="margin-left: 20px; margin-top: 10px; line-height: 2.2;">
+                <li><strong>Yield improvement:</strong> Single-cut via open defects are one of the leading causes of early-life chip failures. Multi-cut vias reduce this failure mode significantly.</li>
+                <li><strong>Electromigration improvement:</strong> Multiple parallel cuts reduce current density through each individual contact, extending the electromigration lifetime of high-current power and clock nets.</li>
+                <li><strong>No timing impact:</strong> Multi-cut vias have slightly lower resistance than single-cut vias, which typically improves (or at worst does not worsen) timing.</li>
+            </ul>
+        </div>
+
+        <!-- Section 5: Post-Route Optimization -->
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">5. Post-Route Optimization — route_opt and Tightened Uncertainty</h3>
+            <p>After <code>route_auto</code> completes, the design has real routed parasitics available for the first time. At this point, the timing numbers are more accurate than any estimate made during placement or CTS. The <code>route_opt</code> command exploits this accuracy to perform ECO (Engineering Change Order) style optimization: it can insert, resize, or move cells, reroute local congestion, and fix remaining DRC violations — all while keeping the routing largely intact.</p>
+
+            <p style="margin-top: 15px;">A critical step before running <code>route_opt</code> is to tighten the clock uncertainty. During CTS, the uncertainty is set conservatively (0.255 ns) to account for post-CTS clock skew that has not been fully resolved yet. After routing, the clock tree is stable and the extracted skew is known. Reducing uncertainty to 0.204 ns gives <code>route_opt</code> a larger timing window to work within — setup violations that appeared under the conservative uncertainty may now be resolved without any cell changes, and the optimizer has more freedom to fix remaining violations.</p>
+
+            <div class="info-card" style="margin-top: 15px;">
+                <strong>Hold uncertainty post-route:</strong> Hold uncertainty is reduced to 0.050 ns post-route (from a larger value at CTS). Hold violations are fixed using LVT delay buffers (<code>DEL*</code>, <code>BUFFD1BWP*</code>, <code>BUFFD2BWP*</code>) which have fast transitions but add just enough delay to correct hold margin. LVT cells are also re-enabled for optimization post-route — the leakage penalty is accepted in exchange for timing closure capability.
+            </div>
+
+            <!-- ASIC Flow Table -->
+            <div style="overflow-x: auto; margin: 25px 0;">
+                <h4 style="color: #2c3e50; margin-bottom: 12px;">ASIC Physical Design Flow — Where We Are</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ASIC Flow Stage</th>
+                            <th>What Happens</th>
+                            <th>Output Block</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Synthesis</strong></td>
+                            <td>RTL compiled into standard cells</td>
+                            <td>Gate-level netlist + SDC</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Design Init</strong></td>
+                            <td>Netlist, libs, MMMC, derates loaded into ICC2</td>
+                            <td>init_design block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Floorplanning</strong></td>
+                            <td>Die area, power rings, macro placement</td>
+                            <td>fp_design block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Placement</strong></td>
+                            <td>Standard cells placed, timing-driven</td>
+                            <td>place block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>CTS</strong></td>
+                            <td>Clock tree built and balanced; uncertainty 0.255 ns</td>
+                            <td>cts block</td>
+                        </tr>
+                        <tr style="background: #d4edda;">
+                            <td><strong>Routing &#8592; We are here</strong></td>
+                            <td>Signal nets routed; SI-aware; antenna fixes applied; route_opt with 0.204 ns uncertainty</td>
+                            <td>route + postroute blocks</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Chip Finish</strong></td>
+                            <td>Metal fill, final DRC/LVS sign-off</td>
+                            <td>GDSII</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+        <p style="color: #555; margin-bottom: 20px;">Test your understanding of routing concepts covered above. Click on your answer.</p>
+
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. What does the ICC2 command <code>route_auto</code> actually execute internally?</h3>
+                <ul class="quiz-options" id="q1-options">
+                    <li onclick="selectAnswer('q1', 0, false)">A. Only global routing — you must run <code>route_track</code> and <code>route_detail</code> separately afterward.</li>
+                    <li onclick="selectAnswer('q1', 1, false)">B. Detail routing only — global routing is done automatically during placement.</li>
+                    <li onclick="selectAnswer('q1', 2, true)">C. Global routing, track assignment, and detail routing in a single coordinated call.</li>
+                    <li onclick="selectAnswer('q1', 3, false)">D. Global routing and track assignment only — detail routing requires a separate <code>route_detail</code> call.</li>
+                </ul>
+                <div id="q1-feedback" class="feedback"></div>
+                <div id="q1-answer" class="answer"><strong>Correct!</strong> <code>route_auto</code> runs all three routing stages — global routing, track assignment, and detail routing — in a single command with inter-stage coordination and congestion-aware feedback between passes. This is the standard production command in ICC2 and replaces the older manual stage-by-stage flow.</div>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. What is the root cause of antenna violations in a physical design, and when do they occur?</h3>
+                <ul class="quiz-options" id="q2-options">
+                    <li onclick="selectAnswer('q2', 0, false)">A. Excessive coupling capacitance between adjacent wires that causes glitch noise during normal circuit operation.</li>
+                    <li onclick="selectAnswer('q2', 1, false)">B. Electromigration damage to a single-cut via caused by high current density in production use.</li>
+                    <li onclick="selectAnswer('q2', 2, false)">C. A timing violation caused by long wire delays on high-fanout clock nets after routing.</li>
+                    <li onclick="selectAnswer('q2', 3, true)">D. Accumulation of plasma charge on long metal wires during the semiconductor etching process, which discharges through and damages the gate oxide of a connected transistor.</li>
+                </ul>
+                <div id="q2-feedback" class="feedback"></div>
+                <div id="q2-answer" class="answer"><strong>Correct!</strong> Antenna violations are a fabrication-time phenomenon. During plasma etching, long metal wire segments act as antennas and accumulate charge. If this charge has no path to ground before the gate oxide connection is completed, it discharges destructively through the thin gate oxide, permanently damaging the transistor. This is why foundry design rule files specify maximum antenna ratios.</div>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. Why is the setup clock uncertainty tightened from 0.255 ns (CTS) to 0.204 ns before running <code>route_opt</code>?</h3>
+                <ul class="quiz-options" id="q3-options">
+                    <li onclick="selectAnswer('q3', 0, false)">A. The 0.255 ns uncertainty is a hold guard-band; it must be removed before setup optimization can run.</li>
+                    <li onclick="selectAnswer('q3', 1, true)">B. After routing, real parasitic extraction gives an accurate picture of clock skew, so the conservative CTS uncertainty can be reduced — giving route_opt more timing margin to recover setup violations.</li>
+                    <li onclick="selectAnswer('q3', 2, false)">C. ICC2 requires uncertainty below 0.210 ns before route_opt will run; it is a hard tool requirement.</li>
+                    <li onclick="selectAnswer('q3', 3, false)">D. Tightening uncertainty increases hold slack, which prevents hold-fix buffers from being unnecessarily inserted.</li>
+                </ul>
+                <div id="q3-feedback" class="feedback"></div>
+                <div id="q3-answer" class="answer"><strong>Correct!</strong> During CTS, the clock uncertainty includes a guard-band for post-CTS routing effects that are not yet quantified. After routing, the actual wire parasitics of the clock tree are extracted and the real clock skew is known. The 0.255 ns uncertainty was conservative; reducing it to 0.204 ns reflects the more accurate picture. A smaller uncertainty means less slack is wasted on the guard-band, giving route_opt more room to fix remaining setup violations.</div>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. What is a redundant (multi-cut) via and why is it inserted after <code>route_auto</code>?</h3>
+                <ul class="quiz-options" id="q4-options">
+                    <li onclick="selectAnswer('q4', 0, false)">A. A via that connects three or more metal layers simultaneously to reduce routing detours on congested designs.</li>
+                    <li onclick="selectAnswer('q4', 1, false)">B. A duplicate via placed on a different routing layer to provide an alternate signal path if a wire is severed by a DRC violation.</li>
+                    <li onclick="selectAnswer('q4', 2, true)">C. A via with two or more parallel contact cuts between the same two metal layers, reducing the risk of an open-circuit defect from a single misaligned or etching-defective contact and lowering current density to improve electromigration lifetime.</li>
+                    <li onclick="selectAnswer('q4', 3, false)">D. A special via type placed only on clock nets that provides lower resistance to minimize clock insertion delay.</li>
+                </ul>
+                <div id="q4-feedback" class="feedback"></div>
+                <div id="q4-answer" class="answer"><strong>Correct!</strong> A redundant (multi-cut) via places two or more parallel contact cuts for a single metal-layer-to-metal-layer connection. If one cut has a fabrication defect, the other cut maintains connectivity. The command <code>add_redundant_vias</code> post-processes the routed design to upgrade eligible single-cut vias to multi-cut versions, improving manufacturing yield and electromigration reliability with no degradation to timing.</div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Lab Structure Overview -->
+    <div class="content-box">
+        <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Testcase</th>
+                    <th>Type</th>
+                    <th>Design</th>
+                    <th>Difficulty</th>
+                    <th>Estimated Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><a href="TC-PNR-SNPS-RT-GD-001/TC-PNR-SNPS-RT-GD-001.html" style="color: #667eea; text-decoration: none;">Guided Testcase</a></td>
+                    <td><span class="type-guided">Guided</span></td>
+                    <td>tile</td>
+                    <td>&#11088; Advanced</td>
+                    <td>120–150 min</td>
+                </tr>
+                <tr>
+                    <td><a href="TC-PNR-SNPS-RT-CH-001/TC-PNR-SNPS-RT-CH-001.html" style="color: #667eea; text-decoration: none;">Challenge Testcase</a></td>
+                    <td><span class="type-independent">Challenge</span></td>
+                    <td>iguana_soc</td>
+                    <td>&#11088;&#11088;&#11088; Hard</td>
+                    <td>150–180 min</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div style="margin-top: 30px;">
+            <h3 style="color: #2c3e50; margin-bottom: 15px;">Guided Testcase</h3>
+            <p>In this guided testcase, you will run the complete merged route and post-route flow for the <strong>tile</strong> processor core. Every command is explained in detail — from opening the post-CTS block and configuring SI-aware routing, through antenna fix setup, <code>route_auto</code>, redundant via insertion, uncertainty tightening, and <code>route_opt</code>. You will also generate and interpret the full suite of route and post-route reports.</p>
+
+            <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Challenge Testcase</h3>
+            <p>You are given a routing script for the <strong>iguana_soc</strong> design that contains deliberate errors — a wrong block name, missing SI enable, and an incorrect antenna diode cell name. Using the concepts mastered in the Guided Testcase, independently diagnose and fix all errors, run the full route and post-route flow, and verify a clean result.</p>
+        </div>
+    </div>
+
+    <!-- Begin -->
+    <div class="content-box">
+        <h2 class="section-title">&#128640; Begin the Lab</h2>
+        <p>Start with the Guided Testcase for a complete walkthrough of the ICC2 routing flow, then challenge yourself with the independent Challenge Testcase.</p>
+
+        <div class="action-buttons">
+            <a href="TC-PNR-SNPS-RT-GD-001/TC-PNR-SNPS-RT-GD-001.html" class="btn btn-primary">Start Guided Testcase &#8594;</a>
+            <a href="TC-PNR-SNPS-RT-CH-001/TC-PNR-SNPS-RT-CH-001.html" class="btn btn-secondary">Jump to Challenge Testcase &#8594;</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    var LAB_ID       = '20';
+    var TESTCASE_NUM = '0';
+
+    function selectAnswer(questionId, optionIndex, isCorrect) {
+        const options  = document.querySelectorAll(`#${questionId}-options li`);
+        const feedback = document.getElementById(`${questionId}-feedback`);
+        const answer   = document.getElementById(`${questionId}-answer`);
+        options.forEach(opt => opt.classList.remove('selected', 'correct-answer', 'wrong-answer'));
+        options[optionIndex].classList.add('selected');
+        feedback.style.display = 'block';
+        if (isCorrect) {
+            options[optionIndex].classList.add('correct-answer');
+            feedback.className = 'feedback correct';
+            feedback.textContent = 'Correct! Well done.';
+            if (answer) answer.style.display = 'block';
+        } else {
+            options[optionIndex].classList.add('wrong-answer');
+            feedback.className = 'feedback incorrect';
+            feedback.textContent = 'Incorrect. Try again!';
+            if (answer) answer.style.display = 'none';
+        }
+    }
+</script>
+<script src="common/interactive.js"></script>
+
+</body>
+</html>

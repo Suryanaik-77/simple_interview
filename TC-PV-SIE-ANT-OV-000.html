@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lab PV: Antenna Check — Calibre</title>
+    <link rel="stylesheet" href="common/styles.css">
+</head>
+<body>
+    <div class="scroll-progress" id="scrollProgress"></div>
+    <header class="header">
+        <div class="header-content">
+            <h1 class="lab-title">Antenna Check using Calibre</h1>
+            <div class="lab-meta">
+                <div class="meta-item"><span>🔬 Skill: Physical Verification</span></div>
+                <div class="meta-item"><span>📦 Module: Antenna Check</span></div>
+                <div class="meta-item"><span>🛠️ Tool: Calibre (Siemens EDA)</span></div>
+                <div class="meta-item"><span>⏱️ Estimated Time: 60 minutes</span></div>
+                <div class="meta-item"><span>⭐ Difficulty: Intermediate</span></div>
+            </div>
+        </div>
+    </header>
+    <div class="container">
+
+        <div class="content-box">
+            <h2 class="section-title">🎯 Learning Objectives</h2>
+            <div class="section-content">
+                <ul style="margin-left:20px; line-height:2;">
+                    <li>Understand the plasma-induced gate oxide damage (antenna) problem in CMOS fabrication</li>
+                    <li>Explain how antenna ratio rules protect gate oxide during plasma etching</li>
+                    <li>Configure and run a Calibre antenna check runset</li>
+                    <li>Diagnose and fix common antenna runset configuration errors</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">📚 Background: Antenna Effects</h2>
+            <div class="section-content">
+                <p>During plasma etching steps in IC fabrication, charges accumulate on exposed metal
+                   conductors. These charges can discharge through the thin gate oxide of connected
+                   transistors, causing permanent damage (gate oxide breakdown or threshold shift).
+                   This is called the <strong>antenna effect</strong>.</p>
+                <p style="margin-top:15px;">To prevent this, foundries define <strong>antenna ratio rules</strong>:
+                   the ratio of the exposed metal area to the connected gate area must stay below a
+                   maximum limit. In TSMC 28nm, separate ratios apply to each metal layer.</p>
+                <p style="margin-top:15px;">Calibre antenna check uses the same DRC engine with a
+                   specialized antenna rule deck. The runset is structurally identical to DRC:</p>
+                <pre class="code-block">LAYOUT PATH "../inputs/aes_cipher_top.fill.gds"
+LAYOUT PRIMARY "aes_cipher_top"
+LAYOUT SYSTEM GDSII
+
+DRC SUMMARY REPORT "aes_cipher_top.antenna.summary"
+DRC RESULTS DATABASE "../outputs/aes_cipher_top.antenna.results" ASCII
+
+INCLUDE "/efs/semicon_labs_pd/pdk/.../CLN28HP_9M.ANT_002.14a"</pre>
+                <p style="margin-top:15px;">The only difference from DRC is the <code>INCLUDE</code> path,
+                   which must point to the antenna rule deck, not the DRC or fill deck.</p>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">🧠 Knowledge Check</h2>
+            <div class="quiz-container">
+                <div class="quiz-question">
+                    <h3>1. The antenna effect damages which transistor structure?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">Source/drain diffusion regions</li>
+                        <li onclick="checkAnswer(this, true)">Gate oxide</li>
+                        <li onclick="checkAnswer(this, false)">Metal contacts</li>
+                        <li onclick="checkAnswer(this, false)">Substrate well regions</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Plasma charges discharge through the gate oxide, damaging or destroying it.</div>
+                </div>
+                <div class="quiz-question">
+                    <h3>2. The antenna ratio is defined as:</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">Gate area / metal area</li>
+                        <li onclick="checkAnswer(this, true)">Metal (conductor) area / connected gate oxide area</li>
+                        <li onclick="checkAnswer(this, false)">Via area / metal area</li>
+                        <li onclick="checkAnswer(this, false)">Poly area / diffusion area</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> A high metal-to-gate ratio means more charge can accumulate per unit of gate, increasing damage risk.</div>
+                </div>
+                <div class="quiz-question">
+                    <h3>3. Which TSMC 28nm rule deck file is used for the antenna check?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">calibre.drc</li>
+                        <li onclick="checkAnswer(this, false)">Dummy_Metal_Via_Calibre_28nm.13a</li>
+                        <li onclick="checkAnswer(this, true)">CLN28HP_9M.ANT_002.14a</li>
+                        <li onclick="checkAnswer(this, false)">calibre.lvs</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> The antenna rule deck is a separate file from the DRC and fill decks.</div>
+                </div>
+                <div class="quiz-question">
+                    <h3>4. How can antenna violations be fixed in the P&amp;R flow?</h3>
+                    <ul class="quiz-options">
+                        <li onclick="checkAnswer(this, false)">Re-run CTS</li>
+                        <li onclick="checkAnswer(this, true)">Insert antenna diodes near affected gates or reroute signals through lower metal layers</li>
+                        <li onclick="checkAnswer(this, false)">Increase power supply voltage</li>
+                        <li onclick="checkAnswer(this, false)">Add more fill metal</li>
+                    </ul>
+                    <div class="feedback"></div>
+                    <div class="answer"><strong>Correct!</strong> Diode insertion provides a discharge path; rerouting breaks the long conductor that accumulates charge.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <h2 class="section-title">🗂️ Lab Structure</h2>
+            <div class="section-content">
+                <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+                    <tr style="background:#667eea; color:#fff;">
+                        <th style="padding:10px; text-align:left;">Testcase</th>
+                        <th style="padding:10px; text-align:left;">Type</th>
+                        <th style="padding:10px; text-align:left;">What you will do</th>
+                    </tr>
+                    <tr style="border-bottom:1px solid #eee;">
+                        <td style="padding:10px;"><a href="TC-PV-SIE-ANT-GD-001/TC-PV-SIE-ANT-GD-001.html">Guided</a></td>
+                        <td style="padding:10px;">Guided</td>
+                        <td style="padding:10px;">Run correct antenna check and verify clean report</td>
+                    </tr>
+                    <tr style="border-bottom:1px solid #eee; background:#f9f9f9;">
+                        <td style="padding:10px;"><a href="TC-PV-SIE-ANT-CH-001/TC-PV-SIE-ANT-CH-001.html">Challenge 1</a></td>
+                        <td style="padding:10px;">Challenge</td>
+                        <td style="padding:10px;">Fix wrong INCLUDE (DRC deck used instead of antenna deck)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:10px;"><a href="TC-PV-SIE-ANT-CH-002/TC-PV-SIE-ANT-CH-002.html">Challenge 2</a></td>
+                        <td style="padding:10px;">Challenge</td>
+                        <td style="padding:10px;">Fix missing LAYOUT PATH statement</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <div class="content-box">
+            <div class="nav-buttons">
+                <a href="TC-PV-SIE-ANT-GD-001/TC-PV-SIE-ANT-GD-001.html" class="btn btn-success">Begin Guided →</a>
+            </div>
+        </div>
+
+    </div>
+    <script>
+        var LAB_ID       = 'PV-SIE-ANT';
+        var TESTCASE_NUM = '0';
+    </script>
+    <script src="common/interactive.js"></script>
+    <script>
+        window.addEventListener('scroll', function() { const el=document.getElementById('scrollProgress'); el.style.width=(window.scrollY/(document.documentElement.scrollHeight-window.innerHeight)*100)+'%'; });
+        function checkAnswer(option, isCorrect) {
+            const parent=option.parentElement, container=parent.parentElement;
+            const feedback=container.querySelector('.feedback'), answer=container.querySelector('.answer');
+            parent.querySelectorAll('li').forEach(o=>o.style.pointerEvents='none');
+            if(isCorrect){option.classList.add('correct-answer');feedback.textContent='Correct!';feedback.className='feedback correct';feedback.style.display='block';if(answer)answer.style.display='block';}
+            else{option.classList.add('wrong-answer');feedback.textContent='Incorrect. Try again.';feedback.className='feedback incorrect';feedback.style.display='block';}
+        }
+    </script>
+</body>
+</html>

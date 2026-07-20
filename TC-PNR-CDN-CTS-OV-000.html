@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clock Tree Synthesis — PNR-CDN-CTS</title>
+    <link rel="stylesheet" href="common/styles.css">
+    <style>
+        code { color: #333; }
+        .btn-check-answer {
+            background: #2563eb; color: #fff; border: none;
+            padding: 8px 18px; border-radius: 6px; cursor: pointer;
+            font-size: 0.95em; margin-top: 12px;
+        }
+        .btn-check-answer:hover:not(:disabled) { background: #1d4ed8; }
+        .btn-check-answer:disabled { background: #9ca3af; cursor: not-allowed; }
+        .quiz-options li { cursor: pointer; }
+        .quiz-options li.selected { background: #eff6ff; border-left: 4px solid #2563eb; }
+        .quiz-options li.correct-answer { background: #d4edda !important; border-left: 4px solid #28a745 !important; }
+        .quiz-options li.wrong-answer { background: #f8d7da !important; border-left: 4px solid #dc3545 !important; opacity: 0.6; }
+        .goal-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .goal-card {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 14px 16px;
+        }
+        .goal-card h4 { color: #667eea; margin-bottom: 8px; font-size: 0.95em; }
+        .goal-card ul { margin-left: 16px; line-height: 1.9; font-size: 0.93em; }
+        @media (max-width: 700px) { .goal-grid { grid-template-columns: 1fr; } }
+        .concept-box {
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+            border-radius: 0 8px 8px 0;
+            padding: 14px 18px;
+            margin: 16px 0;
+            font-size: 0.95em;
+        }
+        .concept-box h4 { color: #4a5568; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Clock Tree Synthesis in Cadence Innovus</h1>
+        <div class="lab-meta">
+            <div class="meta-item"><span>&#128218; Topic: Clock Tree Synthesis (CTS)</span></div>
+            <div class="meta-item"><span>&#128295; Tool: Cadence Innovus</span></div>
+            <div class="meta-item"><span>&#127919; Level: Intermediate</span></div>
+            <div class="meta-item"><span>&#9201; Read Time: ~30 min</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Learning Objectives -->
+    <div class="content-box">
+        <h2 class="section-title">&#127919; Learning Objectives</h2>
+        <div class="section-content">
+            <p>By the end of this lab, you will be able to:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Explain why clock skew exists</strong> in physical designs and describe exactly how skew impacts both setup and hold timing margins.</li>
+                <li><strong>Describe how a clock tree achieves balance</strong> — the role of buffer insertion, drive strength selection, and path length equalization in minimizing clock arrival time differences across the die.</li>
+                <li><strong>State the six goals of CTS</strong> and explain the engineering tradeoffs between skew, latency, transition time, signal integrity, placement legality, and post-CTS timing closure.</li>
+                <li><strong>Explain why clock nets use Non-Default Routing Rules (NDR)</strong> — the physical reason for wider and more-spaced clock wiring and how it reduces RC variation and crosstalk.</li>
+                <li><strong>Distinguish between pre-CTS and post-CTS timing analysis</strong> — why uncertainty values change after CTS and what can go wrong if they are not updated.</li>
+                <li><strong>Interpret CTS quality results</strong> — skew, latency, transition time — and diagnose clock tree health from those numbers.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Prerequisites -->
+    <div class="content-box">
+        <h2 class="section-title">&#128295; Prerequisites</h2>
+        <div class="section-content">
+            <p>You should have completed or be familiar with:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>PNR-CDN-PL lab:</strong> Standard cell placement, placement constraints, and timing-driven placement.</li>
+                <li><strong>Setup and Hold Timing:</strong> How setup slack and hold slack are computed from clock and data path delays.</li>
+                <li><strong>SDC Clock Definitions:</strong> What clock period and clock uncertainty represent in the SDC context.</li>
+                <li><strong>Basic Parasitic Concepts:</strong> Wire resistance and capacitance, and how RC delay scales with wire length.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Theory -->
+    <div class="content-box">
+        <h2 class="section-title">&#128214; Theory and Background</h2>
+
+        <!-- Section 1: Why CTS is Needed -->
+        <div class="section">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#9889; Why Clock Tree Synthesis is Needed</h3>
+            <p>In a digital design, every flip-flop must receive the clock signal at the right time. During synthesis and placement, the EDA tool operates with an <strong>ideal clock</strong> — it assumes every flip-flop gets the clock at the exact same instant, with zero propagation delay through the network. This simplification allows the tool to optimize data paths without worrying about clock distribution.</p>
+            <p style="margin-top: 12px;">In physical reality, a clock signal travels from a single source — a clock input port or PLL — through real metal wires and buffers to reach tens of thousands of flip-flops spread across the die. These real wires have resistance and capacitance. The longer or more loaded the wire, the longer the RC delay. The result is <strong>clock skew</strong>: different flip-flops receive the clock at different times.</p>
+
+            <div class="concept-box" style="margin-top: 16px;">
+                <h4>&#128161; The Scale of the Problem</h4>
+                <p>In TSMC 28nm, a typical metal wire has approximately 50 Ω/mm resistance and 0.2 fF/µm capacitance. A flip-flop in the far corner of a 3 mm × 3 mm die could see 150+ ps of extra RC delay compared to one placed near the clock source. Without buffering and active balancing, the skew across the die would be hundreds of picoseconds — consuming most or all of the timing margin in a high-frequency design.</p>
+            </div>
+            <p style="margin-top: 14px;">Clock Tree Synthesis solves this by inserting a network of clock buffers that actively equalizes the clock arrival time at every flip-flop. The goal is not to eliminate all delay — it is to make every path from the clock source to every flip-flop have the same total delay, so the clock arrives simultaneously (within a tight tolerance) everywhere.</p>
+        </div>
+
+        <!-- Section 2: Clock Skew and Timing Impact -->
+        <div class="section" style="margin-top: 30px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#128200; Clock Skew and Its Direct Impact on Timing</h3>
+            <p>Clock skew between a launch flip-flop (FF1) and a capture flip-flop (FF2) has a direct, measurable effect on both setup and hold timing margins. The direction of the effect depends on which clock arrives first:</p>
+
+            <table style="width:100%; border-collapse: collapse; margin-top: 16px;">
+                <thead>
+                    <tr style="background: #2c3e50; color: #fff;">
+                        <th style="padding: 12px 14px; text-align: left; width: 22%;">Skew Direction</th>
+                        <th style="padding: 12px 14px; text-align: left; width: 30%;">Meaning</th>
+                        <th style="padding: 12px 14px; text-align: left; width: 24%;">Setup Effect</th>
+                        <th style="padding: 12px 14px; text-align: left;">Hold Effect</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background: #f8f9fa;">
+                        <td style="padding: 10px 14px;"><strong>Positive skew</strong></td>
+                        <td style="padding: 10px 14px;">Capture clock arrives <em>later</em> than launch</td>
+                        <td style="padding: 10px 14px; color: #155724;"><strong>Improves</strong> — data has more time to propagate before meeting the capture edge</td>
+                        <td style="padding: 10px 14px; color: #721c24;"><strong>Worsens</strong> — data must not arrive too early at the delayed capture edge; short paths may violate hold</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px 14px;"><strong>Negative skew</strong></td>
+                        <td style="padding: 10px 14px;">Capture clock arrives <em>earlier</em> than launch</td>
+                        <td style="padding: 10px 14px; color: #721c24;"><strong>Worsens</strong> — less time for data to meet the early capture edge</td>
+                        <td style="padding: 10px 14px; color: #155724;"><strong>Improves</strong> — data naturally meets the earlier capture window</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="concept-box" style="margin-top: 18px;">
+                <h4>&#128221; Worked Example — 1 GHz Design, 0.3 ns Skew</h4>
+                <p>Clock period = 1.0 ns. A specific path has 0.3 ns of <em>positive</em> skew (capture clock arrives 0.3 ns after launch clock).</p>
+                <ul style="margin-left: 20px; margin-top: 8px; line-height: 2.0;">
+                    <li><strong>Setup:</strong> Data path budget = 1.0 + 0.3 = <strong>1.3 ns</strong> — setup slack improves by 0.3 ns</li>
+                    <li><strong>Hold:</strong> Data path minimum requirement = 0.3 ns — any combinational logic taking &lt; 0.3 ns creates a hold violation</li>
+                </ul>
+                <p style="margin-top: 10px; color: #555;">The same 0.3 ns of skew that <em>helped</em> setup by 0.3 ns simultaneously <em>hurt</em> hold by 0.3 ns. CTS targets ≤ 0.1 ns skew to prevent large asymmetric timing effects on any path pair.</p>
+            </div>
+        </div>
+
+        <!-- Section 3: How CTS Achieves Balance -->
+        <div class="section" style="margin-top: 30px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#127981; How CTS Builds a Balanced Clock Tree</h3>
+            <p>The CTS engine builds the clock distribution network by inserting clock buffers and inverters throughout the design hierarchy. The fundamental objective is to make the total RC delay from the clock source to every flip-flop clock pin as equal as possible. Three mechanisms achieve this:</p>
+            <ul style="margin-left: 20px; margin-top: 12px; line-height: 2.4;">
+                <li><strong>Buffer insertion:</strong> Adding clock buffers on clock nets breaks long wire segments into shorter, better-driven segments — reducing accumulated wire delay and restoring sharp clock edges degraded by capacitive load.</li>
+                <li><strong>Drive strength selection:</strong> Choosing buffers with higher drive strength (larger transistors) at high-fanout nodes or on long wires reduces RC delay. LVT (Low Voltage Threshold) buffers are preferred because their lower threshold voltage means faster transistor switching — less cell delay for the same output transition.</li>
+                <li><strong>Path length equalization:</strong> Branches with fewer flip-flops (naturally shorter RC path) may get intentionally longer routing to add delay, while branches with many flip-flops get stronger drivers. The goal is all paths converging to the same total arrival time.</li>
+            </ul>
+
+            <div class="info-card" style="margin-top: 16px; background: #fff3cd; border-left-color: #ffc107;">
+                <strong>&#9888; Why perfect balance is difficult:</strong> Flip-flops are not uniformly distributed across the die. A cluster of registers in one corner creates an asymmetric sub-tree. The tool simultaneously handles thousands of endpoints at different physical locations with different local routing density — making exact balance computationally intensive. Concurrent Clock and Data Optimization approaches this more effectively than classical two-pass methods by co-optimizing clock tree structure and data path timing at the same time.
+            </div>
+        </div>
+
+        <!-- Section 4: Goals and Aims -->
+        <div class="section" style="margin-top: 30px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#127945; Goals and Aims of Clock Tree Synthesis</h3>
+            <p>CTS must achieve six engineering objectives simultaneously. Every routing rule and post-CTS constraint exists to serve one of these goals:</p>
+
+            <div class="goal-grid">
+                <div class="goal-card">
+                    <h4>&#9200; 1. Minimize Clock Skew</h4>
+                    <ul>
+                        <li>Every nanosecond of skew directly consumes setup or hold margin on paths between affected flip-flops</li>
+                        <li>The CTS engine inserts and sizes buffers to equalize total path delay from clock source to all endpoints</li>
+                        <li><strong>Target:</strong> &le; 0.1 ns across all domains in this lab</li>
+                        <li>Verified by: skew report — maximum skew between any two endpoints in the same domain</li>
+                    </ul>
+                </div>
+                <div class="goal-card">
+                    <h4>&#9889; 2. Meet Clock Transition Time</h4>
+                    <ul>
+                        <li>A slow clock edge (long rise/fall time) means the clock signal spends more time in the ambiguous mid-voltage zone — widening the window during which the flip-flop is sensitive to data changes</li>
+                        <li>This effectively increases the flip-flop's setup and hold time requirements, consuming timing margin on <em>every</em> data path in the design</li>
+                        <li><strong>Target:</strong> Tclk/6 — for 1 GHz this is 0.167 ns</li>
+                        <li>Achieved by: proper buffer sizing and fanout limits</li>
+                    </ul>
+                </div>
+                <div class="goal-card">
+                    <h4>&#128200; 3. Minimize Clock Insertion Delay</h4>
+                    <ul>
+                        <li>Insertion delay (latency) is the total propagation time from the clock source to the last clock endpoint</li>
+                        <li>High latency means the clock arrives late everywhere — this interacts with SDC-assumed latency values and can cause unexpected divergence between pre-CTS and post-CTS analysis</li>
+                        <li>LVT cells reduce insertion delay because their lower threshold voltage delivers faster switching speed than SVT or HVT cells</li>
+                        <li>Verified by: latency report — maximum insertion delay across all endpoints</li>
+                    </ul>
+                </div>
+                <div class="goal-card">
+                    <h4>&#128262; 4. Preserve Clock Signal Integrity</h4>
+                    <ul>
+                        <li>Clock nets switch on every cycle — adjacent signal wires coupling capacitively can inject crosstalk noise onto the clock, causing jitter (cycle-to-cycle variation in clock arrival time)</li>
+                        <li>Jitter at the clock pin directly increases timing uncertainty at every register driven by that clock segment, degrading both setup and hold margins</li>
+                        <li>Non-Default Routing Rules (NDR) apply wider metal and increased spacing to clock nets — reducing coupling capacitance and resistance variability</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="goal-grid" style="margin-top: 16px;">
+                <div class="goal-card">
+                    <h4>&#9989; 5. Achieve Post-CTS Timing Closure</h4>
+                    <ul>
+                        <li>After clock tree insertion, setup and hold timing must be re-analyzed using real propagated clock delays — not the ideal-clock assumptions used during placement</li>
+                        <li>The pre-CTS clock uncertainty was deliberately conservative (large) to cover unknown worst-case skew. Post-CTS, the actual skew is measured and controlled — uncertainty is reduced, giving back timing margin held in pessimistic reserve</li>
+                        <li>Hold violations that appear after CTS are expected and normal — the CTS buffers add real insertion delay to the launch clock, causing short data paths to appear to arrive too early. These are fixed during routing.</li>
+                    </ul>
+                </div>
+                <div class="goal-card">
+                    <h4>&#128295; 6. Maintain Placement Legality</h4>
+                    <ul>
+                        <li>CTS physically inserts new clock buffer cells into the placed design — each new cell must be placed legally: row-aligned, no overlap with existing cells, no DRC spacing violations</li>
+                        <li>Cell halos reserve exclusion zones around each inserted buffer to prevent placement too close to existing cells during CTS buffer insertion</li>
+                        <li>After CTS completes, placement must be re-verified — buffer insertions can displace nearby standard cells if halos are not configured correctly</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 5: NDR Rules -->
+        <div class="section" style="margin-top: 30px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#127981; Non-Default Routing Rules — The Physics</h3>
+            <p>Standard signal nets use the minimum metal width and spacing defined by the process design rules. Clock nets use wider, more-spaced routing — Non-Default Routing Rules (NDR) — for three specific physical reasons:</p>
+
+            <table style="width:100%; border-collapse: collapse; margin-top: 16px;">
+                <thead>
+                    <tr style="background: #2c3e50; color: #fff;">
+                        <th style="padding: 10px 14px; text-align: left; width: 20%;">NDR Property</th>
+                        <th style="padding: 10px 14px; text-align: left; width: 38%;">Physical Effect</th>
+                        <th style="padding: 10px 14px; text-align: left;">Benefit to CTS Quality</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background: #f8f9fa;">
+                        <td style="padding: 10px 14px;"><strong>2× wire width</strong></td>
+                        <td style="padding: 10px 14px;">Doubles the wire cross-section area — resistance R = ρL/A drops by half for the same length</td>
+                        <td style="padding: 10px 14px;">Lower and more consistent RC delay across branches → better skew balance; faster signal propagation</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px 14px;"><strong>2× wire spacing</strong></td>
+                        <td style="padding: 10px 14px;">Increases distance to adjacent wires — mutual capacitance scales with 1/distance, so coupling drops significantly</td>
+                        <td style="padding: 10px 14px;">Less crosstalk noise injected into the clock net from switching signals → less jitter, cleaner clock edges</td>
+                    </tr>
+                    <tr style="background: #f8f9fa;">
+                        <td style="padding: 10px 14px;"><strong>Upper metal layers</strong></td>
+                        <td style="padding: 10px 14px;">M6, M7 have thicker metal and larger minimum pitch — lower resistance per mm than lower metal layers</td>
+                        <td style="padding: 10px 14px;">Long top/trunk clock wires routed at low resistance — minimizes insertion delay and delay variation on long horizontal runs</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <p style="margin-top: 18px;">The clock tree is divided into three segments. Each uses different NDR based on wire length and local routing density:</p>
+            <table style="width:100%; border-collapse: collapse; margin-top: 12px;">
+                <thead>
+                    <tr style="background: #2c3e50; color: #fff;">
+                        <th style="padding: 10px 14px;">Segment</th>
+                        <th style="padding: 10px 14px;">Definition</th>
+                        <th style="padding: 10px 14px;">NDR Applied</th>
+                        <th style="padding: 10px 14px;">Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background: #f8f9fa;">
+                        <td style="padding: 10px 14px;"><strong>Top</strong></td>
+                        <td style="padding: 10px 14px;">Clock source to first buffer level</td>
+                        <td style="padding: 10px 14px;">2× width + 2× spacing</td>
+                        <td style="padding: 10px 14px;">Longest single segment — RC reduction most critical</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px 14px;"><strong>Trunk</strong></td>
+                        <td style="padding: 10px 14px;">Mid-tree distribution across the die</td>
+                        <td style="padding: 10px 14px;">2× width + 2× spacing</td>
+                        <td style="padding: 10px 14px;">Still long wires with high fanout — full NDR needed</td>
+                    </tr>
+                    <tr style="background: #f8f9fa;">
+                        <td style="padding: 10px 14px;"><strong>Leaf</strong></td>
+                        <td style="padding: 10px 14px;">Last buffer level to flip-flop clock pins</td>
+                        <td style="padding: 10px 14px;">2× spacing only (no 2× width)</td>
+                        <td style="padding: 10px 14px;">Short, local wires in dense standard cell rows — 2× width wastes routing tracks; spacing alone prevents crosstalk</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Section 6: Pre vs Post CTS Timing -->
+        <div class="section" style="margin-top: 30px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#128200; Pre-CTS vs Post-CTS Timing Analysis</h3>
+            <p>During placement, the tool uses an <strong>ideal clock model</strong> — every flip-flop receives the clock at the same instant. This is not physically real, but it allows data path optimization before the clock tree is built. To account for uncertainty about what the real clock tree will produce, a conservative <strong>clock uncertainty</strong> value is added to all timing checks as a guard-band.</p>
+            <p style="margin-top: 12px;">After CTS, the clock transitions from ideal to <strong>propagated</strong> — the tool traces the actual delay through every buffer and wire in each clock path to compute the real arrival time at each flip-flop. At this transition:</p>
+            <ul style="margin-left: 20px; margin-top: 12px; line-height: 2.2;">
+                <li><strong>Actual skew is measured.</strong> Real values replace the pre-CTS estimate. Because the tree is engineered to balance, the measured skew is typically far smaller than the pre-CTS guard-band assumed.</li>
+                <li><strong>Clock uncertainty is reduced.</strong> Since the real skew is now known and controlled, the guard-band shrinks — giving back timing margin that was conservatively held in reserve during placement. This is why post-CTS timing often shows more setup margin than pre-CTS analysis suggested.</li>
+                <li><strong>Hold violations appear.</strong> Under the ideal clock, every flip-flop had zero insertion delay. After CTS, real buffers add 0.5–1.5 ns of latency to the launch clock path. Short combinational paths that were safely within hold margin under zero-delay ideal assumptions now see the launch clock arriving later — causing data to appear to arrive too early at the capture edge. These hold violations are expected and are resolved during routing by inserting hold buffers.</li>
+            </ul>
+
+            <div class="info-card" style="margin-top: 16px; background: #e8f4f8; border-left-color: #2196f3;">
+                <strong>&#9888; Key insight:</strong> Post-CTS hold violations are <em>not</em> a sign of CTS failure — they are a natural consequence of switching from an idealized timing model to a physically accurate one. CTS is successful when skew is within target and setup timing has improved due to the smaller post-CTS uncertainty. Hold violations are a downstream task resolved in routing.
+            </div>
+        </div>
+
+    </div><!-- end Theory -->
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+        <p style="color: #555; margin-bottom: 20px;">Test your understanding of CTS concepts before starting the testcases.</p>
+
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. A register-to-register path in a 1 GHz design has setup slack +0.05 ns and hold slack +0.20 ns during placement (ideal clock). After CTS, the capture flip-flop's clock arrives 0.20 ns <em>later</em> than the launch flip-flop's clock on this specific path. What are the approximate setup and hold slacks after CTS, assuming no other changes?</h3>
+                <ul class="quiz-options">
+                    <li onclick="selectOption(this)" data-correct="true">Setup improves to approximately +0.25 ns; hold worsens to approximately 0.00 ns — a later capture clock gives the data path more time (better setup) but tightens the hold requirement (worse hold) by the same 0.20 ns</li>
+                    <li onclick="selectOption(this)" data-correct="false">Both setup and hold worsen — clock skew always degrades both timing margins simultaneously regardless of direction</li>
+                    <li onclick="selectOption(this)" data-correct="false">Setup worsens to -0.15 ns; hold improves to +0.40 ns — a later capture clock always hurts setup timing</li>
+                    <li onclick="selectOption(this)" data-correct="false">Neither changes — clock skew only affects paths where the two flip-flops belong to different clock domains</li>
+                </ul>
+                <div class="feedback" style="display:none;"></div>
+                <div class="answer" style="display:none;"><strong>Correct!</strong> When the capture clock arrives 0.20 ns later than the launch clock (positive skew on this path), setup slack improves because the data path has an extra 0.20 ns to propagate before meeting the capture edge — the effective timing budget is 1.0 + 0.20 = 1.20 ns. At the same time, hold slack worsens by the same 0.20 ns because the capture edge is now 0.20 ns later, tightening the window within which data must NOT arrive. The same directional skew that helps setup always hurts hold by an equal amount.</div>
+                <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. A design completes placement with zero hold violations (ideal clock). After CTS completes with 0.08 ns skew — well within the 0.1 ns target — 35 paths fail hold. Is this behavior expected, and what is the root cause?</h3>
+                <ul class="quiz-options">
+                    <li onclick="selectOption(this)" data-correct="false">This is unexpected — good skew (below 0.1 ns) should guarantee that no hold violations appear after CTS</li>
+                    <li onclick="selectOption(this)" data-correct="false">This indicates a CTS problem — the engine inserted buffers on data paths instead of clock nets, slowing down data and creating hold violations</li>
+                    <li onclick="selectOption(this)" data-correct="true">This is expected and normal. CTS replaces ideal-clock (zero insertion delay) with real propagated delays through physical buffers. Short data paths that had sufficient hold margin under zero-delay assumptions now see the launch clock arriving later, making data appear to arrive too early at the capture edge — a hold violation. These are resolved during routing.</li>
+                    <li onclick="selectOption(this)" data-correct="false">This is expected only when the skew exceeds the flip-flop hold time requirement — since skew is 0.08 ns, the 35 violations indicate incorrect CTS cell types were used</li>
+                </ul>
+                <div class="feedback" style="display:none;"></div>
+                <div class="answer" style="display:none;"><strong>Correct!</strong> Hold violations after CTS are a normal outcome of transitioning from ideal to propagated clock mode. In the ideal clock model, every flip-flop sees the clock at t=0 with no insertion delay. After CTS, real insertion delay (often 0.5–1.5 ns) exists on every clock path. For a short data path where the combinational delay is 0.03 ns, the launch clock now arrives 0.9 ns later than zero — making the data appear to land at the capture flop before the clock edge that launched it. This is a hold violation. It has nothing to do with skew quality; it is the direct consequence of going from an idealized model to physical reality. Routing-stage hold buffer insertion fixes these.</div>
+                <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. An engineer proposes removing the 2× wire spacing NDR requirement from clock leaf wires to reduce routing congestion in dense standard cell rows. The 2× width rule on trunk wires is kept. What is the primary risk?</h3>
+                <ul class="quiz-options">
+                    <li onclick="selectOption(this)" data-correct="false">Without 2× spacing on leaf wires, the clock signal edges will be too slow to meet transition time targets</li>
+                    <li onclick="selectOption(this)" data-correct="false">Removing 2× spacing on leaf wires violates the PDK DRC rules — the router will not proceed without it</li>
+                    <li onclick="selectOption(this)" data-correct="true">Clock leaf wires run through the densest signal routing areas. Without 2× spacing, adjacent signal nets that switch asynchronously couple noise capacitively onto the clock wires, causing jitter at the flip-flop clock pins. Even 10–20 ps of jitter propagates as increased timing uncertainty on every path using that clock segment, degrading both setup and hold margins.</li>
+                    <li onclick="selectOption(this)" data-correct="false">Without 2× spacing on leaf wires, the clock tree cannot achieve balanced paths — the skew target will be violated in the affected areas</li>
+                </ul>
+                <div class="feedback" style="display:none;"></div>
+                <div class="answer" style="display:none;"><strong>Correct!</strong> The key risk of removing leaf-level 2× spacing is crosstalk-induced clock jitter. Leaf wires are routed in the densest part of the design, surrounded by signal nets switching at data-path frequencies. Without the extra spacing buffer, the coupling capacitance between an adjacent signal wire and the clock leaf wire is much higher. When a signal net switches, it injects a voltage pulse onto the clock wire that shifts the clock edge arrival time. This cycle-to-cycle variation (jitter) directly reduces effective setup and hold margins at every register driven by the affected clock leaf. 2× width is less critical at the leaf level because the wires are short — the congestion cost of wider wires outweighs the resistance benefit — but 2× spacing is retained to block crosstalk injection.</div>
+                <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. Before CTS, the SDC uses 0.8 ns clock uncertainty (setup). CTS achieves 0.05 ns actual skew. After CTS the engineer updates uncertainty to 0.255 ns. A colleague argues: "keep 0.8 ns for extra safety margin." Why is this the wrong approach?</h3>
+                <ul class="quiz-options">
+                    <li onclick="selectOption(this)" data-correct="false">The tool automatically ignores post-CTS uncertainty values that are larger than the measured skew value</li>
+                    <li onclick="selectOption(this)" data-correct="false">Using 0.8 ns post-CTS will make timing appear better than it really is, hiding genuine violations</li>
+                    <li onclick="selectOption(this)" data-correct="true">Keeping 0.8 ns post-CTS when actual skew is 0.05 ns pessimistically consumes 0.545 ns of setup margin (0.8 − 0.255) that has no physical basis. The tool reports false setup violations and wastes effort resizing cells and inserting buffers to fix timing that will never fail in silicon — inflating area, power, and congestion for zero real benefit.</li>
+                    <li onclick="selectOption(this)" data-correct="false">Post-CTS uncertainty must always be set to exactly half the pre-CTS value — any other value causes incorrect hold analysis</li>
+                </ul>
+                <div class="feedback" style="display:none;"></div>
+                <div class="answer" style="display:none;"><strong>Correct!</strong> Clock uncertainty is a guard-band that reserves timing margin to account for unmodeled clock tree effects. The 0.8 ns pre-CTS value reserves for a skew that could be anywhere up to 0.8 ns in the worst case — because the tree hasn't been built yet. Post-CTS, the actual skew is measured at 0.05 ns. Keeping 0.8 ns means imposing a fictitious 0.545 ns additional constraint on every setup check in the design. The optimizer will spend resources — gate upsizing, buffer insertion, routing optimization — trying to recover those 0.545 ns that are not real silicon risk. The result is a larger, higher-power design with more routing congestion that performs no better in silicon than one constrained correctly.</div>
+                <button class="btn-check-answer" onclick="submitAnswer(this)">Check Answer</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Lab Structure -->
+    <div class="content-box">
+        <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Testcase</th>
+                    <th>Type</th>
+                    <th>Design</th>
+                    <th>Difficulty</th>
+                    <th>Estimated Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><a href="TC-PNR-CDN-CTS-GD-001/TC-PNR-CDN-CTS-GD-001.html" style="color: #667eea; text-decoration: none;">Guided Testcase</a></td>
+                    <td><span class="type-guided">Guided</span></td>
+                    <td>aes_cipher_top</td>
+                    <td>&#11088; Easy</td>
+                    <td>60–90 min</td>
+                </tr>
+                <tr>
+                    <td><a href="TC-PNR-CDN-CTS-CH-001/testcase2.html" style="color: #667eea; text-decoration: none;">Challenge Testcase</a></td>
+                    <td><span class="type-independent">Challenge</span></td>
+                    <td>aes_cipher_top</td>
+                    <td>&#11088;&#11088; Medium</td>
+                    <td>90–120 min</td>
+                </tr>
+            </tbody>
+        </table>
+        <div style="margin-top: 30px;">
+            <h3 style="color: #2c3e50; margin-bottom: 15px;">Guided Testcase</h3>
+            <p>A complete walkthrough of the <strong>aes_cipher_top</strong> CTS flow — configuring LVT clock cells, defining NDR routing rules for top/trunk/leaf segments, running clock tree synthesis, applying post-CTS timing constraints, generating the full suite of clock and timing reports, and saving the CTS database.</p>
+            <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Challenge Testcase</h3>
+            <p>The same <strong>aes_cipher_top</strong> CTS script with a deliberate bug — one timing report command writes output to the wrong directory path. Find and fix the bug, run the complete CTS flow, and verify all reports land in the correct location.</p>
+        </div>
+    </div>
+
+    <!-- Begin -->
+    <div class="content-box">
+        <h2 class="section-title">&#128640; Begin the Lab</h2>
+        <div class="action-buttons">
+            <a href="TC-PNR-CDN-CTS-GD-001/TC-PNR-CDN-CTS-GD-001.html" class="btn btn-primary">Start Guided Testcase &#8594;</a>
+            <a href="TC-PNR-CDN-CTS-CH-001/testcase2.html" class="btn btn-secondary">Jump to Challenge Testcase &#8594;</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    var LAB_ID = 'PNR-CDN-CTS';
+
+    function selectOption(option) {
+        var qc = option.closest('.quiz-question');
+        if (qc.dataset.answered === 'true') return;
+        qc.querySelectorAll('.quiz-options li').forEach(function(o) {
+            o.classList.remove('selected', 'wrong-answer');
+        });
+        option.classList.add('selected');
+        var fb = qc.querySelector('.feedback');
+        if (fb) { fb.textContent = ''; fb.style.display = 'none'; }
+    }
+
+    function submitAnswer(button) {
+        var qc = button.closest('.quiz-question');
+        var sel = qc.querySelector('.quiz-options li.selected');
+        var fb  = qc.querySelector('.feedback');
+        var ans = qc.querySelector('.answer');
+        if (!sel) {
+            fb.style.display = 'block';
+            fb.style.color = '#856404';
+            fb.style.background = '#fff3cd';
+            fb.style.padding = '10px';
+            fb.style.borderRadius = '6px';
+            fb.textContent = 'Please select an answer first.';
+            return;
+        }
+        var ok = sel.dataset.correct === 'true';
+        if (ok) {
+            sel.classList.remove('selected');
+            sel.classList.add('correct-answer');
+            fb.style.display = 'block';
+            fb.style.color = '#155724';
+            fb.style.background = '#d4edda';
+            fb.style.padding = '10px';
+            fb.style.borderRadius = '6px';
+            fb.textContent = '\u2705 Correct!';
+            if (ans) ans.style.display = 'block';
+            qc.querySelectorAll('.quiz-options li').forEach(function(o) { o.style.pointerEvents = 'none'; });
+            button.disabled = true;
+            qc.dataset.answered = 'true';
+        } else {
+            sel.classList.remove('selected');
+            sel.classList.add('wrong-answer');
+            sel.style.pointerEvents = 'none';
+            fb.style.display = 'block';
+            fb.style.color = '#721c24';
+            fb.style.background = '#f8d7da';
+            fb.style.padding = '10px';
+            fb.style.borderRadius = '6px';
+            fb.textContent = '\u274C Incorrect \u2014 try again.';
+        }
+    }
+</script>
+<script src="common/interactive.js"></script>
+</body>
+</html>

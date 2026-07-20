@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design Initialization in Cadence Innovus</title>
+    <link rel="stylesheet" href="common/styles.css">
+    <style> code { color: #333; } </style>
+</head>
+<body>
+
+<!-- Scroll progress bar is created dynamically by interactive.js -->
+
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Design Initialization in Cadence Innovus</h1>
+        <div class="lab-meta">
+            <div class="meta-item"><span>&#128218; Topic: Physical Design Implementation</span></div>
+            <div class="meta-item"><span>&#128295; Tool: Cadence Innovus (innovus)</span></div>
+            <div class="meta-item"><span>&#127919; Level: Beginner Friendly</span></div>
+            <div class="meta-item"><span>&#9201; Read Time: ~30 min</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Learning Objectives -->
+    <div class="content-box">
+        <h2 class="section-title">&#127919; Learning Objectives</h2>
+        <div class="section-content">
+            <p>By the end of this lab, you will be able to:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>MMMC Configuration:</strong> Set up Multi-Mode Multi-Corner timing analysis using Innovus commands — <code>create_library_set</code>, <code>create_delay_corner</code>, <code>create_analysis_view</code>, and <code>set_analysis_view</code>.</li>
+                <li><strong>Physical Libraries:</strong> Read technology LEF and cell LEF files using <code>read_physical -lefs</code> to provide Innovus with metal layer rules and cell geometries.</li>
+                <li><strong>Netlist Loading:</strong> Read a synthesized gate-level Verilog netlist with <code>read_netlist</code> and initialize the design database with <code>init_design</code>.</li>
+                <li><strong>Power Net Connection:</strong> Connect global power and ground nets using <code>connect_global_net</code> to ensure all cell power pins are properly tied.</li>
+                <li><strong>Design Checks:</strong> Run <code>check_timing_library_consistency</code> and <code>time_design -pre_place</code> to validate the initialized database before floorplanning.</li>
+                <li><strong>Database Save:</strong> Save the initialized design checkpoint using <code>write_db -sdc</code> for handoff to the floorplan stage.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Prerequisites -->
+    <div class="content-box">
+        <h2 class="section-title">&#128295; Prerequisites</h2>
+        <div class="section-content">
+            <p>Before diving in, you should be comfortable with the following:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Synthesis Flow:</strong> Understanding of how a gate-level netlist is produced from RTL using Genus or Design Compiler.</li>
+                <li><strong>Timing Constraints (SDC):</strong> Familiarity with clock definitions, input/output delays, and false paths.</li>
+                <li><strong>MMMC Concepts:</strong> Understanding why multiple process-voltage-temperature (PVT) corners must be analyzed simultaneously.</li>
+                <li><strong>Linux Command Line:</strong> Navigating directories, running make targets, and editing TCL scripts.</li>
+            </ul>
+            <div class="info-card" style="margin-top: 15px;">
+                &#128161; It is assumed that a synthesized gate-level netlist and SDC are already available as inputs to this stage.
+            </div>
+        </div>
+    </div>
+
+    <!-- Theory -->
+    <div class="content-box">
+        <h2 class="section-title">&#128214; Theory and Background</h2>
+
+        <div class="section">
+            <h3 style="color: #667eea; margin-bottom: 15px;">What is Design Initialization?</h3>
+            <p>Design initialization (<code>init_design</code>) is the <strong>first stage of physical implementation</strong> in the ASIC design flow. It loads all design data into the Innovus database — technology files, cell libraries, the synthesized netlist, timing constraints, and RC parasitic models — before any physical operations (floorplanning, placement, CTS, routing) can begin.</p>
+            <p style="margin-top: 12px;">At the end of a successful init_design run, Innovus has a complete picture of your design: every logic gate, every timing constraint, every physical cell geometry, and every PVT corner it needs to analyze. Only then can the tool make reliable placement and optimization decisions.</p>
+
+            <div style="overflow-x: auto; margin: 20px 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ASIC Flow Stage</th>
+                            <th>What Happens</th>
+                            <th>Output</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Synthesis</strong></td>
+                            <td>RTL compiled into standard cells; timing constraints applied</td>
+                            <td>Gate-level netlist + SDC</td>
+                        </tr>
+                        <tr style="background: #f1f4ff;">
+                            <td><strong>init_design &#8592; We are here</strong></td>
+                            <td>Netlist, LEFs, MMMC config loaded into Innovus; <code>init_design</code> called</td>
+                            <td>Initialized Innovus database (.db)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Floorplanning</strong></td>
+                            <td>Die area, power rings, macro placement defined</td>
+                            <td>Floorplan database</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Placement</strong></td>
+                            <td>Standard cells placed on the die using <code>place_opt_design</code></td>
+                            <td>Placed database</td>
+                        </tr>
+                        <tr>
+                            <td><strong>CTS</strong></td>
+                            <td>Clock tree synthesized and balanced using <code>ccopt_design</code></td>
+                            <td>CTS database</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Routing</strong></td>
+                            <td>Signal nets routed using <code>route_global</code> / <code>route_detail</code></td>
+                            <td>Routed database</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Chip Finish</strong></td>
+                            <td>DRC/LVS clean-up, metal fill, sign-off</td>
+                            <td>GDSII</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#128197; Innovus MMMC Model</h3>
+            <p>Innovus uses a <strong>named object model</strong> for MMMC setup. Each layer of the timing analysis stack is defined as an explicit named object using create commands, then wired together into analysis views. The setup hierarchy is:</p>
+            <p style="margin: 12px 0; color: #555;">Library Set + Operating Condition &rarr; Timing Condition &rarr; Delay Corner (+ RC Corner) &rarr; Analysis View &rarr; <code>set_analysis_view</code></p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Innovus Command</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background: #f8f9fa;">
+                        <td><code>create_library_set</code></td>
+                        <td>Groups timing .lib files for a given PVT corner into a named set.</td>
+                    </tr>
+                    <tr>
+                        <td><code>create_opcond</code></td>
+                        <td>Defines a named operating condition with specific voltage and temperature.</td>
+                    </tr>
+                    <tr style="background: #f8f9fa;">
+                        <td><code>create_rc_corner</code></td>
+                        <td>Defines a parasitic extraction corner by linking to a QRC tech file (cworst, rcworst, cbest, rcbest).</td>
+                    </tr>
+                    <tr>
+                        <td><code>create_timing_condition</code></td>
+                        <td>Pairs an operating condition with a library set.</td>
+                    </tr>
+                    <tr style="background: #f8f9fa;">
+                        <td><code>create_delay_corner</code></td>
+                        <td>Combines a timing condition and an RC corner — the fundamental timing analysis unit in Innovus.</td>
+                    </tr>
+                    <tr>
+                        <td><code>create_constraint_mode</code></td>
+                        <td>Loads the SDC constraints file (clocks, I/O delays, exceptions) for a functional mode.</td>
+                    </tr>
+                    <tr style="background: #f8f9fa;">
+                        <td><code>create_analysis_view</code></td>
+                        <td>Pairs a delay corner with a constraint mode into a named analysis view.</td>
+                    </tr>
+                    <tr>
+                        <td><code>set_analysis_view</code></td>
+                        <td>Activates analysis views: <code>-setup</code> uses slow corners, <code>-hold</code> uses fast corners.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">&#128194; Inputs to Design Initialization</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 22%;">File / Input</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>.tlef</code></td>
+                        <td>Technology LEF — metal layers, via types, and DRC rules for the process node.</td>
+                    </tr>
+                    <tr>
+                        <td><code>.lef</code> (cell)</td>
+                        <td>Cell LEF — physical geometry of standard cells and macros: boundaries, pin locations, routing obstructions.</td>
+                    </tr>
+                    <tr>
+                        <td><code>.lib</code></td>
+                        <td>Liberty timing library — cell delay, setup/hold, and power data per PVT corner.</td>
+                    </tr>
+                    <tr>
+                        <td>QRC Tech File</td>
+                        <td>Cadence parasitic model for each extraction corner (cworst, rcworst, cbest, rcbest).</td>
+                    </tr>
+                    <tr>
+                        <td><code>.v</code> netlist</td>
+                        <td>Post-synthesis gate-level Verilog describing the design as standard cell instances.</td>
+                    </tr>
+                    <tr>
+                        <td><code>.sdc</code></td>
+                        <td>Timing constraints: clock definitions, I/O delays, false paths, multicycle paths.</td>
+                    </tr>
+                    <tr>
+                        <td><code>mmmc_config.tcl</code></td>
+                        <td>MMMC setup script defining library sets, delay corners, analysis views, and setup/hold assignments.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+        <p style="color: #555; margin-bottom: 20px;">Test your understanding of init_design concepts. Select your answer then click Check Answer.</p>
+
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. In the Innovus MMMC flow, what does <code>create_delay_corner</code> combine?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">A timing library set and an SDC constraints file</li>
+                    <li data-correct="false">A gate-level netlist and a technology LEF file</li>
+                    <li data-correct="true">A timing condition (library set + operating condition) and an RC corner (QRC parasitic model)</li>
+                    <li data-correct="false">An analysis view and a constraint mode</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> A delay corner in Innovus combines a timing condition (library set + operating condition) with an RC corner (QRC parasitic model). This gives Innovus everything needed to compute accurate cell + wire timing at a specific PVT and extraction condition.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. Why must <code>read_physical -lefs</code> include SRAM macro LEF files in addition to standard cell LEFs?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Because SRAM macros require a separate technology LEF at the 28nm node</li>
+                    <li data-correct="true">Innovus needs the physical boundary, pin locations, and routing obstruction data for each SRAM instance to perform legal macro placement and route signals around it</li>
+                    <li data-correct="false">SRAM macros are not included in the gate-level netlist and must be added via LEF</li>
+                    <li data-correct="false">The SRAM LEF supplies timing data — without it <code>init_design</code> will fail timing analysis</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> LEF files provide physical geometry — boundaries, pin locations, and routing obstructions. If an SRAM macro's LEF is missing, Innovus cannot legally place it or route around it. Timing data for SRAMs comes from .lib files in the library set, not from LEF.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. What is the purpose of <code>connect_global_net VDD -type pg_pin -pin_base_name VDD*</code> after <code>init_design</code>?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">It routes the VDD power ring around the chip boundary</li>
+                    <li data-correct="false">It adds a tie-hi cell to every floating VDD net in the netlist</li>
+                    <li data-correct="true">It connects the logical VDD supply to every standard cell PG pin whose base name starts with VDD, establishing power network connectivity in the database</li>
+                    <li data-correct="false">It verifies that VDD is defined as a power net in the SDC file</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> After <code>init_design</code>, cell power pins are not yet connected to the global supply. <code>connect_global_net</code> makes those connections so that power analysis, IR drop checks, and DRC tools know which supply drives each cell's PG pin.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. What does <code>time_design -pre_place</code> analyze at the init_design stage?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Post-route timing using actual extracted parasitics from the routed design</li>
+                    <li data-correct="false">Clock skew after the clock tree has been synthesized</li>
+                    <li data-correct="true">Estimated timing using ideal wire delays (no routing yet), giving a baseline view of critical path slack before physical optimization</li>
+                    <li data-correct="false">SDC constraint syntax errors before constraints are applied to the design</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> At the init stage there is no physical placement or routing. <code>time_design -pre_place</code> uses estimated wire loads to compute timing slack across all analysis views. This baseline reveals fundamental timing closure risk before you invest time in placement and routing.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Lab Structure Overview -->
+    <div class="content-box">
+        <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Testcase</th>
+                    <th>Type</th>
+                    <th>Design</th>
+                    <th>Difficulty</th>
+                    <th>Estimated Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><a href="TC-PNR-CDN-DI-GD-001/TC-PNR-CDN-DI-GD-001.html" style="color: #667eea; text-decoration: none;">Guided Testcase</a></td>
+                    <td><span class="type-guided">Guided</span></td>
+                    <td>tile</td>
+                    <td>&#11088; Easy</td>
+                    <td>60–90 min</td>
+                </tr>
+                <tr>
+                    <td><a href="TC-PNR-CDN-DI-CH-001/TC-PNR-CDN-DI-CH-001.html" style="color: #667eea; text-decoration: none;">Challenge Testcase</a></td>
+                    <td><span class="type-independent">Challenge</span></td>
+                    <td>iguana_soc</td>
+                    <td>&#11088;&#11088; Medium</td>
+                    <td>90–120 min</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div style="margin-top: 30px;">
+            <h3 style="color: #2c3e50; margin-bottom: 15px;">Guided Testcase</h3>
+            <p>In this guided testcase you will initialize the <strong>tile</strong> processor core design into Innovus. Every command is explained in detail — what it does, what inputs it consumes, and what to verify in its output. You will complete the full init flow and save the initialized database for the floorplanning stage.</p>
+
+            <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Challenge Testcase</h3>
+            <p>You are given the <strong>iguana_soc</strong> design with a buggy init_design script. Using concepts mastered in the Guided Testcase, identify and fix the two deliberate bugs, execute the complete init flow, and save a correctly named output database.</p>
+        </div>
+    </div>
+
+    <!-- Begin -->
+    <div class="content-box">
+        <h2 class="section-title">&#128640; Begin the Lab</h2>
+        <p>Start with the Guided Testcase for a complete walkthrough of the Innovus init_design flow, then challenge yourself with the Challenge Testcase.</p>
+        <div class="action-buttons">
+            <a href="TC-PNR-CDN-DI-GD-001/TC-PNR-CDN-DI-GD-001.html" class="btn btn-primary">Start Guided Testcase &#8594;</a>
+            <a href="TC-PNR-CDN-DI-CH-001/TC-PNR-CDN-DI-CH-001.html" class="btn btn-secondary">Jump to Challenge Testcase &#8594;</a>
+        </div>
+    </div>
+
+</div>
+
+<script src="common/interactive.js"></script>
+</body>
+</html>

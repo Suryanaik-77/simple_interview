@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clock Tree Synthesis in IC Compiler II (ICC2)</title>
+    <link rel="stylesheet" href="common/styles.css">
+    <style> code { color: #333; } </style>
+</head>
+<body>
+
+<!-- Scroll progress bar is created dynamically by interactive.js -->
+
+<!-- Header -->
+<header class="header">
+    <div class="header-content">
+        <h1 class="lab-title">Clock Tree Synthesis in IC Compiler II (ICC2)</h1>
+        <div class="lab-meta">
+            <div class="meta-item"><span>&#128218; Topic: Physical Design Implementation</span></div>
+            <div class="meta-item"><span>&#128295; Tool: Synopsys IC Compiler II (icc2_shell)</span></div>
+            <div class="meta-item"><span>&#127919; Level: Intermediate</span></div>
+            <div class="meta-item"><span>&#9203; Read Time: ~25 min</span></div>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Learning Objectives -->
+    <div class="content-box">
+        <h2 class="section-title">&#127919; Learning Objectives</h2>
+        <div class="section-content">
+            <p>By the end of this lab, you will be able to:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Understand why CTS is needed:</strong> Explain the problem of clock skew and why a well-balanced clock tree is essential for correct silicon timing.</li>
+                <li><strong>Configure clock cells and NDR rules:</strong> Select the correct LVT clock buffers and inverters, and apply Non-Default Routing rules to clock nets based on their net type (root, internal, sink).</li>
+                <li><strong>Activate hold scenarios:</strong> Switch from setup-only (placement) mode to full MMMC mode so both setup and hold timing are optimized after CTS.</li>
+                <li><strong>Run clock_opt in two phases:</strong> Execute tree building + clock routing, then post-CTS final optimization for hold fixing.</li>
+                <li><strong>Interpret clock QoR reports:</strong> Read <code>report_clock_qor</code> to assess skew, latency, DRC violations, and repeater area independently.</li>
+                <li><strong>Decide when to proceed to routing:</strong> Use the post-CTS quality checks to confirm the design is ready for the routing stage.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Prerequisites -->
+    <div class="content-box">
+        <h2 class="section-title">&#128295; Prerequisites</h2>
+        <div class="section-content">
+            <p>Before starting this lab, you should be comfortable with:</p>
+            <ul style="margin-left: 20px; margin-top: 15px; line-height: 2.2;">
+                <li><strong>Completed Placement Lab (PNR-SNPS-PL):</strong> You must have a valid <code>tile.ndm</code> with a <code>placed</code> block saved.</li>
+                <li><strong>Setup vs. Hold timing:</strong> Why setup is analyzed at the slow corner and hold at the fast corner, and why hold violations are skew-dependent.</li>
+                <li><strong>Ideal vs. Propagated clocks:</strong> Difference between ideal clock propagation (zero latency, zero skew — used during placement) and propagated clocks (real clock tree delays — used from CTS onward).</li>
+                <li><strong>MMMC scenarios:</strong> How setup and hold scenarios differ in PVT corner and timing analysis direction.</li>
+            </ul>
+            <div class="info-card" style="margin-top: 15px;">
+                &#128161; It is assumed that a <code>placed.design</code> block is already saved inside <code>tile.ndm</code> as the input to this stage.
+            </div>
+        </div>
+    </div>
+
+    <!-- ASIC Flow Stage Table -->
+    <div class="content-box">
+        <h2 class="section-title">&#128200; Where are we in the ASIC Flow?</h2>
+        <div class="section">
+            <div style="overflow-x: auto; margin: 20px 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ASIC Flow Stage</th>
+                            <th>What Happens</th>
+                            <th>Output</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Synthesis</strong></td>
+                            <td>RTL compiled into standard cells; timing constraints applied</td>
+                            <td>Gate-level netlist + SDC</td>
+                        </tr>
+                        <tr>
+                            <td><strong>init_design</strong></td>
+                            <td>Netlist, tech file, NDMs, MMMC, and derates loaded into ICC2 database</td>
+                            <td>Initialized ICC2 block ready for floorplan</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Floorplanning</strong></td>
+                            <td>Die area, macro placement defined</td>
+                            <td>Floorplan block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Placement</strong></td>
+                            <td>Standard cells placed on the die; timing-driven optimization with ideal clocks</td>
+                            <td>Placed block</td>
+                        </tr>
+                        <tr style="background: #f1f4ff;">
+                            <td><strong>CTS ← We are here</strong></td>
+                            <td>Clock tree synthesized and balanced across the design</td>
+                            <td>Clock tree block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Routing</strong></td>
+                            <td>Signal nets routed across metal layers</td>
+                            <td>Routed block</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Chip Finish</strong></td>
+                            <td>Metal fill, DRC/LVS clean-up, and final sign-off checks</td>
+                            <td>GDSII</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Theory and Background -->
+    <div class="content-box">
+        <h2 class="section-title">&#128216; Theory and Background</h2>
+
+        <div class="section">
+            <h3 style="color: #667eea; margin-bottom: 15px;">What is Clock Tree Synthesis?</h3>
+            <p>After placement, every flip-flop in the design needs to receive its clock signal at nearly the same time — otherwise, data may be captured before it is valid (hold violation) or arrive too late (setup violation). CTS is the stage that builds a physical <strong>clock distribution network</strong> — a tree of buffers and inverters — so that the clock arrives at every flip-flop with controlled latency and minimal skew.</p>
+            <ul style="margin-left: 30px; margin-top: 10px; line-height: 2.2;">
+                <li><strong>Clock skew</strong> — the difference in arrival time of the clock at two different sink pins. Ideally zero; in practice kept below ~100 ps.</li>
+                <li><strong>Clock latency</strong> — the total time from the clock source pin to a flip-flop clock pin. Includes source latency (PCB/package) and network latency (the clock tree).</li>
+                <li><strong>Clock transition</strong> — the rise/fall time of the clock signal at each sink. A slow transition degrades setup slack because the flip-flop sampling window is wider.</li>
+            </ul>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">Why CTS Is Done After Placement</h3>
+            <ul style="margin-left: 30px; margin-top: 10px; line-height: 2.2;">
+                <li>The CTS engine needs to know the physical location of every flip-flop to build a balanced tree — locations are only finalized after placement.</li>
+                <li>During placement, clocks are treated as <strong>ideal</strong> (zero latency, zero skew). Hold violations under ideal clocks are meaningless — they will be fixed in post-CTS optimization when real skew is known.</li>
+                <li>The clock tree itself occupies routing resources. Planning it before signal routing ensures clock nets get priority access to wide NDR routing tracks.</li>
+            </ul>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">Why Special Clock Cells (CK*)?</h3>
+            <p>Regular combinational cells (e.g., BUF, INV) suffer from <strong>duty cycle distortion</strong> — their rise and fall delays are unequal due to different PMOS/NMOS transistor sizing. When such cells are placed in the clock tree, the 50% duty cycle of the clock degrades with every level of buffering. Clock-specific cells (<code>CKBD*</code>, <code>CKND*</code>) are designed with matched PMOS/NMOS to preserve duty cycle through the entire tree.</p>
+            <div class="info-card" style="margin-top: 12px;">
+                <strong>Why LVT clock cells?</strong> LVT cells switch faster, reducing clock network latency and transition times. In the tile design, only LVT variants of CK* cells are used in the clock tree: <code>CKBD4/8/12/16BWP40P140LVT</code> (buffers) and <code>CKND4/8/12/16BWP40P140LVT</code> (inverters). The higher leakage of LVT is acceptable for clock cells since there are relatively few of them compared to the data path.
+            </div>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">Non-Default Routing (NDR) Rules for Clock Nets</h3>
+            <p>Clock nets require more robust routing than signal nets because clock DRCs cause timing failures across the entire design. NDR rules apply wider wire widths and wider spacing specifically to clock nets:</p>
+            <div style="overflow-x: auto; margin: 15px 0;">
+                <table>
+                    <thead>
+                        <tr><th>Rule Name</th><th>Width Multiplier</th><th>Spacing Multiplier</th><th>Applied To</th><th>Layer Range</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>cts_2w2s</code></td><td>2x</td><td>2x</td><td>Root &amp; Internal nets</td><td>M4–M7</td></tr>
+                        <tr><td><code>cts_1w2s</code></td><td>1x (default)</td><td>2x</td><td>Sink nets</td><td>M3–M6</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <ul style="margin-left: 30px; margin-top: 5px; line-height: 2.0;">
+                <li><strong>Root/Internal nets</strong> — high-drive, long-wire segments near the clock source. Double-width double-spacing reduces resistance and improves SI.</li>
+                <li><strong>Sink nets</strong> — short last-mile wires to each flip-flop. Double-spacing alone prevents coupling noise from adjacent data nets.</li>
+                <li><strong>M4–M7 for root/internal</strong> — upper metal layers for long horizontal runs with lower resistance per unit length.</li>
+                <li><strong>M3–M6 for sink</strong> — lower layers for short local connections to flip-flop clock pins.</li>
+            </ul>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">CCD — Concurrent Clock and Data Optimization</h3>
+            <p>CCD (<code>clock_opt.flow.enable_ccd true</code>) is ICC2's technique for jointly optimizing the clock tree shape and data path timing in a single pass. Instead of first building a perfectly balanced tree and then optimizing data timing, CCD intentionally introduces <strong>useful skew</strong> — it slightly delays the clock arrival at the launch flip-flop or advances it at the capture flip-flop to borrow time on critical setup paths. This is the opposite of what is done in a balanced tree approach.</p>
+            <div class="info-card" style="margin-top: 12px;">
+                <strong>Key trade-off:</strong> CCD improves setup WNS by using skew to relax tight paths, but it requires hold fixing to compensate for the deliberately introduced skew mismatch. This is why both setup and hold scenarios must be active when CCD is used — hold fixing happens in the <code>final_opto</code> phase of <code>clock_opt</code>.
+            </div>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">Two-Phase clock_opt Flow</h3>
+            <p>The ICC2 <code>clock_opt</code> command runs in distinct phases. In the tile CTS script, it is called twice:</p>
+            <div style="overflow-x: auto; margin: 15px 0;">
+                <table>
+                    <thead>
+                        <tr><th>Phase Range</th><th>What It Does</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>build_clock → route_clock</code></td><td>Synthesizes the clock tree (places buffers/inverters), legalizes them, and routes the clock nets using NDR rules.</td></tr>
+                        <tr><td><code>final_opto</code></td><td>Post-CTS timing optimization: fixes hold violations, improves setup WNS, and sizes data-path cells with a propagated-clock timing model.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <p>The split into two calls lets you insert tie cells and update prefixes between the clock build phase and the final optimization phase.</p>
+        </div>
+
+        <div class="section" style="margin-top: 25px;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">Propagated Clocks and IO Latency</h3>
+            <ul style="margin-left: 30px; margin-top: 10px; line-height: 2.2;">
+                <li><strong><code>set_propagated_clocks [all_clocks]</code></strong> — Switches timing analysis from ideal clock mode (used at placement) to propagated mode. ICC2 now uses the actual clock tree insertion delays when computing setup/hold slack. This is the permanent switch — all STA from this point forward uses real clock latencies.</li>
+                <li><strong><code>compute_clock_latency</code></strong> — After the clock tree is built and propagated, this command calculates the clock network latency seen at IO ports and updates the <code>input_delay</code>/<code>output_delay</code> constraints to reflect the actual clock latency. This is critical for interface timing paths (paths from/to chip IOs) that reference the same clock.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Inputs Section -->
+    <div class="content-box">
+        <h2 class="section-title">&#128194; Inputs to CTS</h2>
+
+        <h3 style="color: #667eea; margin-bottom: 10px; margin-top: 5px;">&#127981; Technology Files (from PDK)</h3>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead><tr><th style="width:20%">File Type</th><th>Description</th></tr></thead>
+                <tbody>
+                    <tr><td><code>.ndm</code></td><td>ICC2 design library containing the placed block, tech rules, and all standard cell physical/timing data.</td></tr>
+                    <tr><td>Clock lib cells</td><td>LVT clock buffers (<code>CKBD*LVT</code>) and inverters (<code>CKND*LVT</code>) — must be enabled for CTS use via <code>set_lib_cell_purpose -include cts</code>.</td></tr>
+                    <tr><td>Tie cells</td><td><code>TIEHBWP40P140</code>, <code>TIELBWP40P140</code> — required to fix floating logic-1/0 connections that arise when optimization inserts cells.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3 style="color: #667eea; margin-bottom: 10px; margin-top: 25px;">&#128187; Design Files</h3>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead><tr><th style="width:20%">Input</th><th>Description</th></tr></thead>
+                <tbody>
+                    <tr><td>Placed block</td><td><code>placed.design</code> inside the NDM — output of the placement stage with all cells legally placed and timing optimized.</td></tr>
+                    <tr><td>MMMC scenarios</td><td>All scenarios activated for CTS: both setup (ssg corners) and hold (ffg corners) are needed.</td></tr>
+                    <tr><td>SDC constraints</td><td>Clock definitions, uncertainty values, and max-transition limits — carried over from placement inside the block.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- CTS Flow Steps -->
+    <div class="content-box">
+        <h2 class="section-title">&#128196; CTS Flow Steps</h2>
+        <p style="color: #555; margin-bottom: 20px;">The steps below outline the ICC2 CTS flow used in the tile design.</p>
+
+        <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 25px;">
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 1</span>
+                <span>Open the placed NDM block and activate all MMMC scenarios (both setup and hold).</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 2</span>
+                <span>Configure instance name prefixes for CTS buffers and optimization cells.</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 3</span>
+                <span>Set lib-cell purposes — exclude all cells from CTS use, then include only the approved LVT clock cells. Run <code>derive_clock_cell_references</code>.</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 4</span>
+                <span>Create NDR routing rules and assign them to clock net types (root, internal, sink) with layer constraints.</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 5</span>
+                <span>Set CTS optimization targets: skew, latency, max transition. Apply clock uncertainty values for setup and hold analysis.</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 6</span>
+                <span>Run pre-CTS checks (<code>check_clock_trees</code>) to catch constraint and cell issues before the build phase.</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 7</span>
+                <span>Run <code>clock_opt -from build_clock -to route_clock</code> to synthesize and route the clock tree.</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 8</span>
+                <span>Enable hold cells, run <code>clock_opt -from final_opto -to final_opto</code> to fix hold violations and improve setup timing.</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 9</span>
+                <span>Insert tie cells, switch to propagated clock mode, update IO latency, and save the block as <code>cts</code>.</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 15px; padding: 15px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <span style="font-weight: bold; color: #667eea; font-size: 1em; white-space: nowrap;">STEP 10</span>
+                <span>Generate clock QoR reports, timing reports (setup and hold), constraint violation reports, utilization, congestion, and legality reports.</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ASIC Flow Table -->
+    <div class="content-box">
+        <h2 class="section-title">&#128196; Where CTS Fits in the ASIC Flow</h2>
+        <div style="overflow-x: auto; margin: 20px 0;">
+            <table>
+                <thead><tr><th>Stage</th><th>What Happens</th><th>Output</th></tr></thead>
+                <tbody>
+                    <tr><td><strong>Synthesis</strong></td><td>RTL compiled into gates</td><td>Gate-level netlist + SDC</td></tr>
+                    <tr><td><strong>Design Init</strong></td><td>Netlist + tech + MMMC loaded into ICC2</td><td>Initialized block</td></tr>
+                    <tr><td><strong>Floorplanning</strong></td><td>Die area, power grid, macro placement</td><td>Floorplan block</td></tr>
+                    <tr><td><strong>Placement</strong></td><td>Cells placed, setup timing optimized (ideal clocks)</td><td>Placed block</td></tr>
+                    <tr style="background: #f1f4ff;"><td><strong>CTS &#8592; We are here</strong></td><td>Clock tree built and routed; hold fixing + post-CTS optimization; propagated clocks switched on</td><td>CTS block</td></tr>
+                    <tr><td><strong>Routing</strong></td><td>Signal nets routed across metal layers</td><td>Routed block</td></tr>
+                    <tr><td><strong>Chip Finish</strong></td><td>Metal fill, DRC/LVS, sign-off</td><td>GDSII</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Success Criteria -->
+    <div class="content-box">
+        <h2 class="section-title">&#9989; Success Criteria</h2>
+        <table>
+            <thead><tr><th>Metric</th><th>Target</th><th>How to Verify</th></tr></thead>
+            <tbody>
+                <tr><td>Clock skew</td><td>&lt; 200 ps (target 100 ps)</td><td><code>report_clock_qor</code> — Global Skew column</td></tr>
+                <tr><td>Clock latency</td><td>Close to target (0.3 ns); max &lt; 1.0 ns</td><td><code>report_clock_qor -type latency</code></td></tr>
+                <tr><td>Clock DRC violations</td><td>0 transition, 0 capacitance, 0 fanout violations</td><td><code>report_clock_qor -type drc_violators</code></td></tr>
+                <tr><td>Hold violations</td><td>0 after final_opto</td><td><code>report_timing -delay min</code> — all slack values positive</td></tr>
+                <tr><td>Setup WNS</td><td>Better than post-placement WNS</td><td><code>report_timing -delay max</code> worst slack</td></tr>
+                <tr><td>Legality</td><td>0 errors</td><td><code>check_legality -verbose</code> — Total Violations = 0</td></tr>
+                <tr><td>Block saved</td><td><code>cts</code> block in NDM</td><td><code>open_block cts.design</code> succeeds in new session</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Quiz -->
+    <div class="content-box">
+        <h2 class="section-title">&#128221; Knowledge Assessment Quiz</h2>
+        <p style="color: #555; margin-bottom: 20px;">Test your understanding of the CTS concepts above. Click on your answer.</p>
+
+        <div class="quiz-container">
+
+            <div class="quiz-question" id="q1">
+                <h3>1. Why are hold scenarios activated during CTS but not during placement?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Hold violations cannot be fixed during placement because delay cells are not available in the lib cell library at that stage.</li>
+                    <li data-correct="true">During placement, clocks are ideal (zero skew), so hold analysis is meaningless — hold violations only appear when there is real clock skew, which only exists after the clock tree is built at CTS.</li>
+                    <li data-correct="false">ICC2 automatically activates hold scenarios during <code>clock_opt</code> regardless of the user setting, so it does not matter what the scenario status is before CTS.</li>
+                    <li data-correct="false">Hold scenarios require propagated clocks to run, and ICC2 refuses to activate them until <code>set_propagated_clocks</code> is called first.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Hold timing violations depend on the difference in clock arrival time between the launch and capture flip-flops (clock skew). Under ideal clock propagation — used during placement — skew is zero by assumption, so hold violations computed at this stage are meaningless and would cause ICC2 to insert hold buffers on paths that do not actually need them. Once CTS builds the real clock tree and introduces real skew, hold analysis becomes valid and hold fixing is performed in the <code>final_opto</code> phase.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q2">
+                <h3>2. Why are only LVT variants of clock cells (<code>CKBD*LVT</code>, <code>CKND*LVT</code>) used in the clock tree, while LVT cells were excluded from data path optimization during placement?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">LVT cells are only qualified for clock nets in the PDK — the foundry prohibits using them on data paths for reliability reasons.</li>
+                    <li data-correct="true">Clock cells are relatively few in number, so their leakage power impact is small and acceptable. LVT speed is needed to meet tight clock transition targets and keep the clock tree compact. Data paths use far more cells, so free LVT use there would blow up static power.</li>
+                    <li data-correct="false">ICC2 automatically selects SVT cells for data paths and LVT cells for clock trees based on internal heuristics — no user configuration is needed.</li>
+                    <li data-correct="false">LVT cells have better duty cycle characteristics than SVT cells, which is why they are required specifically for clock buffers to preserve the 50% duty cycle.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> A typical design with 100,000 flip-flops might use only 400–500 clock repeater cells (as seen in the tile design with 452 repeaters). The leakage power from 500 LVT cells is negligible compared to hundreds of thousands of data path cells. LVT speed is critical for clock trees because clock transitions must be fast (target &lt;0.28 ns in the tile design) and latency must be minimized. Using LVT freely on data paths during placement would add thousands of LVT cells, often exceeding the leakage power budget before any power analysis has been done.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q3">
+                <h3>3. What does <code>compute_clock_latency</code> do and why is it needed after CTS?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">It rebalances the clock tree to equalize latency across all sinks after the initial <code>clock_opt</code> run.</li>
+                    <li data-correct="false">It computes the maximum clock tree latency and automatically adjusts the SDC clock period to match it.</li>
+                    <li data-correct="true">It updates the IO path timing constraints to reflect the actual clock network latency, so that interface paths (from/to chip IOs) are analyzed with the correct clock arrival time rather than the SDC-specified ideal clock source latency.</li>
+                    <li data-correct="false">It estimates the power consumed by the clock tree and reports it in the clock QoR summary.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> Input and output timing constraints in the SDC reference clock edges using an ideal source latency. After CTS, the actual insertion delay through the clock tree is known and may differ from this ideal value. <code>compute_clock_latency</code> propagates this real clock network latency to IO timing paths, ensuring that <code>report_timing</code> on input-to-register or register-to-output paths uses the correct clock arrival times and does not report false violations or false passes on interface paths.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+            <div class="quiz-question" id="q4">
+                <h3>4. In the tile CTS result, the <code>report_clock_qor</code> summary shows <strong>Target Skew = 0.26 ns</strong> but <strong>Global Skew = 0.41 ns</strong> at the ffg corner. What does this mean and should you be concerned?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">It means CTS failed — any skew above the target is a fatal error that prevents sign-off.</li>
+                    <li data-correct="false">It means the CTS engine used the wrong clock cell library — clock cells with insufficient drive strength were selected.</li>
+                    <li data-correct="true">The target skew (0.10 ns per-sink-pair, which expands to 0.26 ns globally) is the optimization goal, not a hard constraint. A global skew of 0.41 ns is an acceptable result — the design passed hold fixing, so timing closure is the real acceptance criterion, not hitting the skew target exactly.</li>
+                    <li data-correct="false">The target and global skew numbers are measured on different clock nets — comparing them directly is not meaningful.</li>
+                </ul>
+                <div class="feedback"></div>
+                <div class="answer"><strong>Correct!</strong> The skew target set via <code>set_clock_tree_options -target_skew 0.1</code> is a per-sink-pair skew goal that the CTS engine tries to achieve. The global skew shown in <code>report_clock_qor</code> is the difference between the maximum and minimum insertion delays across all sinks — it is a summary metric. If hold violations were fixed cleanly by <code>final_opto</code>, the design can proceed to routing even if global skew exceeds the target. The target is a guide, not a hard pass/fail threshold.</div>
+                <button onclick="checkAnswer(this)" class="btn btn-primary" style="margin-top: 12px;">Check Answer</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Lab Structure Overview -->
+    <div class="content-box">
+        <h2 class="section-title">&#128203; Lab Structure Overview</h2>
+
+        <table>
+            <thead>
+                <tr><th>Testcase</th><th>Type</th><th>Design</th><th>Difficulty</th><th>Estimated Time</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><a href="TC-PNR-SNPS-CTS-GD-001/TC-PNR-SNPS-CTS-GD-001.html" style="color: #667eea; text-decoration: none;">Guided Testcase</a></td>
+                    <td><span class="type-guided">Guided</span></td>
+                    <td>tile</td>
+                    <td>&#11088;&#11088; Medium</td>
+                    <td>60–90 min</td>
+                </tr>
+                <tr>
+                    <td><a href="TC-PNR-SNPS-CTS-CH-001/TC-PNR-SNPS-CTS-CH-001.html" style="color: #667eea; text-decoration: none;">Challenge Testcase</a></td>
+                    <td><span class="type-independent">Challenge</span></td>
+                    <td>iguana_soc</td>
+                    <td>&#11088;&#11088;&#11088; Hard</td>
+                    <td>90–120 min</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div style="margin-top: 30px;">
+            <h3 style="color: #2c3e50; margin-bottom: 15px;">Guided Testcase</h3>
+            <p>In the Guided Testcase, you will run the complete CTS flow on the <strong>tile</strong> processor core. Every command is explained: what it does, why the specific parameter values were chosen, and what the tool output tells you. You will also learn how to read and interpret all five <code>report_clock_qor</code> sub-reports and use them to decide whether the design is ready for routing.</p>
+
+            <h3 style="color: #2c3e50; margin-bottom: 15px; margin-top: 25px;">Challenge Testcase</h3>
+            <p>You are given the <strong>iguana_soc</strong> CTS script which contains deliberate errors — wrong clock cell names, missing NDR assignments, and incorrect scenario configuration. Using the knowledge from the Guided Testcase, you must independently find and fix all errors, run the complete CTS flow, and verify that the clock QoR meets the success criteria.</p>
+        </div>
+    </div>
+
+    <!-- Begin -->
+    <div class="content-box">
+        <h2 class="section-title">&#128640; Begin the Lab</h2>
+        <p>Start with the Guided Testcase for a complete walkthrough of the ICC2 CTS flow, then apply your knowledge independently in the Challenge Testcase.</p>
+        <div class="action-buttons">
+            <a href="TC-PNR-SNPS-CTS-GD-001/TC-PNR-SNPS-CTS-GD-001.html" class="btn btn-primary">Start Guided Testcase &#8594;</a>
+            <a href="TC-PNR-SNPS-CTS-CH-001/TC-PNR-SNPS-CTS-CH-001.html" class="btn btn-secondary">Jump to Challenge Testcase &#8594;</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    var LAB_ID = 'CTS';
+    var TESTCASE_NUM = '0';
+</script>
+<script src="common/interactive.js"></script>
+
+</body>
+</html>

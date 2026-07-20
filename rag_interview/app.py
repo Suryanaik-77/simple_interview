@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from openai import OpenAI
 
 from rag_engine import RAGEngine, sanitize_paths, parse_facets
+import catalog
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -253,6 +254,16 @@ def api_labs():
 
 @app.post("/api/ask")
 def api_ask(req: AskRequest):
+    # 0. Catalog / learning-path intent (deterministic, from the taxonomy).
+    #    "how many labs", "show all synthesis labs", "give me a learning path",
+    #    "I've finished synthesis, where next?" — answered without retrieval or
+    #    an LLM, so counts and ordering are exact. Only fires on clear catalog
+    #    phrasing; normal content questions fall through untouched.
+    if req.allow_clarify:  # skip when we're mid-clarify / answering a facet pick
+        cat_answer = catalog.answer(req.question, engine)
+        if cat_answer:
+            return {"answer": cat_answer, "sources": [], "catalog": True}
+
     # 1. Retrieve wide (precise sub-chunks). A picked facet hard-restricts.
     hits = engine.search(req.question, k=max(req.k, RETRIEVE_K),
                          lab_name=req.lab_name, facets=req.facets)
