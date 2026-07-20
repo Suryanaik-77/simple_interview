@@ -1443,6 +1443,38 @@ Test whether the candidate has genuinely improved or just memorized answers from
             "moved on from. Each new top-level question must explore a NEW project, tool, or "
             f"concept not already in this list:\n{asked_lines}")
 
+    # ── Resume-project rotation ───────────────────────────────────────────
+    # Data-driven balance using the candidate's OWN project names (not a
+    # hardcoded topic taxonomy): count how many questions already touched each
+    # project and steer the next one toward an under-covered project so no
+    # single project dominates the interview.
+    proj_names = []
+    for p in raw_projects:
+        nm = (p.get("name", "") if isinstance(p, dict) else str(p)).strip()
+        if nm:
+            proj_names.append(nm)
+
+    def _mentions(q, name):
+        ql, nl = q.lower(), name.lower()
+        if nl in ql:
+            return True
+        first = name.split()[0].lower() if name.split() else ""
+        return len(first) >= 4 and first in ql
+
+    project_block = ""
+    if proj_names and asked:
+        counts = {nm: sum(1 for q in asked if _mentions(q, nm)) for nm in proj_names}
+        if max(counts.values()) >= 1:  # only steer once a project has been covered
+            cov = "; ".join(f"{nm} ({counts[nm]})" for nm in proj_names)
+            fewest = min(counts.values())
+            under = [nm for nm in proj_names if counts[nm] == fewest]
+            project_block = (
+                f"\n\nPROJECT COVERAGE so far — {cov}. Rotate across the candidate's projects: "
+                f"make your next question about an UNDER-covered project ({', '.join(under)}). "
+                "Do not keep adding questions to the most-covered project while others are thin. "
+                "(Skill/tool questions not tied to any one project are fine too, but favour "
+                "breadth across projects.)")
+
     # ── Follow-up vs move-on, and theme balance ───────────────────────────
     # Both are the interviewer's judgment calls, described here — no hardcoded
     # keyword lists. The model sees the full ledger of asked questions above and
@@ -1465,7 +1497,8 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "as you can, and never let one project or one area dominate. When choosing what to ask "
         "next, prefer the project or skill you have touched LEAST so far.")
 
-    system = base_prompt + candidate_info + asked_block + judgment_rules + returning_block
+    system = (base_prompt + candidate_info + asked_block + project_block
+              + judgment_rules + returning_block)
 
     messages = [{"role": "system", "content": system}]
     # Add conversation history — inject expected points when available
