@@ -1782,7 +1782,7 @@ def generate_question(session, candidate_answer: str) -> dict:
     t0_llm = time.time()
     question, usage = call_llm(messages, temperature=0.7, max_tokens=200)
     llm_ms = round((time.time() - t0_llm) * 1000)
-    log.info(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {turn} | in={usage['input_tokens']} out={usage['output_tokens']} ${usage['cost_usd']:.4f}")
+    log.info(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {session['turn']} | in={usage['input_tokens']} out={usage['output_tokens']} ${usage['cost_usd']:.4f}")
 
     # Clean markdown
     question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', question)
