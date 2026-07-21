@@ -197,7 +197,8 @@ def parse_resume(resume_text: str) -> dict:
 # continuing adds no useful signal. Fails safe to CONTINUE.
 
 STOP_MIN_Q = int(os.environ.get("RT_STOP_MIN_Q", "4"))     # dormant until this many answers
-STOP_HARD_MAX = int(os.environ.get("RT_STOP_HARD_MAX", "25"))  # absolute ceiling
+STOP_HARD_MAX = int(os.environ.get("RT_STOP_HARD_MAX", "25"))  # absolute raw ceiling (safety)
+STOP_TARGET_Q = int(os.environ.get("RT_STOP_TARGET_Q", "8"))   # end after this many MAIN questions
 STOP_MODEL = os.environ.get("RT_STOP_MODEL", "gpt-4o-mini")
 
 _STOP_RUBRIC = (
@@ -241,22 +242,32 @@ def _stop_transcript(messages, max_chars: int = 12000) -> tuple:
 
 
 def should_stop_early(messages, level: str = "") -> dict:
-    """Decide whether to END the interview early for poor performance.
+    """Decide whether to END the interview early.
 
-    Returns {stop: bool, reason: str, answered: int}. Dormant (never stops) until
-    STOP_MIN_Q answers; forces a stop at STOP_HARD_MAX. Fails safe to CONTINUE."""
+    Two ways to stop: (1) a HARD CAP once the candidate has answered STOP_TARGET_Q
+    MAIN questions — follow-ups on the same topic do NOT count as separate questions;
+    (2) the poor-performance judge, which may end it sooner. The main-question count
+    is judged by the LLM since the realtime transcript carries no follow-up markers.
+
+    Returns {stop, reason, answered, main_questions}. Dormant until STOP_MIN_Q raw
+    answers; STOP_HARD_MAX raw answers is an absolute safety ceiling. Fails safe to
+    CONTINUE."""
     transcript, answered = _stop_transcript(messages)
     if answered < STOP_MIN_Q:
-        return {"stop": False, "reason": "below_min", "answered": answered}
+        return {"stop": False, "reason": "below_min", "answered": answered, "main_questions": answered}
     if answered >= STOP_HARD_MAX:
-        return {"stop": True, "reason": "hard_max", "answered": answered}
+        return {"stop": True, "reason": "hard_max", "answered": answered, "main_questions": answered}
     prompt = (
         f"{_STOP_RUBRIC}\n\n"
         f"Transcript so far:\n{transcript}\n\n"
         f"--- decide now ---\n"
-        f"State: {answered} questions answered (minimum {STOP_MIN_Q} met). "
-        f"Candidate level: {level or 'unknown'}.\n"
-        f'Return ONLY JSON: {{"decision": "end" | "continue", "reason": "<max 8 words>"}}'
+        f"State: {answered} candidate answers so far. Candidate level: {level or 'unknown'}.\n"
+        f"Also COUNT how many DISTINCT MAIN interview questions the candidate has "
+        f"ANSWERED. A follow-up, clarification, or deeper probe on the SAME topic or "
+        f"question is NOT a new main question — group it with its parent and count the "
+        f"group once.\n"
+        f'Return ONLY JSON: {{"decision": "end" | "continue", "reason": "<max 8 words>", '
+        f'"main_questions_answered": <integer>}}'
     )
     try:
         from openai import OpenAI
@@ -264,17 +275,27 @@ def should_stop_early(messages, level: str = "") -> dict:
         resp = client.chat.completions.create(
             model=STOP_MODEL,
             temperature=0.0,
-            max_tokens=40,
+            max_tokens=50,
             response_format={"type": "json_object"},
             messages=[{"role": "user", "content": prompt}],
         )
         data = json.loads(resp.choices[0].message.content or "{}")
         decision = str(data.get("decision", "continue")).strip().lower()
         reason = str(data.get("reason", ""))[:60] or decision
-        return {"stop": decision == "end", "reason": reason, "answered": answered}
+        try:
+            main_q = int(data.get("main_questions_answered", answered))
+        except (TypeError, ValueError):
+            main_q = answered
+        main_q = max(1, min(main_q, answered))  # can't exceed the raw answer count
+        # Hard cap: end once STOP_TARGET_Q main questions are answered.
+        if main_q >= STOP_TARGET_Q:
+            return {"stop": True, "reason": f"reached {STOP_TARGET_Q} questions",
+                    "answered": answered, "main_questions": main_q}
+        return {"stop": decision == "end", "reason": reason,
+                "answered": answered, "main_questions": main_q}
     except Exception as e:
         print(f"[prep] stop decision failed ({e}) - continuing")
-        return {"stop": False, "reason": "error", "answered": answered}
+        return {"stop": False, "reason": "error", "answered": answered, "main_questions": answered}
 
 
 # ── Instruction builder (mirrors main.build_interview_prompt system half) ────

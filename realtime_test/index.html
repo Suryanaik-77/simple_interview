@@ -204,6 +204,11 @@ let assistantBuf = '';         // accumulates the current assistant turn's text
 let pendingStop = false;       // judge verdict, enforced on the next answer
 let judging = false;           // guards against overlapping judge calls
 let interviewEnding = false;   // closing is being delivered — ignore new answers
+// Once the candidate has given this many raw answers, judge synchronously before
+// asking the next question so we end exactly at the main-question cap (follow-ups
+// don't count — the server judge decides). The authoritative cap is server-side
+// (RT_STOP_TARGET_Q); this is just the floor where we switch to blocking.
+const STOP_QUESTION_CAP = 8;
 let disconnectWhenIdle = false;// disconnect once closing audio finishes playing
 let interviewLevel = '';       // candidate level, for the stop judge
 let closingText = '';          // fixed closing line from the server
@@ -350,7 +355,7 @@ async function prepare() {
 // enough to end early. Runs in the background (off the reply path) after an
 // answer; a STOP verdict is stashed and enforced on the NEXT answer.
 async function maybeJudgeStop() {
-  if (judging || pendingStop || interviewEnding) return;
+  if (judging || pendingStop || interviewEnding) return null;
   judging = true;
   try {
     const res = await fetch('api/should_stop', {
@@ -358,15 +363,17 @@ async function maybeJudgeStop() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: transcript, level: interviewLevel }),
     });
-    if (!res.ok) return;
+    if (!res.ok) return null;
     const v = await res.json();
     if (v.closing) closingText = v.closing;
     if (v.stop) {
       pendingStop = true;
-      console.log('[early-stop] verdict=END at', v.answered, '—', v.reason);
+      console.log('[early-stop] verdict=END at', v.answered, 'answers / main', v.main_questions, '—', v.reason);
     }
+    return v;
   } catch (e) {
     console.warn('[early-stop] judge failed:', e);  // fail safe: keep going
+    return null;
   } finally {
     judging = false;
   }
@@ -644,12 +651,19 @@ function handleServerEvent(evt) {
           transcript.push({ role: 'user', text: t });
           answeredCount++;
           if (pendingStop) {
-            // The judge flagged poor performance last turn — end now instead of
-            // asking another question. Make the model deliver the closing only.
+            // The judge flagged a stop last turn — end now instead of asking another.
             endInterviewEarly();
+          } else if (answeredCount >= STOP_QUESTION_CAP) {
+            // At/over the cap floor: judge BEFORE asking the next question so we end
+            // exactly at the main-question cap instead of overshooting by a turn.
+            maybeJudgeStop().then(v => {
+              if (interviewEnding) return;
+              if (v && v.stop) endInterviewEarly();
+              else ws.send(JSON.stringify({ type: 'response.create' }));
+            });
           } else {
             ws.send(JSON.stringify({ type: 'response.create' }));
-            maybeJudgeStop();  // background; verdict enforced on the next answer
+            maybeJudgeStop();  // background poor-performance judge; enforced next answer
           }
         }
       }
