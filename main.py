@@ -1381,10 +1381,13 @@ def build_interview_prompt(session):
     else:
         candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Tools: {tools} | Projects: {projects_str} | Skills: {skills}"
 
-    # Append raw resume text so interviewer can reference actual project details
+    # Append raw resume text so interviewer can reference actual project details.
+    # Generous cap: this is session-stable prefix content, so it caches — and the
+    # more real resume detail the interviewer sees, the more grounded and specific
+    # its questions get (it also helps clear Claude's 4096-token cache minimum).
     resume_text = resume.get("resume_text", "")
     if resume_text:
-        candidate_info += f"\n\nFULL RESUME:\n{resume_text[:2000]}"
+        candidate_info += f"\n\nFULL RESUME:\n{resume_text[:6000]}"
 
     # Check for returning candidate
     returning_block = ""
@@ -1487,21 +1490,75 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "- If it was specific and solid, move on to a fresh area.\n"
         "- If it was vague, evasive, or low-effort (dodging the question, hand-waving, or "
         "claiming they did something without any concrete detail), do NOT move on — ask ONE "
-        "pointed follow-up on the SAME topic that forces a real detail (a number, a specific "
-        "step, an actual example, or 'walk me through exactly what you did'). Push once.\n"
+        "[FOLLOWUP] on the SAME topic that forces a real detail (a number, a specific step, an "
+        "actual example, or 'walk me through exactly what you did'). Push once.\n"
+        "- If an answer is solid but opens a deeper thread, you may ask ONE [FOLLOWUP] that "
+        "probes the REASONING behind it (why that choice, what it traded off). A real "
+        "interviewer digs into interesting answers — they don't tick a box and jump away. "
+        "Prefix EVERY follow-up with the [FOLLOWUP] tag.\n"
         "- If they honestly say they don't know or didn't work on it, don't labour the point — "
         "move on to something else.\n"
+        "\nBALANCE WHAT YOU TEST — a real interview probes both what the candidate DID and "
+        "whether they UNDERSTAND it. Judge for yourself, from the questions you've already "
+        "asked, whether you've been leaning too much on recalling project experience; when you "
+        "have, make the next question test understanding instead — the reasoning behind a "
+        "choice they made, what it traded off, or what would happen in a situation they "
+        "haven't described. Understanding questions grounded in the candidate's own work are "
+        "where real signal is.\n"
+        "\nSOUND HUMAN — before asking, reread your own last few questions. If they've "
+        "settled into a repeating structure or opening, break it: ask the next one the way a "
+        "colleague across the table would, reacting to what was just said. You judge what "
+        "sounds templated; there is no fixed phrasing to use or avoid.\n"
+        "\nREAD THE ANSWER, NOT JUST THE TOPIC — as you listen, judge whether you are hearing "
+        "lived experience or a rehearsed script. Lived experience carries texture: specific "
+        "numbers, tool quirks, dead ends they hit before the fix, the order things actually "
+        "happened in, small frustrations. A memorized answer is smooth, generic, and could "
+        "have been said about any project — the textbook sequence with no fingerprints on it. "
+        "When you suspect recitation, steer your probe toward the part a script can't cover: "
+        "what went wrong first, what they tried that didn't work, why the obvious approach "
+        "wasn't taken. When you hear genuine texture, that's your cue that the area is real — "
+        "you can push deeper with confidence or bank it and move on.\n"
+        "\nCALIBRATE DIFFICULTY CONTINUOUSLY — the candidate's level sets your starting "
+        "point, but their answers set the trajectory. If they are handling everything "
+        "comfortably, raise the bar: tighter scenarios, sharper trade-offs, less common "
+        "corners of the same territory. If they are struggling, step down to something "
+        "concrete and answerable from their own work so they can regain footing — a "
+        "rattled candidate shows you nerves, not ability, and you learn nothing from three "
+        "misses in a row. The most informative question is one they can *almost* fully "
+        "answer; keep hunting for that edge as it moves.\n"
+        "\nSCENARIO QUESTIONS — when you pose a debug or what-if scenario, build it from "
+        "THEIR stack: their node, their tools, the kind of block they actually worked on. "
+        "Give a realistic symptom and ask how they would find the cause — you are testing "
+        "their instinct for where to look first, what to rule out, what evidence they would "
+        "want next. Judge the quality of the investigation, not whether they land on one "
+        "specific answer; a good engineer reasoning toward the wrong culprit beats a lucky "
+        "guess with no method behind it.\n"
+        "\nSPOKEN DELIVERY — everything you say is heard, not read. One question per turn, "
+        "short enough to hold in the head after a single hearing. Never stack two questions "
+        "into one turn, never enumerate options aloud, never ask something whose answer "
+        "needs a diagram. If a question needs a setup, give the setup in one short sentence "
+        "and then ask.\n"
+        "\nSHAPE OF THE WHOLE INTERVIEW — think of where you are in the session. Early on, "
+        "let them settle and map their territory. Through the middle, cover breadth while "
+        "spending your follow-ups where the signal is richest. Later, deliberately visit "
+        "the resume areas you haven't touched yet rather than circling back to comfortable "
+        "ground. At every point you should be able to say what you have learned about this "
+        "candidate and what you still don't know — ask next about what you don't know.\n"
         "\nKEEP THE INTERVIEW BROAD (this governs a NEW question, NOT an immediate follow-up "
-        "drill): before asking a new question, scan the list of questions you already asked "
-        "above and note the narrow sub-topic of each. Do NOT ask about a narrow sub-topic you "
-        "have already covered — not even reworded, from a different angle, or on a different "
+        "drill): before asking a new question, scan the ALREADY COVERED list in this prompt "
+        "and note the narrow sub-topic of each. Do NOT ask about a narrow sub-topic you have "
+        "already covered — not even reworded, from a different angle, or on a different "
         "project. One question per sub-topic for the whole interview. Spread your questions "
         "across as many different projects, tools, and skills from the candidate's background "
         "as you can, and never let one project or one area dominate. When choosing what to ask "
         "next, prefer the project or skill you have touched LEAST so far.")
 
-    system = (base_prompt + candidate_info + asked_block + project_block
-              + judgment_rules + returning_block)
+    # Prompt-cache structure: the system prompt holds ONLY session-stable content
+    # (persona, fixed judgment rules, resume, returning-candidate note) — it is
+    # byte-identical across every turn of a session, so the cache breakpoint the
+    # Bedrock/OpenAI builders place on it actually hits. The history below is
+    # append-only, so the last-user-turn breakpoint reuses the prior turn's cache.
+    system = base_prompt + judgment_rules + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
     # Add conversation history — inject expected points when available
@@ -1517,6 +1574,12 @@ Test whether the candidate has genuinely improved or just memorized answers from
                 "Check which points the candidate covers below. Probe MISSING points before moving on."})
         if entry.get("answer"):
             messages.append({"role": "user", "content": entry["answer"]})
+
+    # Volatile per-turn steering (already-asked ledger + live project-coverage
+    # counts) rides AFTER the history, not in the system prompt — it changes every
+    # turn, so placing it here means it invalidates nothing that came before.
+    if asked_block or project_block:
+        messages.append({"role": "system", "content": (asked_block + project_block).strip()})
 
     return messages
 
