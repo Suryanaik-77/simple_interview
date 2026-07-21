@@ -1357,11 +1357,19 @@
     let speechDetected = false;
     let recordingStartTime = 0;
     let currentAudio = null;
+    // No-answer nudge state (reset each new question in displayQuestion)
+    let _noAnswerNudged = false;   // voice nudge already played this turn
+    let _nudgePlaying = false;     // nudge audio playing — suppress answer capture
+    let _nudgeEndedAt = 0;         // wall-clock nudge finished, to time the advance window
+    let _abortRecording = false;   // discard the current recording instead of transcribing
+    let _nudgeAudioB64 = '';       // cached nudge audio (fetched once)
     const SILENCE_THRESHOLD = 15;
     const EARLY_COMMIT_MS = 500;      // 0.5s silence → commit chunk to STT, keep listening
     const SILENCE_TIMEOUT = 2000;     // 2.0s total silence → finalize turn (no re-send)
     const MAX_CHUNK_MS = 30000;   // 30s auto-send
     const NO_SPEECH_TIMEOUT = 10000;  // 10s no speech → prompt candidate
+    const NO_ANSWER_NUDGE_MS = 5000;    // 5s of total silence (no answer) → voice nudge
+    const NO_ANSWER_ADVANCE_MS = 5000;  // still silent 5s after the nudge → next question
 
     // Pause-tracking across recorder restarts (survives the 1s auto-commit restart)
     let _pauseStartedAt = null;       // wall-clock of pause start; null while speaking
@@ -1646,6 +1654,11 @@
     function displayQuestion(data) {
         if (interviewEnded) return;
 
+        // New turn — reset the no-answer nudge/advance tracking.
+        _noAnswerNudged = false;
+        _nudgeEndedAt = 0;
+        _nudgePlaying = false;
+
         const isPausePrompt = !!data.pause_prompt;
 
         // Store text — typewriter starts when audio plays (synced to audio duration)
@@ -1909,18 +1922,27 @@
                     return;
                 }
             } else {
-                // No speech yet in a fresh turn
+                // No speech yet in this recorder.
                 const waitTime = now - recordingStartTime;
-                if (waitTime >= NO_SPEECH_TIMEOUT) {
-                    if (_accumulatedTranscript.trim()) {
-                        // Accumulated transcript from a prior chunk but no new speech — finalize it
-                        stopRecording();
+                if (_accumulatedTranscript.trim()) {
+                    // Spoke in a prior chunk but nothing new — finalize the accumulated answer.
+                    if (waitTime >= NO_SPEECH_TIMEOUT) { stopRecording(); return; }
+                    document.getElementById('sub-label').textContent = `waiting for speech... (${avg.toFixed(0)}/255)`;
+                } else if (!_noAnswerNudged) {
+                    // Truly silent so far. After 5s, play a voice nudge (question stays on UI).
+                    if (waitTime >= NO_ANSWER_NUDGE_MS) {
+                        _noAnswerNudged = true;
+                        playNoAnswerNudge();   // async: aborts this recorder, plays voice, restarts recording
                         return;
                     }
-                    document.getElementById('sub-label').textContent = 'Please speak your answer...';
-                    document.getElementById('main-label').textContent = 'Waiting for you...';
-                } else {
                     document.getElementById('sub-label').textContent = `waiting for speech... (${avg.toFixed(0)}/255)`;
+                } else {
+                    // Nudged already and still silent. After 5s more, move to the next question.
+                    if (_nudgeEndedAt && (now - _nudgeEndedAt) >= NO_ANSWER_ADVANCE_MS) {
+                        skipToNextQuestion();
+                        return;
+                    }
+                    document.getElementById('sub-label').textContent = 'still waiting for your answer...';
                 }
             }
 
@@ -1946,6 +1968,67 @@
         document.getElementById('status-txt').textContent = 'processing';
     }
 
+    // Voice-only nudge when the candidate hasn't said anything. Keeps the current
+    // question on screen; its own audio must not be captured as an "answer", so we
+    // abort the silent recorder first, then restart a clean one afterwards.
+    async function playNoAnswerNudge() {
+        _nudgePlaying = true;
+        _abortRecording = true;
+        stopRecording();                 // aborts the silent recorder (onstop discards)
+        document.getElementById('sub-label').textContent = 'please answer the question...';
+        try {
+            if (!_nudgeAudioB64) {
+                const r = await fetch('/api/nudge-audio', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+                const d = await r.json();
+                _nudgeAudioB64 = d.audio || '';
+            }
+            if (!interviewEnded && !interviewPaused && _nudgeAudioB64) {
+                await playAudioOnly('', _nudgeAudioB64);
+            }
+        } catch (e) {
+            console.warn('[NoAnswer] nudge failed:', e);
+        }
+        _abortRecording = false;
+        _nudgePlaying = false;
+        _nudgeEndedAt = Date.now();      // start the post-nudge advance window
+        // Fresh recorder so a real answer given now is captured cleanly.
+        if (!interviewEnded && !interviewPaused) startRecording();
+    }
+
+    // Candidate stayed silent through the nudge — record the question as unanswered
+    // and advance to the next one.
+    async function skipToNextQuestion() {
+        if (interviewEnded || interviewPaused) return;
+        _abortRecording = true;
+        stopRecording();
+        _accumulatedTranscript = '';
+        _answerStartTime = 0;
+        _noAnswerNudged = false;
+        _nudgeEndedAt = 0;
+        setOrb('speaking');
+        document.getElementById('main-label').textContent = 'Moving on...';
+        document.getElementById('sub-label').textContent = 'no answer — next question';
+        try {
+            const ar = await fetch('/api/submit-answer', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId, answer: '', no_response: true })
+            });
+            const ad = await ar.json();
+            _abortRecording = false;
+            if (ad.should_end) { endSession(); return; }
+            displayQuestion(ad);
+            const displayText = ad.pause_prompt ? (_lastRealQuestionText || ad.question) : ad.question;
+            await playAudio(displayText, ad.audio, ad.phase);   // starts recording after
+        } catch (e) {
+            console.error('[NoAnswer] skip failed:', e);
+            _abortRecording = false;
+            if (!interviewEnded) setTimeout(startRecording, 1000);
+        }
+    }
+
     // Accumulate transcripts from chunked recordings
     let _accumulatedTranscript = '';
     let _wasAutoChunk = false;
@@ -1955,6 +2038,12 @@
 
     async function sendAudioForTranscription() {
         if (interviewEnded) return;
+
+        // Nudge/skip aborted this recording (silent turn) — discard, never transcribe.
+        if (_abortRecording) {
+            audioChunks = [];
+            return;
+        }
 
         // A warning froze the interview while this fired — discard, don't submit.
         if (interviewPaused) {

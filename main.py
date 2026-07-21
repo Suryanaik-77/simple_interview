@@ -1806,18 +1806,26 @@ JSON:"""
         log.warning(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
 
 
-def generate_question(session, candidate_answer: str) -> dict:
-    """Send conversation + answer to LLM, get next question. LLM handles all intelligence."""
+def generate_question(session, candidate_answer: str, no_response: bool = False) -> dict:
+    """Send conversation + answer to LLM, get next question. LLM handles all intelligence.
+    no_response=True means the candidate stayed silent past the time limit: the current
+    question is recorded as unanswered (empty answer) and the LLM is told to move on."""
 
     # Add candidate's answer to history.
     # If the last LLM response was a pause prompt, append to existing answer.
     if session["conversation"]:
-        if session.pop("_last_was_pause", False) and session["conversation"][-1].get("answer"):
+        if no_response:
+            # Silent turn — record as unanswered so it counts against the candidate,
+            # and skip AI-answer detection (there's nothing to analyze).
+            session.pop("_last_was_pause", None)
+            session["conversation"][-1]["answer"] = ""
+        elif session.pop("_last_was_pause", False) and session["conversation"][-1].get("answer"):
             session["conversation"][-1]["answer"] += " " + candidate_answer
         else:
             session["conversation"][-1]["answer"] = candidate_answer
-        turn_idx = len(session["conversation"]) - 1
-        threading.Thread(target=detect_ai_answer, args=(session["conversation"][-1]["answer"], session, turn_idx), daemon=True).start()
+        if not no_response:
+            turn_idx = len(session["conversation"]) - 1
+            threading.Thread(target=detect_ai_answer, args=(session["conversation"][-1]["answer"], session, turn_idx), daemon=True).start()
 
     # Check auto-end
     should_end, end_msg = _should_end_interview(session)
@@ -1835,7 +1843,11 @@ def generate_question(session, candidate_answer: str) -> dict:
     if topics_covered:
         pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
 
-    messages.append({"role": "user", "content": candidate_answer + pacing})
+    llm_answer = (
+        "(The candidate did not respond within the time limit. Do not repeat that question — "
+        "briefly acknowledge and move on to a NEW question on a different topic.)"
+        if no_response else candidate_answer)
+    messages.append({"role": "user", "content": llm_answer + pacing})
 
     # Single LLM call — handles question generation + behavior detection
     t0_llm = time.time()
@@ -3107,6 +3119,7 @@ def submit_answer(data: dict):
     _sync_runtime_config()
     sid = data.get("session_id")
     answer = data.get("answer", "")
+    no_response = bool(data.get("no_response", False))
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
 
@@ -3120,7 +3133,7 @@ def submit_answer(data: dict):
         }
 
     t0_total = time.time()
-    result = generate_question(session, answer)
+    result = generate_question(session, answer, no_response=no_response)
     audio, tts_ms = synthesize_speech(result["question"])
 
     # Store TTS timing + cost
@@ -3151,6 +3164,24 @@ def submit_answer(data: dict):
         "pause_prompt": result.get("pause_prompt", False),
         "timing": {"llm_ms": llm_ms, "tts_ms": tts_ms, "total_ms": total_ms},
     }
+
+
+_NUDGE_AUDIO_CACHE = {}
+
+@app.post("/api/nudge-audio")
+def nudge_audio(data: dict):
+    """Interviewer-voice audio for the no-answer nudge ("please answer the question").
+    Voice-only — the UI keeps the current question displayed. Cached per TTS provider
+    so a silent candidate doesn't cost a fresh TTS call every time."""
+    _sync_runtime_config()
+    phrase = "Please answer the question."
+    provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
+    key = f"{provider}:{phrase}"
+    audio = _NUDGE_AUDIO_CACHE.get(key)
+    if audio is None:
+        audio, _ms = synthesize_speech(phrase)
+        _NUDGE_AUDIO_CACHE[key] = audio
+    return {"audio": audio, "phrase": phrase}
 
 
 @app.post("/api/stream-answer")
