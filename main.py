@@ -1476,10 +1476,11 @@ Test whether the candidate has genuinely improved or just memorized answers from
             under = [nm for nm in proj_names if counts[nm] == fewest]
             project_block = (
                 f"\n\nPROJECT COVERAGE so far — {cov}. Rotate across the candidate's projects: "
-                f"make your next question about an UNDER-covered project ({', '.join(under)}). "
-                "Do not keep adding questions to the most-covered project while others are thin. "
-                "(Skill/tool questions not tied to any one project are fine too, but favour "
-                "breadth across projects.)")
+                f"when your next question is project-anchored (PROJECT or SCENARIO), aim it at "
+                f"an UNDER-covered project ({', '.join(under)}). Do not keep adding questions "
+                "to the most-covered project while others are thin. This rotation does NOT "
+                "apply to CONCEPT checks — those are standalone and never name a project, so "
+                "never bend a concept question toward a project to satisfy rotation.")
 
     # ── Follow-up vs move-on, and theme balance ───────────────────────────
     # Both are the interviewer's judgment calls, described here — no hardcoded
@@ -1530,13 +1531,13 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "narrate a flow without understanding any step of it.\n"
         "- SCENARIO: a realistic symptom or what-if they did NOT already describe, where they "
         "must reason toward a cause. This tests instinct and method, not memory.\n"
-        "After each answer, look back at what KIND of questions you have been asking. If the "
-        "recent ones were all project recall, deliberately make the next a standalone concept "
-        "check or a scenario — stepping away from their project to test a fundamental directly, "
-        "or posing a what-if, is exactly what a strong interviewer does. Judge the mix "
-        "yourself; there is "
-        "no fixed ratio, but a session with no concept questions or no scenarios is a failed "
-        "interview.\n"
+        "Aim for this balance over the whole session: roughly 40% PROJECT, 40% CONCEPT, "
+        "20% SCENARIO. The system shows you a live tally of the mix so far before each "
+        "question — use it: pick the type that is furthest below its share. Never ask the "
+        "same type more than twice in a row when another type is behind. The 40/40/20 split "
+        "is a target, not a metronome — order the questions the way a natural conversation "
+        "flows — but by the end the session should land near it, and a session missing any "
+        "of the three types entirely is a failed interview.\n"
         "\nSOUND HUMAN — before asking, reread your own last few questions. If they've "
         "settled into a repeating structure or opening, break it: ask the next one the way a "
         "colleague across the table would, reacting to what was just said. You judge what "
@@ -1668,25 +1669,58 @@ Test whether the candidate has genuinely improved or just memorized answers from
     # pulls every question back into project-recall mode and the interview never
     # tests concepts or scenarios.
     if asked_block or project_block:
+        # ── Live type tally toward the 40/40/20 target ────────────────────
+        # Counted in code from the interview's own data — the LLM's [SCENARIO]
+        # tags and the candidate's own project names — no content keyword
+        # guessing. Scenario tag wins; else naming a project = PROJECT; else
+        # CONCEPT (concept checks are standalone and never name a project).
+        counts_by_type = {"PROJECT": 0, "CONCEPT": 0, "SCENARIO": 0}
+        last_type = None
+        for e in history:
+            q = e.get("question") or ""
+            if not q or _is_pause_prompt(q) or any(g in q.lower() for g in
+                    ("tell me about yourself", "introduce yourself", "little about yourself")):
+                continue
+            if e.get("is_scenario"):
+                qt = "SCENARIO"
+            elif e.get("is_followup") and last_type:
+                qt = last_type  # a follow-up keeps its parent's type
+            elif any(_mentions(q, nm) for nm in proj_names):
+                qt = "PROJECT"
+            else:
+                qt = "CONCEPT"
+            counts_by_type[qt] += 1
+            last_type = qt
+        n_proj = counts_by_type["PROJECT"]
+        n_conc = counts_by_type["CONCEPT"]
+        n_scen = counts_by_type["SCENARIO"]
+        n_typed = n_proj + n_conc + n_scen
         mix_reminder = (
-            "\n\nBefore you write the question, look at the KIND of each question in the "
-            "list above — project recall, concept check, or scenario. If the interview so "
-            "far has been mostly project recall, your next question must be a CONCEPT check "
-            "or a SCENARIO instead (see MIX YOUR QUESTION TYPES); that takes priority over "
-            "project rotation for this turn. A concept check must be a clean standalone "
-            "fundamentals question — do NOT tie it to their project or bolt it onto "
-            "something they just described; keep project and concept questions separate.")
-        # Scenario debt is counted in code from the LLM's own [SCENARIO] tags — no
-        # keyword guessing. Once 3+ questions are on the board with no scenario among
-        # them, the next question is required to be one.
-        scenario_asked = any(e.get("is_scenario") for e in history)
-        if len(asked) >= 3 and not scenario_asked:
+            f"\n\nTYPE MIX so far — PROJECT: {n_proj}, CONCEPT: {n_conc}, "
+            f"SCENARIO: {n_scen}. Target over the session is roughly 40% project / "
+            "40% concept / 20% scenario. For THIS question, pick the type furthest "
+            "below its share; that takes priority over project rotation. A concept "
+            "check must be a clean standalone fundamentals question — do NOT tie it "
+            "to their project or bolt it onto something they just described. A "
+            "genuine follow-up on the last answer is always allowed and keeps its "
+            "parent's type. Never write type labels like [CONCEPT] or [PROJECT] in "
+            "the question text — the only tags that exist are [FOLLOWUP] and "
+            "[SCENARIO].")
+        # Deterministic guards on top of the steer (still from tags/names, no
+        # content heuristics): force the first scenario in by mid-session, and
+        # brake scenarios once they are over their 20% share.
+        if len(asked) >= 3 and n_scen == 0:
             mix_reminder += (
                 "\n\nSCENARIO DUE — none of the questions so far was a scenario. THIS "
                 "question must be one: give a concrete, realistic symptom in the "
                 "candidate's domain and stack that they have NOT already described, and "
                 "ask how they would investigate it. Start it with the [SCENARIO] tag. "
                 "Any pending follow-up can wait one turn.")
+        elif n_typed >= 3 and n_scen / n_typed > 0.25:
+            mix_reminder += (
+                "\n\nSCENARIOS OVER QUOTA — scenarios are already past their 20% share. "
+                "Do NOT ask another scenario now; ask a PROJECT question or a standalone "
+                "CONCEPT check, whichever is further behind.")
         messages.append({"role": "system",
                          "content": (asked_block + project_block + mix_reminder).strip()})
 
@@ -2071,6 +2105,10 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     is_scenario = "[SCENARIO]" in question
     if is_scenario:
         question = question.replace("[SCENARIO]", "").strip()
+
+    # Defensive: strip type labels the model sometimes invents from the mix
+    # steering ([CONCEPT]/[PROJECT] are not real tags) so they never reach TTS/UI.
+    question = question.replace("[CONCEPT]", "").replace("[PROJECT]", "").strip()
 
     # Pause prompt ("Take your time", "Go ahead") — don't count as a new question.
     is_pause_prompt = _is_pause_prompt(question)
@@ -3464,7 +3502,8 @@ def stream_answer(data: dict):
         _VOICE_ONLY_PATTERNS = ["please answer in english", "answer in english", "speak in english",
                                 "please speak in english", "please respond in english"]
 
-        _STRIP_TAGS = ["[FOLLOWUP]", "[SCENARIO]", "[END_INTERVIEW]", "[PERSONAL]", "[ABUSIVE]"]
+        _STRIP_TAGS = ["[FOLLOWUP]", "[SCENARIO]", "[END_INTERVIEW]", "[PERSONAL]", "[ABUSIVE]",
+                       "[CONCEPT]", "[PROJECT]"]  # last two: invented labels, strip defensively
 
         def _clean_for_tts(text):
             for tag in _STRIP_TAGS:
@@ -3604,6 +3643,9 @@ def stream_answer(data: dict):
         is_scenario = "[SCENARIO]" in question
         if is_scenario:
             question = question.replace("[SCENARIO]", "").strip()
+
+        # Defensive: strip invented type labels (not real tags) before storing.
+        question = question.replace("[CONCEPT]", "").replace("[PROJECT]", "").strip()
 
         # Check behavior tags
         is_end = False
