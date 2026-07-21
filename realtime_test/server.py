@@ -50,8 +50,28 @@ class HTTPHandler(http.server.BaseHTTPRequestHandler):
             self._handle_prepare()
         elif path == "/api/extract_resume":
             self._handle_extract_resume()
+        elif path == "/api/should_stop":
+            self._handle_should_stop()
         else:
             self.send_error(404)
+
+    def _handle_should_stop(self):
+        """Early-stop judge: given the running transcript, decide whether to end
+        the interview because the candidate is clearly underperforming. The
+        interviewer model never ends the interview itself, so this owns the call.
+
+        Body: {messages: [{role, text}, ...], level?}.
+        Returns {stop, reason, answered, closing}."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except Exception as e:
+            return self._json(400, {"error": f"bad request: {e}"})
+        messages = body.get("messages") or []
+        level = (body.get("level") or "").strip()
+        verdict = interview_prep.should_stop_early(messages, level)
+        verdict["closing"] = interview_prep.stop_closing()
+        return self._json(200, verdict)
 
     def _handle_extract_resume(self):
         """Extract plain text from an uploaded resume file so the candidate can

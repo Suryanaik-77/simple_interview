@@ -179,12 +179,34 @@ let scriptNode = null;
 let sourceNode = null;
 let playbackQueue = [];
 let isPlaying = false;
+// Half-duplex mic gate. While the interviewer is speaking through the speakers,
+// the mic picks that audio up (echoCancellation doesn't cover Web Audio
+// playback), and OpenAI transcribes the AI's own voice as a phantom candidate
+// answer. So we stop appending mic audio during playback, plus a short tail to
+// let the acoustic echo/reverb decay before we start listening again.
+let micGateUntil = 0;           // Date.now() ms until which mic sends are dropped
+const MIC_TAIL_MS = 350;        // cooldown after playback drains
 let sessionStart = null;
 let turnCount = 0;
 let lastUserSpeechEnd = 0;
 let interviewStarted = false;  // guards the one-time opening response.create
 let currentAssistantMsg = null;
 let totalTokens = { input: 0, output: 0 };
+
+// ── Early stopping (poor performance) ────────────────────────────────────────
+// The interviewer model never ends the interview itself, so the server-side
+// stop judge owns the call. We track the running transcript, poll the judge in
+// the background after each answer, and when it says stop we make the model
+// deliver a graceful closing (per-response instruction override) then disconnect.
+let transcript = [];           // {role:'assistant'|'user', text} — oldest first
+let answeredCount = 0;         // substantive candidate answers
+let assistantBuf = '';         // accumulates the current assistant turn's text
+let pendingStop = false;       // judge verdict, enforced on the next answer
+let judging = false;           // guards against overlapping judge calls
+let interviewEnding = false;   // closing is being delivered — ignore new answers
+let disconnectWhenIdle = false;// disconnect once closing audio finishes playing
+let interviewLevel = '';       // candidate level, for the stop judge
+let closingText = '';          // fixed closing line from the server
 
 // gpt-realtime-2.1-mini pricing, USD per 1M tokens (OpenAI official).
 // Cost is computed EXACTLY from the per-modality token split in usage —
@@ -304,6 +326,7 @@ async function prepare() {
   fullInstructions = data.instructions;
   const m = data.meta || {};
   const r = data.resume || {};
+  interviewLevel = m.level || '';
 
   // Show what was built.
   const info = document.getElementById('prepInfo');
@@ -319,6 +342,59 @@ async function prepare() {
   document.getElementById('builtPrompt').value = fullInstructions;
 
   addMessage('system', `Interview prepared — ${prevN} previous session(s) loaded.`);
+}
+
+// ── Early stopping ───────────────────────────────────────────────────────────
+
+// Ask the server's stop judge whether the candidate is underperforming badly
+// enough to end early. Runs in the background (off the reply path) after an
+// answer; a STOP verdict is stashed and enforced on the NEXT answer.
+async function maybeJudgeStop() {
+  if (judging || pendingStop || interviewEnding) return;
+  judging = true;
+  try {
+    const res = await fetch('api/should_stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: transcript, level: interviewLevel }),
+    });
+    if (!res.ok) return;
+    const v = await res.json();
+    if (v.closing) closingText = v.closing;
+    if (v.stop) {
+      pendingStop = true;
+      console.log('[early-stop] verdict=END at', v.answered, '—', v.reason);
+    }
+  } catch (e) {
+    console.warn('[early-stop] judge failed:', e);  // fail safe: keep going
+  } finally {
+    judging = false;
+  }
+}
+
+// Make the interviewer deliver ONLY the closing (per-response instruction
+// override — the session prompt otherwise forbids it from ending), then let
+// response.done drive the graceful disconnect.
+function endInterviewEarly() {
+  interviewEnding = true;
+  addMessage('system', 'Ending the interview early — candidate is not meeting the bar.');
+  const closing = closingText ||
+    "That's everything I wanted to cover today. Thanks for taking the time — we'll be in touch about next steps. All the best.";
+  ws.send(JSON.stringify({
+    type: 'response.create',
+    response: {
+      instructions:
+        'The interview is over. Warmly deliver this closing to the candidate, ' +
+        'word for word, then stop and say nothing else. Do not ask another ' +
+        'question. Do not mention performance or scoring:\n"' + closing + '"',
+    },
+  }));
+}
+
+// Final teardown after the closing audio has played out.
+function endInterview() {
+  addMessage('system', 'Interview ended.');
+  disconnect();
 }
 
 async function connect() {
@@ -347,6 +423,10 @@ async function connect() {
       document.getElementById('btnDisconnect').disabled = false;
       sessionStart = Date.now();
       interviewStarted = false;  // re-arm the opening kickoff for this session
+      // Reset early-stop tracking for this fresh session.
+      transcript = []; answeredCount = 0; assistantBuf = '';
+      pendingStop = false; judging = false;
+      interviewEnding = false; disconnectWhenIdle = false;
       addMessage('system', 'Connected to OpenAI Realtime — speak into your microphone');
       updateDuration();
 
@@ -433,6 +513,8 @@ async function startMicrophone() {
   scriptNode = audioCtx.createScriptProcessor(bufferSize, 1, 1);
   scriptNode.onaudioprocess = (e) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // Half-duplex: don't feed the interviewer's own (echoed) voice back in.
+    if (isPlaying || Date.now() < micGateUntil) return;
     const float32 = e.inputBuffer.getChannelData(0);
     const pcm16 = float32ToPcm16(float32);
     const b64 = arrayBufferToBase64(pcm16.buffer);
@@ -484,7 +566,15 @@ function enqueueAudio(base64Pcm16) {
 }
 
 function playNextChunk() {
-  if (!audioCtx || playbackQueue.length === 0) { isPlaying = false; return; }
+  if (!audioCtx || playbackQueue.length === 0) {
+    isPlaying = false;
+    // Keep the mic muted a moment longer so the trailing echo/reverb of the
+    // interviewer's last words doesn't get transcribed as a phantom answer.
+    micGateUntil = Date.now() + MIC_TAIL_MS;
+    // If we're ending early, tear down once the closing audio has fully played.
+    if (disconnectWhenIdle) { disconnectWhenIdle = false; endInterview(); }
+    return;
+  }
   isPlaying = true;
   const samples = playbackQueue.shift();
   const audioBuffer = audioCtx.createBuffer(1, samples.length, SAMPLE_RATE);
@@ -548,8 +638,19 @@ function handleServerEvent(evt) {
         // just gating the response) stops phantom "you"/"Thank you." lines from
         // ever showing in the chat when STT hallucinates on silence/noise.
         if (isRealSpeech(t)) {
+          // Once the closing is under way, ignore anything else the candidate says.
+          if (interviewEnding) break;
           addMessage('user', t);
-          ws.send(JSON.stringify({ type: 'response.create' }));
+          transcript.push({ role: 'user', text: t });
+          answeredCount++;
+          if (pendingStop) {
+            // The judge flagged poor performance last turn — end now instead of
+            // asking another question. Make the model deliver the closing only.
+            endInterviewEarly();
+          } else {
+            ws.send(JSON.stringify({ type: 'response.create' }));
+            maybeJudgeStop();  // background; verdict enforced on the next answer
+          }
         }
       }
       break;
@@ -562,11 +663,12 @@ function handleServerEvent(evt) {
 
     case 'response.output_text.delta':
     case 'response.text.delta':
-      if (evt.delta) addMessage('assistant', evt.delta, true);
+      if (evt.delta) { addMessage('assistant', evt.delta, true); assistantBuf += evt.delta; }
       break;
 
     case 'response.created':
       currentAssistantMsg = null;
+      assistantBuf = '';
       if (lastUserSpeechEnd > 0) {
         const latency = Date.now() - lastUserSpeechEnd;
         document.getElementById('statLatency').textContent = latency + 'ms';
@@ -576,12 +678,18 @@ function handleServerEvent(evt) {
     // Assistant transcript deltas — GA (output_audio_transcript) + beta.
     case 'response.output_audio_transcript.delta':
     case 'response.audio_transcript.delta':
-      if (evt.delta) addMessage('assistant', evt.delta, true);
+      if (evt.delta) { addMessage('assistant', evt.delta, true); assistantBuf += evt.delta; }
       break;
 
     case 'response.done':
       turnCount++;
       document.getElementById('statTurns').textContent = turnCount;
+      if (assistantBuf.trim()) transcript.push({ role: 'assistant', text: assistantBuf.trim() });
+      if (interviewEnding) {
+        // The closing has been generated — disconnect once its audio finishes.
+        disconnectWhenIdle = true;
+        if (!isPlaying) endInterview();
+      }
       if (evt.response?.usage) {
         const u = evt.response.usage;
         totalTokens.input += u.input_tokens || 0;

@@ -189,6 +189,94 @@ def parse_resume(resume_text: str) -> dict:
     return {}
 
 
+# ── Early-stop decision (poor-performance) ───────────────────────────────────
+# The interviewer model never ends the interview itself (the persona forbids it —
+# "that is handled for you"), so a dedicated judge OWNS the early-stop call, just
+# like main.py's Stop Decision Agent. It stays dormant until a few questions are
+# answered, then judges whether the candidate is performing so poorly that
+# continuing adds no useful signal. Fails safe to CONTINUE.
+
+STOP_MIN_Q = int(os.environ.get("RT_STOP_MIN_Q", "4"))     # dormant until this many answers
+STOP_HARD_MAX = int(os.environ.get("RT_STOP_HARD_MAX", "25"))  # absolute ceiling
+STOP_MODEL = os.environ.get("RT_STOP_MODEL", "gpt-4o-mini")
+
+_STOP_RUBRIC = (
+    "You are the STOP CONTROLLER for a live technical VLSI interview. Your ONLY "
+    "job is to decide whether to END the interview early because the candidate is "
+    "clearly and consistently underperforming, or to let it CONTINUE. You never "
+    "ask questions.\n\n"
+    "END only when the evidence across the answered questions is strong: the "
+    "candidate has been mostly vague, thin, factually wrong, evasive, or unable to "
+    "show any real depth or ownership — so continuing would add no useful signal. "
+    "A few weak answers mixed with some solid ones is NOT enough — CONTINUE. "
+    "Nerves, brevity, or one bad topic are NOT enough — CONTINUE. When in doubt, "
+    "CONTINUE."
+)
+
+
+def stop_closing() -> str:
+    """The fixed closing line the interviewer is made to deliver on an early stop.
+    Kept graceful and non-committal (never tells the candidate they failed)."""
+    return ("That's everything I wanted to cover today. Thanks for taking the time "
+            "and for walking me through your work — we'll be in touch about the next "
+            "steps. All the best.")
+
+
+def _stop_transcript(messages, max_chars: int = 12000) -> tuple:
+    """Format the client's message list into an oldest-first Q/A transcript and
+    count substantive candidate answers. `messages` is [{role, text}, ...] with
+    role in {'assistant','user'}."""
+    lines, answered = [], 0
+    for m in messages or []:
+        role = (m.get("role") or "").strip()
+        text = (m.get("text") or "").strip()
+        if not text:
+            continue
+        if role == "assistant":
+            lines.append(f"Interviewer: {text}")
+        elif role == "user":
+            lines.append(f"Candidate: {text}")
+            answered += 1
+    return "\n\n".join(lines)[-max_chars:], answered
+
+
+def should_stop_early(messages, level: str = "") -> dict:
+    """Decide whether to END the interview early for poor performance.
+
+    Returns {stop: bool, reason: str, answered: int}. Dormant (never stops) until
+    STOP_MIN_Q answers; forces a stop at STOP_HARD_MAX. Fails safe to CONTINUE."""
+    transcript, answered = _stop_transcript(messages)
+    if answered < STOP_MIN_Q:
+        return {"stop": False, "reason": "below_min", "answered": answered}
+    if answered >= STOP_HARD_MAX:
+        return {"stop": True, "reason": "hard_max", "answered": answered}
+    prompt = (
+        f"{_STOP_RUBRIC}\n\n"
+        f"Transcript so far:\n{transcript}\n\n"
+        f"--- decide now ---\n"
+        f"State: {answered} questions answered (minimum {STOP_MIN_Q} met). "
+        f"Candidate level: {level or 'unknown'}.\n"
+        f'Return ONLY JSON: {{"decision": "end" | "continue", "reason": "<max 8 words>"}}'
+    )
+    try:
+        from openai import OpenAI
+        client = OpenAI(timeout=20.0, max_retries=1)
+        resp = client.chat.completions.create(
+            model=STOP_MODEL,
+            temperature=0.0,
+            max_tokens=40,
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        data = json.loads(resp.choices[0].message.content or "{}")
+        decision = str(data.get("decision", "continue")).strip().lower()
+        reason = str(data.get("reason", ""))[:60] or decision
+        return {"stop": decision == "end", "reason": reason, "answered": answered}
+    except Exception as e:
+        print(f"[prep] stop decision failed ({e}) - continuing")
+        return {"stop": False, "reason": "error", "answered": answered}
+
+
 # ── Instruction builder (mirrors main.build_interview_prompt system half) ────
 
 _SKIP_PHRASES = {
