@@ -382,6 +382,9 @@ _TTS_PRICING = {
     "kugel": 0.046,  # ~€0.043/min (Turbo) ≈ $0.046/1K chars at ~1000 chars/min English
 }
 
+# AWS Rekognition DetectFaces: $0.001/image (Group 1 API, first 1M images/month).
+_REKOGNITION_COST_PER_IMAGE = 0.001
+
 
 _tiktoken_enc = None
 def _get_tiktoken():
@@ -1613,9 +1616,18 @@ Transcript so far:
 --- decide now ---
 State: {q} questions answered (minimum {STOP_AGENT_MIN_Q} met, hard maximum {STOP_AGENT_HARD_MAX}). Candidate level: {level}.
 Return ONLY JSON: {{"decision": "end" | "continue", "reason": "<max 8 words>"}}"""
+    t0 = time.time()
     try:
-        raw, _ = call_llm([{"role": "user", "content": prompt}], model_id=model,
+        raw, usage = call_llm([{"role": "user", "content": prompt}], model_id=model,
                           temperature=0.0, max_tokens=40)
+        # Record the stop-agent's own LLM cost — it runs after every answer once the
+        # minimum is met, so it's a real per-interview cost that was previously
+        # discarded (usage thrown away) and never showed up in obs_log totals.
+        session.setdefault("obs_log", []).append(
+            _obs_entry("LLM_stop_agent", model, round((time.time() - t0) * 1000),
+                       input_tokens=usage.get("input_tokens", 0),
+                       output_tokens=usage.get("output_tokens", 0),
+                       cost_usd=usage.get("cost_usd", 0.0)))
         m = re.search(r'\{.*\}', raw, re.S)
         data = json.loads(m.group(0)) if m else {}
         decision = str(data.get("decision", "continue")).strip().lower()
@@ -2686,6 +2698,7 @@ async def lms_launch(
     # Process user face reference (for face verification)
     face_image_bytes = None
     face_wearing_glasses = False
+    rekog_obs = None  # obs_log entry for the Rekognition call, attached to the session below
     if user_face and user_face.filename:
         face_image_bytes = await user_face.read()
         if len(face_image_bytes) > 5_000_000:
@@ -2693,10 +2706,16 @@ async def lms_launch(
         # Validate with Rekognition: must contain exactly 1 face, detect glasses
         if rekognition_client:
             try:
+                _rk_t0 = time.time()
                 resp = rekognition_client.detect_faces(
                     Image={"Bytes": face_image_bytes},
                     Attributes=["ALL"]
                 )
+                # Record the Rekognition cost so it lands in the session's obs_log
+                # total (one DetectFaces call per face registration).
+                rekog_obs = _obs_entry("Rekognition", "aws-rekognition-detect-faces",
+                                       round((time.time() - _rk_t0) * 1000),
+                                       cost_usd=_REKOGNITION_COST_PER_IMAGE)
                 faces = resp.get("FaceDetails", [])
                 if len(faces) == 0:
                     raise HTTPException(400, "No face detected in the uploaded image")
@@ -2724,6 +2743,8 @@ async def lms_launch(
         "turn": 0, "conversation": [], "started_at": time.time(),
         "difficulty_level": 1, "lms_source": True,
     }
+    if rekog_obs:
+        session.setdefault("obs_log", []).append(rekog_obs)
     import base64
     if callback_url:
         session["lms_callback_url"] = callback_url
@@ -4219,6 +4240,23 @@ def admin_sessions(_=Depends(require_admin)):
     return session_list
 
 
+# Preferred display order for cost/latency breakdowns. Any step present in the
+# logs but not listed here (e.g. a newly-added cost source) is still shown,
+# appended alphabetically — so the admin cost view never silently drops a step.
+_OBS_STEP_ORDER = [
+    "LLM_greeting", "LLM_question", "LLM_ai_detect", "LLM_evaluation",
+    "LLM_stop_agent", "STT", "TTS", "TTS_greeting", "Rekognition",
+]
+
+def _ordered_obs_steps(logs):
+    """Every distinct step in the logs, known ones first (in display order),
+    then any unknown steps alphabetically. Keeps the breakdown complete."""
+    seen = {l.get("step") for l in logs if l.get("step")}
+    known = [s for s in _OBS_STEP_ORDER if s in seen]
+    extra = sorted(s for s in seen if s not in _OBS_STEP_ORDER)
+    return known + extra
+
+
 def _build_session_obs(sid, session):
     """Build observability summary for a single session with cost tracking."""
     logs = session.get("obs_log", [])
@@ -4230,7 +4268,7 @@ def _build_session_obs(sid, session):
     total_input_tokens = sum(l.get("input_tokens", 0) for l in logs)
     total_output_tokens = sum(l.get("output_tokens", 0) for l in logs)
     by_step = {}
-    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "LLM_evaluation", "STT", "TTS", "TTS_greeting"]:
+    for step in _ordered_obs_steps(logs):
         step_logs = [l for l in logs if l.get("step") == step]
         step_lats = [l["latency_ms"] for l in step_logs if l.get("latency_ms")]
         step_cost = sum(l.get("cost_usd", 0) for l in step_logs)
@@ -4551,7 +4589,7 @@ def obs_summary(window: int = 86400, _=Depends(require_admin)):
 
     # Step breakdown
     by_step = {}
-    for step in ["LLM_question", "LLM_greeting", "LLM_ai_detect", "LLM_evaluation", "STT", "TTS", "TTS_greeting"]:
+    for step in _ordered_obs_steps(all_logs):
         step_logs = [l for l in all_logs if l.get("step") == step]
         step_lats = sorted([l["latency_ms"] for l in step_logs if l.get("latency_ms")])
         if step_lats:
