@@ -441,8 +441,12 @@ def _calc_llm_cost(model: str, input_tokens: int, output_tokens: int,
     Cache reads are 90% cheaper, cache writes are 25% more expensive (Bedrock Claude)."""
     pricing = _LLM_PRICING.get(model, (0.15, 0.60))  # default to gpt-4o-mini
     in_price, out_price = pricing
-    non_cached_input = input_tokens - cache_read_tokens - cache_creation_tokens
-    cost = (non_cached_input * in_price
+    # NOTE: Anthropic/Bedrock report `input_tokens` as the UNCACHED input only —
+    # cache_read_input_tokens and cache_creation_input_tokens are separate, additive
+    # counts. So do NOT subtract them from input_tokens (that double-counts the
+    # discount and under-reports cost). Bill each bucket at its own rate:
+    #   fresh input 1x, cache reads 0.1x, cache writes 1.25x.
+    cost = (input_tokens * in_price
             + cache_read_tokens * in_price * 0.1
             + cache_creation_tokens * in_price * 1.25
             + output_tokens * out_price) / 1_000_000
@@ -734,17 +738,13 @@ def _build_bedrock_body(messages, model_id, temperature, max_tokens):
         for i, m in enumerate(merged):
             if isinstance(m.get("content"), str):
                 merged[i] = {"role": m["role"], "content": [{"type": "text", "text": m["content"]}]}
-        # Cache the last user turn so growing conversation history is cached
-        if len(merged) >= 2:
-            last_user_idx = None
-            for i in range(len(merged) - 1, -1, -1):
-                if merged[i]["role"] == "user":
-                    last_user_idx = i
-                    break
-            if last_user_idx is not None:
-                content = merged[last_user_idx]["content"]
-                if isinstance(content, list) and content:
-                    content[-1]["cache_control"] = {"type": "ephemeral"}
+        # Prompt caching: cache ONLY the stable system block (set below). We do NOT
+        # put a breakpoint on the last user turn: the conversation history grows and
+        # the volatile per-turn steering (asked-ledger / project coverage) is merged
+        # into that turn, so it differs every request — caching it just writes a fresh
+        # cache each turn that the next turn can never read (all writes, no reads).
+        # The system block, by contrast, is byte-identical for the whole session, so a
+        # single cache_control there gives a read hit on every turn after the first.
         body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": max_tokens, "temperature": temperature, "messages": merged}
         if top_system.strip():
             body["system"] = [{"type": "text", "text": top_system.strip(), "cache_control": {"type": "ephemeral"}}]
@@ -1487,24 +1487,52 @@ Test whether the candidate has genuinely improved or just memorized answers from
     # the candidate's latest answer below, and decides for itself.
     judgment_rules = (
         "\n\nDECIDING YOUR NEXT MOVE — use your judgment on the candidate's last answer:\n"
-        "- If it was specific and solid, move on to a fresh area.\n"
+        "- If it was specific and solid, move on to a fresh area — and when you do, choose "
+        "the KIND of question deliberately, not just the topic: if your recent questions were "
+        "all about what they did on their projects, make this one a concept check or a "
+        "scenario instead (see MIX YOUR QUESTION TYPES). Moving on does not have to mean "
+        "moving to the next project.\n"
         "- If it was vague, evasive, or low-effort (dodging the question, hand-waving, or "
         "claiming they did something without any concrete detail), do NOT move on — ask ONE "
         "[FOLLOWUP] on the SAME topic that forces a real detail (a number, a specific step, an "
         "actual example, or 'walk me through exactly what you did'). Push once.\n"
         "- If an answer is solid but opens a deeper thread, you may ask ONE [FOLLOWUP] that "
         "probes the REASONING behind it (why that choice, what it traded off). A real "
-        "interviewer digs into interesting answers — they don't tick a box and jump away. "
-        "Prefix EVERY follow-up with the [FOLLOWUP] tag.\n"
+        "interviewer digs into interesting answers — they don't tick a box and jump away.\n"
         "- If they honestly say they don't know or didn't work on it, don't labour the point — "
         "move on to something else.\n"
-        "\nBALANCE WHAT YOU TEST — a real interview probes both what the candidate DID and "
-        "whether they UNDERSTAND it. Judge for yourself, from the questions you've already "
-        "asked, whether you've been leaning too much on recalling project experience; when you "
-        "have, make the next question test understanding instead — the reasoning behind a "
-        "choice they made, what it traded off, or what would happen in a situation they "
-        "haven't described. Understanding questions grounded in the candidate's own work are "
-        "where real signal is.\n"
+        "\nTHE TAG RULE (mechanical — apply it to EVERY question you ask, no exceptions): "
+        "decide one thing first — does this question stay on the SAME topic as the candidate's "
+        "last answer (drilling deeper, asking for a missing detail, probing the reasoning, or "
+        "reacting to something they just said), or does it OPEN A NEW topic/project/concept? "
+        "If it stays on the same topic, it is a follow-up: start the question with the literal "
+        "tag [FOLLOWUP] followed by a space, then the question. If it opens a new topic, do NOT "
+        "use the tag. There is no in-between: a question either continues the last thread (tag "
+        "it) or starts a new one (no tag). Never emit a follow-up without the tag, and never "
+        "tag a genuinely new question. This tag is how the system groups follow-ups under their "
+        "parent question, so getting it right matters even when the wording feels obvious. "
+        "Similarly, when you pose a SCENARIO question (a hypothetical symptom or what-if the "
+        "candidate did not describe, where they must reason toward a cause), start it with the "
+        "literal tag [SCENARIO] followed by a space — the system uses it to track whether the "
+        "interview has tested problem-solving. Tag only genuine hypotheticals, not questions "
+        "about what they actually did.\n"
+        "\nMIX YOUR QUESTION TYPES — an interview that only walks the resume is incomplete. "
+        "You have three kinds of question, and by the end you must have used all three:\n"
+        "- PROJECT: what they actually did — decisions, problems, fixes. Your anchor, but "
+        "only one part of the interview.\n"
+        "- CONCEPT: whether they understand the fundamentals behind the work, asked directly — "
+        "why a technique works, what causes an effect, what a choice trades off. A concept "
+        "question stands on its own and has a right answer independent of their project; it is "
+        "how you catch someone who can narrate a flow without understanding any step of it. "
+        "Springing off a term they just used is natural, but test the idea, not the anecdote.\n"
+        "- SCENARIO: a realistic symptom or what-if they did NOT already describe, where they "
+        "must reason toward a cause. This tests instinct and method, not memory.\n"
+        "After each answer, look back at what KIND of questions you have been asking. If the "
+        "recent ones were all project recall, deliberately make the next a concept check or a "
+        "scenario — pivoting mid-thread from 'what did you do' to 'why does that work' or "
+        "'what if' is exactly what a strong interviewer does. Judge the mix yourself; there is "
+        "no fixed ratio, but a session with no concept questions or no scenarios is a failed "
+        "interview.\n"
         "\nSOUND HUMAN — before asking, reread your own last few questions. If they've "
         "settled into a repeating structure or opening, break it: ask the next one the way a "
         "colleague across the table would, reacting to what was just said. You judge what "
@@ -1533,17 +1561,66 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "want next. Judge the quality of the investigation, not whether they land on one "
         "specific answer; a good engineer reasoning toward the wrong culprit beats a lucky "
         "guess with no method behind it.\n"
-        "\nSPOKEN DELIVERY — everything you say is heard, not read. One question per turn, "
-        "short enough to hold in the head after a single hearing. Never stack two questions "
-        "into one turn, never enumerate options aloud, never ask something whose answer "
-        "needs a diagram. If a question needs a setup, give the setup in one short sentence "
-        "and then ask.\n"
+        "\nSPOKEN DELIVERY — everything you say is heard, not read, so keep it SHORT. Aim for "
+        "one or two spoken sentences and stop; a good interview question is brief and lands "
+        "in a single hearing. Do not deliver a monologue, do not introduce yourself at length "
+        "or recite your own background, and do not restate the candidate's whole answer back "
+        "to them before asking — a few words of acknowledgement is plenty. One question per "
+        "turn. Never stack two questions into one turn, never enumerate options aloud, never "
+        "ask something whose answer needs a diagram. If a question needs a setup, keep the "
+        "setup to one short sentence and then ask. When in doubt, cut words — the candidate "
+        "should be able to repeat your question back after hearing it once.\n"
         "\nSHAPE OF THE WHOLE INTERVIEW — think of where you are in the session. Early on, "
         "let them settle and map their territory. Through the middle, cover breadth while "
         "spending your follow-ups where the signal is richest. Later, deliberately visit "
         "the resume areas you haven't touched yet rather than circling back to comfortable "
         "ground. At every point you should be able to say what you have learned about this "
         "candidate and what you still don't know — ask next about what you don't know.\n"
+        "\nREADING THE SIGNAL — what separates a strong answer from a weak one is rarely the "
+        "vocabulary; a candidate can name every step of the flow and still have never done it. "
+        "Weight what you hear like an experienced engineer would:\n"
+        "- A STRONG answer is causal and specific. It names the actual symptom, the evidence "
+        "that pointed at a cause, the fix, and how they confirmed it worked — in that order, "
+        "because that is the order the work happened in. It volunteers numbers without being "
+        "asked, admits what was hard, and knows the boundary of what it did versus what a "
+        "tool or a teammate did. When someone says 'the report showed X, so I suspected Y, "
+        "checked Z, and it dropped from A to B', they were there.\n"
+        "- A WEAK answer is a description of the PROCESS in the abstract: the textbook sequence "
+        "with the specifics filed off, correct-sounding but frictionless, with no numbers, no "
+        "dead ends, and no sense of cause and effect. 'I ran the tool and fixed the violations' "
+        "describes every flow ever run and proves nothing. Naming a technique is not the same "
+        "as having applied it; 'we used AOCV derating' tells you a word, not an experience.\n"
+        "- The gap between the two is your richest source of follow-ups. When an answer is "
+        "abstract, do not accept the vocabulary — ask for the one concrete instance that would "
+        "prove they lived it: a specific number, a specific failure, the first thing they "
+        "looked at, or what they tried that did NOT work. If they can produce it, the area is "
+        "real and you can go deeper or move on satisfied. If they cannot, you have learned "
+        "something important — note it and move on without embarrassing them.\n"
+        "- Calibrate to the candidate's claimed level, not to a textbook. For a junior engineer, "
+        "genuine hands-on detail on a narrow slice is a strong signal even if the breadth is "
+        "thin. For a senior, expect them to reason about trade-offs, alternatives they "
+        "rejected, and second-order effects, not just recount what they did. Reward the person "
+        "who says 'I don't know' cleanly over the one who bluffs fluently — the honest gap is "
+        "easy to work around, the confident bluff is the real risk in a hire.\n"
+        "\nHANDLING THE ROOM — an interview is a conversation between two people, and part of "
+        "your job is to keep it one:\n"
+        "- If the candidate is clearly nervous — short answers, hesitation, backtracking — ease "
+        "off for a moment. Ask something concrete and squarely inside their experience so they "
+        "get a win and settle; a nervous candidate is showing you nerves, not the ceiling of "
+        "their ability, and you get nothing useful from watching them freeze.\n"
+        "- If an answer wanders off the question, let them finish the thought, then gently bring "
+        "it back to what you actually asked — don't just move on as if they answered it.\n"
+        "- If they drift into personal, non-technical, or off-topic territory, acknowledge "
+        "briefly and steer back to the work; you are here to assess engineering, not to chat.\n"
+        "- If they give a long answer that covers several things, pick the ONE thread most worth "
+        "pursuing and go there, rather than trying to respond to all of it.\n"
+        "- If they ask YOU a question, give a short honest answer if it helps them proceed, then "
+        "return the focus to them; don't let the interview flip around.\n"
+        "- If they misunderstand your question, that is usually a sign you were unclear — rephrase "
+        "it more plainly rather than repeating the same words or penalizing the confusion.\n"
+        "- Keep your own tone even and professional throughout — curious and probing, never "
+        "hostile, sarcastic, or dismissive, even when an answer is weak. Pressure comes from the "
+        "sharpness of the question, not from attitude.\n"
         "\nKEEP THE INTERVIEW BROAD (this governs a NEW question, NOT an immediate follow-up "
         "drill): before asking a new question, scan the ALREADY COVERED list in this prompt "
         "and note the narrow sub-topic of each. Do NOT ask about a narrow sub-topic you have "
@@ -1555,9 +1632,13 @@ Test whether the candidate has genuinely improved or just memorized answers from
 
     # Prompt-cache structure: the system prompt holds ONLY session-stable content
     # (persona, fixed judgment rules, resume, returning-candidate note) — it is
-    # byte-identical across every turn of a session, so the cache breakpoint the
-    # Bedrock/OpenAI builders place on it actually hits. The history below is
-    # append-only, so the last-user-turn breakpoint reuses the prior turn's cache.
+    # byte-identical across every turn of a session, so the single cache_control the
+    # Bedrock builder places on the system block hits (a read) on every turn after the
+    # first. For Claude Haiku this only fires once the system block clears the 4096-token
+    # minimum; base_prompt + judgment_rules alone are sized to clear it for any candidate
+    # carrying a real resume. The volatile steering (asked-ledger / project coverage) is
+    # deliberately kept OUT of here and appended after the history so it never invalidates
+    # this cache.
     system = base_prompt + judgment_rules + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
@@ -1578,8 +1659,31 @@ Test whether the candidate has genuinely improved or just memorized answers from
     # Volatile per-turn steering (already-asked ledger + live project-coverage
     # counts) rides AFTER the history, not in the system prompt — it changes every
     # turn, so placing it here means it invalidates nothing that came before.
+    # The mix reminder sits HERE (not only in the stable rules) because this block
+    # is closest to the decision — without it, the project-rotation steering above
+    # pulls every question back into project-recall mode and the interview never
+    # tests concepts or scenarios.
     if asked_block or project_block:
-        messages.append({"role": "system", "content": (asked_block + project_block).strip()})
+        mix_reminder = (
+            "\n\nBefore you write the question, look at the KIND of each question in the "
+            "list above — project recall, concept check, or scenario. If the interview so "
+            "far has been mostly project recall, your next question must be a CONCEPT check "
+            "or a SCENARIO instead (see MIX YOUR QUESTION TYPES); that takes priority over "
+            "project rotation for this turn. Concept and scenario questions do not need to "
+            "be tied to any project.")
+        # Scenario debt is counted in code from the LLM's own [SCENARIO] tags — no
+        # keyword guessing. Once 3+ questions are on the board with no scenario among
+        # them, the next question is required to be one.
+        scenario_asked = any(e.get("is_scenario") for e in history)
+        if len(asked) >= 3 and not scenario_asked:
+            mix_reminder += (
+                "\n\nSCENARIO DUE — none of the questions so far was a scenario. THIS "
+                "question must be one: give a concrete, realistic symptom in the "
+                "candidate's domain and stack that they have NOT already described, and "
+                "ask how they would investigate it. Start it with the [SCENARIO] tag. "
+                "Any pending follow-up can wait one turn.")
+        messages.append({"role": "system",
+                         "content": (asked_block + project_block + mix_reminder).strip()})
 
     return messages
 
@@ -1957,6 +2061,12 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     if is_followup:
         question = question.replace("[FOLLOWUP]", "").strip()
 
+    # Detect scenario tag (self-classified by the LLM; lets us count scenarios
+    # mechanically without keyword heuristics)
+    is_scenario = "[SCENARIO]" in question
+    if is_scenario:
+        question = question.replace("[SCENARIO]", "").strip()
+
     # Pause prompt ("Take your time", "Go ahead") — don't count as a new question.
     is_pause_prompt = _is_pause_prompt(question)
     if is_pause_prompt:
@@ -1967,6 +2077,8 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         entry = {"question": question, "answer": None, "turn": session["turn"]}
         if is_followup:
             entry["is_followup"] = True
+        if is_scenario:
+            entry["is_scenario"] = True
         session["conversation"].append(entry)
         if not is_followup:
             session["turn"] += 1
@@ -3347,7 +3459,7 @@ def stream_answer(data: dict):
         _VOICE_ONLY_PATTERNS = ["please answer in english", "answer in english", "speak in english",
                                 "please speak in english", "please respond in english"]
 
-        _STRIP_TAGS = ["[FOLLOWUP]", "[END_INTERVIEW]", "[PERSONAL]", "[ABUSIVE]"]
+        _STRIP_TAGS = ["[FOLLOWUP]", "[SCENARIO]", "[END_INTERVIEW]", "[PERSONAL]", "[ABUSIVE]"]
 
         def _clean_for_tts(text):
             for tag in _STRIP_TAGS:
@@ -3483,6 +3595,11 @@ def stream_answer(data: dict):
         if is_followup:
             question = question.replace("[FOLLOWUP]", "").strip()
 
+        # Detect scenario tag (self-classified by the LLM)
+        is_scenario = "[SCENARIO]" in question
+        if is_scenario:
+            question = question.replace("[SCENARIO]", "").strip()
+
         # Check behavior tags
         is_end = False
         if "[PERSONAL]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
@@ -3510,6 +3627,8 @@ def stream_answer(data: dict):
             entry = {"question": question, "answer": None, "turn": session["turn"]}
             if is_followup:
                 entry["is_followup"] = True
+            if is_scenario:
+                entry["is_scenario"] = True
             session["conversation"].append(entry)
             if not is_followup:
                 session["turn"] += 1
