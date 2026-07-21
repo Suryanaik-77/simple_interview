@@ -634,6 +634,9 @@ function updateChecks() {
     dot.className = 'w-2 h-2 rounded-full bg-warn';
     txt.textContent = count + ' of ' + total + ' checks complete';
     txt.className = 'text-text-secondary font-medium text-xs';
+    // Re-disable if a previously-passing check regressed (e.g. camera turned off
+    // after being enabled) — otherwise the button stays clickable.
+    document.getElementById('btn-start').disabled = true;
   }
 }
 
