@@ -1375,10 +1375,16 @@ def _load_question_bank():
 QUESTION_BANK = _load_question_bank()
 
 
-def _bank_block_for(domain, level, session):
+def _bank_block_for(domain, level, session, session_index=0):
     """A small, level-appropriate sample of curated questions as difficulty/style
-    exemplars. Seeded by session id -> stable within a session (so it caches), but a
-    different subset per candidate (so questions don't repeat across people)."""
+    exemplars.
+
+    Non-repeating per user: the pool is shuffled deterministically by the CANDIDATE
+    (email), then we take a window offset by session_index (how many interviews this
+    user already had). So session 1 gets a different slice than session 2, etc. — a
+    returning candidate never sees the same exemplars twice until the pool is
+    exhausted. Stable within a session (session_index doesn't change mid-interview),
+    so the prompt still caches."""
     import random, hashlib
     tiers = QUESTION_BANK.get(domain, {})
     if not tiers:
@@ -1386,15 +1392,24 @@ def _bank_block_for(domain, level, session):
     basic = list(tiers.get("basic", []))
     inter = list(tiers.get("intermediate", []))
     adv = list(tiers.get("advanced", []))
-    # Deterministic per-session seed (Python's hash() is salted per-process, so it
-    # wouldn't be reproducible across restarts). Different session id -> different
-    # shuffle -> a fresh subset of the bank each interview.
-    seed = int(hashlib.md5(str(session.get("id", "")).encode()).hexdigest(), 16) & 0xffffffff
+    # Seed by the user (email), so each person has their own stable ordering; fall
+    # back to session id for anonymous sessions.
+    user_key = (session.get("resume", {}).get("email") or str(session.get("id", ""))).lower()
+    seed = int(hashlib.md5(user_key.encode()).hexdigest(), 16) & 0xffffffff
     rng = random.Random(seed)
     rng.shuffle(basic); rng.shuffle(inter); rng.shuffle(adv)
+
+    def window(pool, k, idx):
+        # rotate the (per-user stable) pool by idx*k so consecutive sessions take
+        # disjoint slices; wraps around once the pool is used up.
+        if not pool:
+            return []
+        off = (idx * k) % len(pool)
+        return (pool[off:] + pool[:off])[:k]
+
     junior = level in ("fresh_graduate", "trained_fresher", "experienced_junior")
-    picks = [("EASY", basic[:7]), ("MEDIUM", inter[:5])] if junior \
-        else [("MEDIUM", inter[:6]), ("HARD", adv[:6])]
+    picks = [("EASY", window(basic, 7, session_index)), ("MEDIUM", window(inter, 5, session_index))] if junior \
+        else [("MEDIUM", window(inter, 6, session_index)), ("HARD", window(adv, 6, session_index))]
     lines = [f"- ({label}) {q}" for label, qs in picks for q in qs]
     if not lines:
         return ""
@@ -1448,9 +1463,11 @@ def build_interview_prompt(session):
 
     # Check for returning candidate
     returning_block = ""
+    session_index = 0  # how many interviews this candidate already had (0 = first)
     email = resume.get("email", "")
     if email:
         prev_sessions = get_candidate_previous(email)
+        session_index = len(prev_sessions)
         if prev_sessions:
             # Take only last 2 sessions
             recent = prev_sessions[-2:]
@@ -1606,7 +1623,7 @@ Test whether the candidate has genuinely improved or just memorized answers from
     # carrying a real resume. The volatile steering (asked-ledger / project coverage) is
     # deliberately kept OUT of here and appended after the history so it never invalidates
     # this cache.
-    bank_block = _bank_block_for(domain, level, session)
+    bank_block = _bank_block_for(domain, level, session, session_index)
     system = base_prompt + judgment_rules + bank_block + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
