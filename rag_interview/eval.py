@@ -53,7 +53,10 @@ REFUSAL_MARKERS = ["don't have", "do not have", "not ", "no information",
 
 
 def ask(question, k=5):
-    body = json.dumps({"question": question, "k": k}).encode()
+    # Score the direct-answer path: these are unambiguous ground-truth facts,
+    # so disable the interactive clarify step (which would return no answer).
+    body = json.dumps({"question": question, "k": k,
+                       "allow_clarify": False}).encode()
     req = urllib.request.Request(
         f"{BASE}/api/ask", data=body,
         headers={"Content-Type": "application/json"})

@@ -231,6 +231,15 @@ class RAGEngine:
         if not html_paths:
             html_paths = sorted(glob.glob(os.path.join(html_dir, "*.html")))
 
+        # Always index the learning-path / lab-catalog overview page if present.
+        # It isn't a TC-* testcase, but it's the corpus source of truth for
+        # "how many labs / what's the learning path / which tools per stage".
+        # Its filename doesn't match the TC facet pattern, so parse_facets()
+        # returns {} and it stays pure content (no facet/clarify side effects).
+        overview = os.path.join(html_dir, "pd_learning_path.html")
+        if os.path.exists(overview) and overview not in html_paths:
+            html_paths = sorted(html_paths + [overview])
+
         eng = cls()
         current_fp = cls._fingerprint_files(html_paths) if html_paths else None
 
@@ -272,8 +281,13 @@ class RAGEngine:
             c = self.chunks[i]
             if lab_name and c["lab_name"] != lab_name:
                 continue
-            if facets and any((c.get("facets") or {}).get(fk) != fv
-                              for fk, fv in facets.items()):
+            # A facet filter (e.g. picked provider=SNPS) restricts facet-bearing
+            # testcases, but the tool-agnostic overview page (no facets) is
+            # always relevant — keep it so a picked tool still gets the module
+            # order from the learning-path doc.
+            cfac = c.get("facets") or {}
+            if facets and cfac and any(cfac.get(fk) != fv
+                                       for fk, fv in facets.items()):
                 continue
             results.append({**c, "score": float(sims[i])})
             if len(results) >= k:

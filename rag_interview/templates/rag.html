@@ -170,6 +170,12 @@
     }
     .bubble pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
 
+    /* Small caption echoing the tool the user picked in a clarify. */
+    .choice-tag {
+      font-size: 11px; color: var(--faint); margin: 0 0 8px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .choice-tag b { color: var(--accent2); font-weight: 600; }
     /* ---- clarify options ---------------------------------------------- */
     .clarify-hint {
       font-size: 11px; text-transform: uppercase; letter-spacing: .7px;
@@ -396,7 +402,7 @@
 
     // Render a clarifying question with clickable options. Picking one resends
     // the original question narrowed by the chosen option.
-    function showClarify(msgDiv, question, options, originalQ, facet, optionValues, priorFacets) {
+    function showClarify(msgDiv, question, options, originalQ, facet, optionValues, priorFacets, priorChoices) {
       const bubble = msgDiv.querySelector(".bubble");
       let html = render(question)
         + '<div class="clarify-hint">Pick one to continue</div>'
@@ -419,16 +425,18 @@
           // and don't echo the pick as a "You" message — leave just the
           // original question and the final answer.
           msgDiv.remove();
+          // Remember the picked label(s) so the answer can echo "Your choice: …".
+          const chosen = (priorChoices || []).concat([choice]);
           if (facet && optionValues) {
             // Facet-based pick hard-filters the corpus. ACCUMULATE it onto any
             // previously chosen facets and keep clarify ON, so the next facet
             // can still be asked (e.g. after stage, ask Synopsys vs Cadence).
             // The question text stays the pristine original — the facets narrow.
             const facets = Object.assign({}, priorFacets || {}, { [facet]: optionValues[i] });
-            ask(originalQ, originalQ, true, facets, false);
+            ask(originalQ, originalQ, true, facets, false, chosen);
           } else {
             // LLM-based option: just narrow the query text and stop chaining.
-            ask(choice, `${originalQ} - specifically: ${choice}`, false, priorFacets || null, false);
+            ask(choice, `${originalQ} - specifically: ${choice}`, false, priorFacets || null, false, chosen);
           }
         });
       });
@@ -436,7 +444,7 @@
 
     // preset: text shown as the user's message. queryOverride: what's actually
     // sent to the API (defaults to the shown text).
-    async function ask(preset, queryOverride, allowClarify = true, facets = null, showUser = true) {
+    async function ask(preset, queryOverride, allowClarify = true, facets = null, showUser = true, chosenLabels = null) {
       const question = (preset || q.value).trim();
       if (!question) return;
       hint && hint.remove();
@@ -454,10 +462,15 @@
         });
         const data = await res.json();
         if (data.clarify && Array.isArray(data.options) && data.options.length) {
-          showClarify(thinking, data.question, data.options, queryOverride || question, data.facet, data.option_values, facets);
+          showClarify(thinking, data.question, data.options, queryOverride || question, data.facet, data.option_values, facets, chosenLabels);
           return;
         }
-        let html = render(data.answer || "(no answer)");
+        let html = "";
+        // Echo the tool the user picked in the clarify, small, above the answer.
+        if (chosenLabels && chosenLabels.length) {
+          html += `<div class="choice-tag">Your choice: <b>${esc(chosenLabels.join(", "))}</b></div>`;
+        }
+        html += render(data.answer || "(no answer)");
         if (data.sources && data.sources.length) {
           html += '<div class="sources"><div class="sources-label">Sources</div>';
           for (const s of data.sources) {

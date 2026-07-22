@@ -12,6 +12,7 @@ Then open http://localhost:8100
 """
 
 import os
+import re
 import json
 
 from fastapi import FastAPI
@@ -22,7 +23,6 @@ from pydantic import BaseModel
 from openai import OpenAI
 
 from rag_engine import RAGEngine, sanitize_paths, parse_facets
-import catalog
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -84,6 +84,26 @@ CLARIFY_PROMPT = (
     "sections (e.g. \"Gate-to-Gate LEC (Iguana challenge)\"), each pickable in "
     "one click. If the question is already specific, names a testcase, or only "
     "one option fits, set clarify=false with an empty options list."
+)
+
+# Whether to ask the student "Synopsys or Cadence?" before listing a stage's
+# labs is split into a FACT and an INTENT part. The fact — which stages offer a
+# real tool choice — is read deterministically from the corpus (a stage with
+# 2+ providers present). The intent — is the user actually asking for a single
+# stage's ordered labs (vs. the overall flow, or where to begin) — is the one
+# fuzzy bit, judged by a narrow LLM yes/no. (An earlier open-ended "does this
+# need a tool?" prompt wobbled: the model kept reasoning "the modules are the
+# same in both tools, so no" — true, but it defeats the point of asking.)
+STAGE_INTENT_PROMPT = (
+    "A student is browsing a physical-design course whose flow has stages "
+    "(Synthesis, LEC, PnR, PV, STA). Decide whether their question asks for the "
+    "concrete labs or the ordered module path WITHIN one specific stage — the "
+    "labs they would actually run — as opposed to a general question about the "
+    "overall flow, the list of stages, where to begin the course, or why the "
+    "order is what it is.\n"
+    "Return STRICT JSON: {\"labs_of_stage\": bool}. Example true: 'give me the "
+    "synthesis stage labs in order'. Example false: 'if I already know "
+    "synthesis, where should I start?' (that asks about the entry point)."
 )
 
 # The corpus is already path-sanitized at ingest (rag_engine.sanitize_paths),
@@ -169,16 +189,21 @@ _CLARIFY_FACETS = (
 )
 
 
-def _facet_clarify(question, hits):
+def _facet_clarify(question, hits, only=None):
     """Deterministic clarify from real filename facets — no LLM guessing.
 
     If the retrieved hits span more than one value of a materially-different
     facet (stage / provider / guided-vs-challenge) that the question did NOT
     already specify, return that facet's real values as clickable options.
+    `only` optionally restricts which facets may be asked (e.g. ("provider",)
+    for catalog-level questions, where a "which stage?" clarify is nonsensical
+    but a Cadence-vs-Synopsys tool choice is still real).
     Returns {"question", "options", "facet", "option_values"} or None.
     """
     qlc = question.lower()
     for fk, lk, qtext in _CLARIFY_FACETS:
+        if only and fk not in only:
+            continue
         values = {}                       # code -> human label, first seen wins
         for h in hits:
             f = h.get("facets") or {}
@@ -199,6 +224,132 @@ def _facet_clarify(question, hits):
             "option_values": codes,
         }
     return None
+
+
+_PROVIDER_LABEL = {"SNPS": "Synopsys", "CDN": "Cadence", "SIE": "Siemens"}
+
+# Tool PRODUCT names -> owning provider. This is vendor fact (like SNPS=Synopsys),
+# not an interview heuristic: each tool belongs to exactly one EDA vendor. Names
+# taken from the ones that actually appear in the corpus. When a question names
+# one of these (e.g. "ICC2 floorplanning"), the tool is already specified, so a
+# "Synopsys or Cadence?" clarify is redundant — we resolve it silently instead.
+_PROVIDER_TOOL_RE = {
+    "SNPS": re.compile(
+        r"\bicc2\b|\bic\s*compiler\b|\bfusion\s*compiler\b|\bdesign\s*compiler\b"
+        r"|\bprimetime\b|\bformality\b|\bstarrc\b|\bvcs\b", re.I),
+    "CDN": re.compile(
+        r"\binnovus\b|\bgenus\b|\btempus\b|\bconformal\b|\bvoltus\b|\bquantus\b",
+        re.I),
+    "SIE": re.compile(r"\bcalibre\b", re.I),
+}
+
+
+def _provider_from_tool(question):
+    """Return the provider code uniquely implied by a tool name in the question,
+    or None if zero or more than one vendor's tools are named (ambiguous)."""
+    hit = [p for p, rx in _PROVIDER_TOOL_RE.items() if rx.search(question)]
+    return hit[0] if len(hit) == 1 else None
+
+# Which stages a question can name, matched case-insensitively with word
+# boundaries (so "sta" doesn't fire on "stage"/"start", "pv" not on "provide").
+_STAGE_PATTERNS = {
+    "SYN": re.compile(r"\bsynthesis\b|\bsynth\b", re.I),
+    "PNR": re.compile(r"\bpnr\b|\bp\s*&\s*r\b|place\s*(?:and|&)\s*route", re.I),
+    "STA": re.compile(r"\bsta\b|static\s+timing|timing\s+analysis", re.I),
+    "LEC": re.compile(r"\blec\b|equivalence|formality|conformal", re.I),
+    "PV": re.compile(r"\bpv\b|physical\s+verification", re.I),
+}
+
+
+def _stage_providers():
+    """{stage_code: {provider_codes}} present in the corpus — the ground truth
+    for whether a stage offers a real tool choice."""
+    sp = {}
+    for c in engine.chunks:
+        f = c.get("facets") or {}
+        st, pr = f.get("stage"), f.get("provider")
+        if st and pr:
+            sp.setdefault(st, set()).add(pr)
+    return sp
+
+
+STAGE_PROVIDERS = _stage_providers()
+
+
+def _asks_stage_labs(question):
+    """Narrow LLM gate: is the user asking for a single stage's ordered labs?"""
+    try:
+        resp = _client.chat.completions.create(
+            model=VERIFY_MODEL,
+            temperature=0,
+            max_tokens=200,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": STAGE_INTENT_PROMPT},
+                {"role": "user", "content": f"Question: {question}"},
+            ],
+        )
+        return bool(json.loads(resp.choices[0].message.content).get("labs_of_stage"))
+    except Exception:
+        return False
+
+
+def _stage_catalog(question):
+    """If the question asks for ONE specific stage's ordered labs, return that
+    stage code — else None. Deterministic stage match + narrow LLM intent gate.
+    Such questions are catalog questions answered from the learning-path page,
+    even when a specific lab happens to rank #1 in retrieval.
+    """
+    named = [st for st, pat in _STAGE_PATTERNS.items() if pat.search(question)]
+    if len(named) != 1:                     # need exactly one stage named
+        return None
+    if not _asks_stage_labs(question):      # e.g. "where do I start" -> not this
+        return None
+    return named[0]
+
+
+def _stage_tool_clarify(stage):
+    """Provider clarify for a stage that offers a real tool choice, else None."""
+    codes = [p for p in ("SNPS", "CDN", "SIE")
+             if p in STAGE_PROVIDERS.get(stage, set())]
+    if len(codes) < 2:                      # stage is fixed to one tool
+        return None
+    return {
+        "question": "Which tool do you mean?",
+        "options": [_PROVIDER_LABEL.get(c, c) for c in codes],
+        "facet": "provider",
+        "option_values": codes,
+    }
+
+
+OVERVIEW_SOURCE = "pd_learning_path.html"
+
+
+def _overview_doc_sections():
+    """Every section of the learning-path page, in document order, fully
+    reassembled. Catalog-level answers ground on the whole (tiny) page so they
+    are complete — all five stages, each stage's modules in order — instead of
+    a lossy top-k that can split a section at the chunk boundary and drop half
+    the stages.
+    """
+    out, seen = [], set()
+    for c in engine.chunks:
+        if c["source"] != OVERVIEW_SOURCE:
+            continue
+        key = (c["lab_name"], c["heading"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "lab_name": c["lab_name"],
+            "heading": c["heading"],
+            "source": c["source"],
+            "score": 1.0,
+            "facets": c.get("facets") or {},
+            "content": _sanitize_paths(
+                engine.get_section(c["lab_name"], c["heading"])),
+        })
+    return out
 
 
 def _clarify_needed(question, hits):
@@ -254,15 +405,14 @@ def api_labs():
 
 @app.post("/api/ask")
 def api_ask(req: AskRequest):
-    # 0. Catalog / learning-path intent (deterministic, from the taxonomy).
-    #    "how many labs", "show all synthesis labs", "give me a learning path",
-    #    "I've finished synthesis, where next?" — answered without retrieval or
-    #    an LLM, so counts and ordering are exact. Only fires on clear catalog
-    #    phrasing; normal content questions fall through untouched.
-    if req.allow_clarify:  # skip when we're mid-clarify / answering a facet pick
-        cat_answer = catalog.answer(req.question, engine)
-        if cat_answer:
-            return {"answer": cat_answer, "sources": [], "catalog": True}
+    # 0. If the question already names a vendor-specific tool (e.g. ICC2 =
+    #    Synopsys, Innovus = Cadence), the tool is settled — resolve the provider
+    #    silently so retrieval restricts to that vendor and we skip a redundant
+    #    "Synopsys or Cadence?" clarify. Only when the user hasn't picked one.
+    if not (req.facets or {}).get("provider"):
+        implied = _provider_from_tool(req.question)
+        if implied:
+            req.facets = {**(req.facets or {}), "provider": implied}
 
     # 1. Retrieve wide (precise sub-chunks). A picked facet hard-restricts.
     hits = engine.search(req.question, k=max(req.k, RETRIEVE_K),
@@ -274,8 +424,29 @@ def api_ask(req: AskRequest):
     #    Cadence / stage / guided-vs-challenge values from the filenames); only
     #    fall back to the LLM clarify for subtler within-facet ambiguity. The UI
     #    renders the options as buttons.
-    if req.allow_clarify and hits[0]["score"] >= MIN_CLARIFY_SCORE:
-        clar = _facet_clarify(req.question, hits)
+    # The learning-path / lab-catalog overview page carries no facets (it's
+    # tool- and stage-agnostic). A question is "catalog-level" when either that
+    # page is the strongest hit OR it asks for one stage's ordered labs (routed
+    # by _stage_catalog even if a specific lab ranks #1 — retrieval order is
+    # phrasing-sensitive). We only probe _stage_catalog when the overview page
+    # is actually retrieved, so specific lab questions pay no extra LLM call.
+    top_is_overview = not (hits[0].get("facets") or {})
+    overview_in_hits = any(not (h.get("facets") or {}) for h in hits)
+    already_picked_tool = bool((req.facets or {}).get("provider"))
+    stage_catalog = _stage_catalog(req.question) \
+        if (req.allow_clarify and overview_in_hits) else None
+    overview_mode = top_is_overview or stage_catalog is not None
+
+    if req.allow_clarify and (overview_mode or hits[0]["score"] >= MIN_CLARIFY_SCORE):
+        # Catalog-level question: a "which stage?" clarify is nonsensical, but a
+        # Cadence-vs-Synopsys choice is real when the asked-about stage offers
+        # both tools (e.g. "give me the synthesis labs in order"). Testcase-led
+        # question: use the deterministic filename facets.
+        if overview_mode:
+            clar = _stage_tool_clarify(stage_catalog) \
+                if (stage_catalog and not already_picked_tool) else None
+        else:
+            clar = _facet_clarify(req.question, hits)
         if clar:
             return {
                 "clarify": True,
@@ -290,7 +461,7 @@ def api_ask(req: AskRequest):
         # the same variant, which we answer directly from the guided page.
         variants = {(h.get("facets") or {}).get("variant") for h in hits}
         variants.discard(None)
-        if len(variants) > 1:
+        if not overview_mode and len(variants) > 1:
             clar = _clarify_needed(req.question, hits)
             if clar:
                 return {
@@ -300,44 +471,51 @@ def api_ask(req: AskRequest):
                     "sources": [],
                 }
 
-    # 3. Verifier agent: keep the sub-chunks that truly match AND judge whether
-    #    they already suffice to answer.
-    keep, sufficient = _verify_relevant(req.question, hits)
-    # If nothing passes strict verification, don't dead-end. Fall back to the
-    # closest retrieved sections (still ONLY lab content, already restricted to
-    # the chosen lab/tool) so the answer can say what ISN'T there AND point to
-    # the lab's actual equivalent — e.g. "Synopsys has no clock-tree spec file;
-    # CTS there is run via clock_opt." The prompt keeps it honest.
+    # 3. Overview-led catalog question: ground on the WHOLE (tiny) learning-path
+    #    page, in document order, so the answer is complete. Skips the top-k
+    #    verifier/expander, which can split a section at the chunk boundary and
+    #    drop half the stages (e.g. only 3 of the 5 stages surviving).
     fallback = False
-    if not keep:
-        keep = list(range(min(3, len(hits))))
-        fallback = True
-        sufficient = False  # nothing verified -> always expand for full context
+    if overview_mode:
+        sections = _overview_doc_sections()
+    else:
+        # Verifier agent: keep the sub-chunks that truly match AND judge whether
+        # they already suffice to answer.
+        keep, sufficient = _verify_relevant(req.question, hits)
+        # If nothing passes strict verification, don't dead-end. Fall back to the
+        # closest retrieved sections (still ONLY lab content, already restricted
+        # to the chosen lab/tool) so the answer can say what ISN'T there AND
+        # point to the lab's actual equivalent — e.g. "Synopsys has no clock-tree
+        # spec file; CTS there is run via clock_opt." The prompt keeps it honest.
+        if not keep:
+            keep = list(range(min(3, len(hits))))
+            fallback = True
+            sufficient = False  # nothing verified -> always expand for context
 
-    # 4. Build the context sections. If the verified sub-chunks are already
-    #    sufficient, use them as-is (cheaper, tighter). If NOT sufficient, expand
-    #    each winning sub-chunk back to its FULL section (all sibling chunks
-    #    sharing the same lab+heading) to give the answer more context.
-    sections, seen = [], set()
-    for i in keep:
-        h = hits[i]
-        # When expanding, all sub-chunks of one section resolve to the same full
-        # section, so de-dup by (lab, heading). When the sub-chunks are used
-        # as-is, each is distinct content, so de-dup by the chunk text instead.
-        key = (h["lab_name"], h["heading"]) if not sufficient else h["content"]
-        if key in seen:
-            continue
-        seen.add(key)
-        content = h["content"] if sufficient else engine.get_section(
-            h["lab_name"], h["heading"])
-        sections.append({
-            "lab_name": h["lab_name"],
-            "heading": h["heading"],
-            "source": h["source"],
-            "score": round(h["score"], 3),
-            "facets": h.get("facets") or {},
-            "content": _sanitize_paths(content),
-        })
+        # 4. Build the context sections. If the verified sub-chunks are already
+        #    sufficient, use them as-is (cheaper, tighter). If NOT sufficient,
+        #    expand each winning sub-chunk back to its FULL section (all sibling
+        #    chunks sharing the same lab+heading) for more context.
+        sections, seen = [], set()
+        for i in keep:
+            h = hits[i]
+            # When expanding, all sub-chunks of one section resolve to the same
+            # full section, so de-dup by (lab, heading). When the sub-chunks are
+            # used as-is, each is distinct content, so de-dup by chunk text.
+            key = (h["lab_name"], h["heading"]) if not sufficient else h["content"]
+            if key in seen:
+                continue
+            seen.add(key)
+            content = h["content"] if sufficient else engine.get_section(
+                h["lab_name"], h["heading"])
+            sections.append({
+                "lab_name": h["lab_name"],
+                "heading": h["heading"],
+                "source": h["source"],
+                "score": round(h["score"], 3),
+                "facets": h.get("facets") or {},
+                "content": _sanitize_paths(content),
+            })
 
     # 5. Final answer from the reassembled full sections.
     context = "\n\n".join(

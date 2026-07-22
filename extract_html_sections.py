@@ -88,7 +88,9 @@ def _find_module_name(html):
     # Try <h1>
     m = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.DOTALL | re.IGNORECASE)
     if m:
-        return _html_to_text(m.group(1)).strip()
+        # Collapse internal whitespace: an <h1> with <br/> (e.g. "Recommended
+        # <br/>Learning Path") must not carry a newline into the lab name.
+        return re.sub(r"\s+", " ", _html_to_text(m.group(1))).strip()
     # Try <title>
     m = re.search(r"<title[^>]*>(.*?)</title>", html, re.DOTALL | re.IGNORECASE)
     if m:
@@ -110,7 +112,7 @@ def _find_section_heading(section_html):
     for tag in ["h2", "h3", "h1"]:
         m = re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", section_html, re.DOTALL | re.IGNORECASE)
         if m:
-            text = _html_to_text(m.group(1)).strip()
+            text = re.sub(r"\s+", " ", _html_to_text(m.group(1))).strip()
             # Remove emoji characters (common in course HTML)
             text = re.sub(r'[\U0001f300-\U0001f9ff☀-➿✀-➿]', '', text).strip()
             # Remove leading/trailing special chars
@@ -121,8 +123,16 @@ def _find_section_heading(section_html):
 
 
 def _split_by_section_divs(html):
-    """Split HTML by <div class="section"> or <div class="content-box"> blocks."""
-    pattern = r'(<div\s+class\s*=\s*["\'](?:section|content-box)["\'][^>]*>)'
+    """Split HTML into top-level content blocks by their wrapper div class.
+
+    Recognizes the common lab-page wrappers (section / content-box) plus the
+    learning-path page's cards (stage / rationale). Splitting on the card
+    boundary keeps each block self-contained — e.g. a stage card's own node
+    number and "Stage N" label stay inside that card instead of bleeding into
+    the previous section (which an <h2> split does, since those markers sit
+    before the next card's <h2>).
+    """
+    pattern = r'(<div\s+class\s*=\s*["\'](?:section|content-box|stage|rationale)["\'][^>]*>)'
     parts = re.split(pattern, html, flags=re.IGNORECASE)
 
     sections = []
