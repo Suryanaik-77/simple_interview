@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Physical Design · Recommended Learning Path</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy:       #0B1628;
+    --navy-card:  #152238;
+    --navy-inner: #1C2E47;
+    --teal:       #00C9A7;
+    --teal-dim:   rgba(0,201,167,0.12);
+    --teal-mid:   rgba(0,201,167,0.25);
+    --amber:      #F5A623;
+    --amber-dim:  rgba(245,166,35,0.10);
+    --amber-mid:  rgba(245,166,35,0.22);
+    --text:       #E8EDF5;
+    --text-muted: #8A9BBE;
+    --border:     rgba(255,255,255,0.07);
+    --trace:      #00C9A7;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--navy);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 56px 40px 40px;
+    max-width: 880px;
+    margin: 0 auto;
+  }
+
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--teal);
+    margin-bottom: 14px;
+  }
+
+  h1 {
+    font-size: clamp(28px, 5vw, 44px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+
+  h1 span { color: var(--teal); }
+
+  .subtitle {
+    font-size: 15px;
+    color: var(--text-muted);
+    max-width: 560px;
+    line-height: 1.7;
+  }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    margin-top: 28px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .dot-teal   { background: var(--teal); }
+  .dot-amber  { background: var(--amber); }
+
+  /* ── Main timeline ── */
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 0 40px 80px;
+    position: relative;
+  }
+
+  /* PCB trace line */
+  .trace-line {
+    position: absolute;
+    left: 59px;
+    top: 0;
+    bottom: 80px;
+    width: 2px;
+    background: linear-gradient(to bottom,
+      var(--teal) 0%,
+      var(--teal) 60%,
+      rgba(0,201,167,0.15) 100%
+    );
+    z-index: 0;
+  }
+
+  /* ── Stage card ── */
+  .stage {
+    position: relative;
+    display: flex;
+    gap: 28px;
+    margin-bottom: 12px;
+    padding-bottom: 36px;
+  }
+
+  /* Node on trace */
+  .stage-node {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--navy-card);
+    border: 2px solid var(--teal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    margin-top: 20px;
+    box-shadow: 0 0 0 6px var(--navy), 0 0 16px rgba(0,201,167,0.3);
+  }
+  .stage-node span {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--teal);
+  }
+
+  .stage-body {
+    flex: 1;
+    background: var(--navy-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  /* Stage header */
+  .stage-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .stage-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--teal);
+    margin-bottom: 4px;
+  }
+  .stage-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .stage-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    max-width: 600px;
+  }
+
+  /* Tool badge */
+  .tool-badge {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 3px 9px;
+    border-radius: 20px;
+    margin-top: 10px;
+    margin-right: 6px;
+    font-weight: 600;
+  }
+  .badge-choice {
+    background: rgba(138,155,190,0.12);
+    color: var(--text-muted);
+    border: 1px solid rgba(138,155,190,0.2);
+  }
+  .badge-calibre {
+    background: rgba(0,201,167,0.1);
+    color: var(--teal);
+    border: 1px solid rgba(0,201,167,0.25);
+  }
+
+  /* Modules section */
+  .modules-wrap {
+    padding: 18px 24px 20px;
+  }
+
+  .modules-section-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    font-weight: 600;
+  }
+  .label-available { color: var(--teal); }
+  .label-soon      { color: var(--amber); }
+
+  /* Module chips */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-bottom: 16px;
+  }
+
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .chip-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .chip-available {
+    background: var(--teal-dim);
+    border: 1px solid rgba(0,201,167,0.22);
+    color: #C8F5ED;
+  }
+  .chip-available .chip-dot { background: var(--teal); }
+
+  .chip-soon {
+    background: var(--amber-dim);
+    border: 1px dashed rgba(245,166,35,0.3);
+    color: #F5D99A;
+  }
+  .chip-soon .chip-dot { background: var(--amber); }
+
+  /* Lab info bar */
+  .lab-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--navy-inner);
+    border-radius: 8px;
+    margin-top: 4px;
+  }
+  .lab-bar-icon {
+    font-size: 13px;
+    opacity: 0.7;
+  }
+  .lab-bar-text {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .lab-bar-text strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  /* Divider between available / coming soon */
+  .modules-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 16px 0;
+  }
+
+  /* ── Rationale box ── */
+  .rationale {
+    background: var(--navy-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 32px;
+    margin-top: 16px;
+  }
+  .rationale h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .rationale h2::before {
+    content: '';
+    display: block;
+    width: 20px; height: 2px;
+    background: var(--teal);
+    border-radius: 2px;
+  }
+  .rationale-grid {
+    display: grid;
+    gap: 12px;
+  }
+  .rationale-row {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .rationale-stage {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--teal);
+    padding-top: 1px;
+  }
+  .rationale-text {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.65;
+  }
+
+  /* ── Connector dot at bottom of trace ── */
+  .trace-cap {
+    position: absolute;
+    left: 52px;
+    bottom: 80px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(0,201,167,0.3);
+    background: var(--navy);
+  }
+
+  /* ── Flexible path cards ── */
+  .path-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .path-card {
+    background: var(--navy-inner);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+
+  .path-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .path-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--teal);
+    background: var(--teal-dim);
+    border: 1px solid rgba(0,201,167,0.2);
+    padding: 3px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  .path-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .path-flow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .pf-stage {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+
+  .pf-active {
+    background: var(--teal-dim);
+    border: 1px solid rgba(0,201,167,0.25);
+    color: var(--teal);
+  }
+
+  .pf-skip {
+    background: rgba(255,255,255,0.03);
+    border: 1px dashed rgba(255,255,255,0.1);
+    color: rgba(138,155,190,0.4);
+    text-decoration: line-through;
+    text-decoration-color: rgba(138,155,190,0.3);
+  }
+
+  .pf-arrow {
+    font-size: 13px;
+    color: var(--teal);
+    opacity: 0.7;
+  }
+
+  .pf-arrow-skip {
+    color: var(--text-muted);
+    opacity: 0.25;
+  }
+
+  .path-note {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 600px) {
+    header, main { padding-left: 20px; padding-right: 20px; }
+    .trace-line { left: 39px; }
+    .stage-node { width: 30px; height: 30px; margin-top: 22px; }
+    .stage-node span { font-size: 11px; }
+    .rationale-row { grid-template-columns: 1fr; gap: 4px; }
+    .chip { font-size: 11.5px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="eyebrow">SemiconLabs · Physical Design</p>
+  <h1>Recommended<br/><span>Learning Path</span></h1>
+  <p class="subtitle">A structured five-stage path through the complete physical design flow — from RTL synthesis to timing sign-off. Follow the stages in order; each builds directly on the one before it.</p>
+  <div class="legend">
+    <div class="legend-item"><span class="dot dot-teal"></span>Available now</div>
+    <div class="legend-item"><span class="dot dot-amber"></span>Coming soon</div>
+  </div>
+</header>
+
+<main>
+  <div class="trace-line"></div>
+  <div class="trace-cap"></div>
+
+  <!-- ══ Stage 1: Synthesis ══ -->
+  <div class="stage">
+    <div class="stage-node"><span>01</span></div>
+    <div class="stage-body">
+      <div class="stage-header">
+        <p class="stage-label">Stage 1</p>
+        <h2 class="stage-title">Synthesis</h2>
+        <p class="stage-desc">Convert RTL into a gate-level netlist and learn to diagnose the most common synthesis problems — from missing library references and timing violations to logic and physical optimizations.</p>
+        <span class="tool-badge badge-choice">Cadence or Synopsys — your choice</span>
+      </div>
+      <div class="modules-wrap">
+        <p class="modules-section-label label-available">Available now</p>
+        <div class="chips">
+          <div class="chip chip-available"><span class="chip-dot"></span>Unresolved References</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Check Timing Issues</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Logic Aware Synthesis</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Physical Aware Synthesis</div>
+        </div>
+        <div class="lab-bar">
+          <span class="lab-bar-icon">⚗</span>
+          <span class="lab-bar-text">Each module includes a <strong>Guided lab</strong> (step-by-step with checkpoints) and a <strong>Challenge lab</strong> (open-ended, minimal hints)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Stage 2: LEC ══ -->
+  <div class="stage">
+    <div class="stage-node"><span>02</span></div>
+    <div class="stage-body">
+      <div class="stage-header">
+        <p class="stage-label">Stage 2</p>
+        <h2 class="stage-title">LEC</h2>
+        <p class="stage-desc">Formally verify that your synthesized netlist is logically equivalent to the original RTL — and then re-verify after any ECO or optimization step. Includes a focused module on clock-gating application option failures, one of the most common real-world LEC pitfalls. Currently available on Synopsys Formality; Cadence Conformal modules are coming soon.</p>
+        <span class="tool-badge badge-calibre">Synopsys Formality — available now</span>
+        <span class="tool-badge badge-choice">Cadence Conformal — coming soon</span>
+      </div>
+      <div class="modules-wrap">
+        <p class="modules-section-label label-available">Available now · Synopsys Formality</p>
+        <div class="chips">
+          <div class="chip chip-available"><span class="chip-dot"></span>RTL to Netlist</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Netlist to Netlist</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Clock Gating App Option</div>
+        </div>
+
+        <div class="modules-divider"></div>
+
+        <p class="modules-section-label label-soon">Coming soon · Cadence Conformal</p>
+        <div class="chips">
+          <div class="chip chip-soon"><span class="chip-dot"></span>RTL to Netlist</div>
+          <div class="chip chip-soon"><span class="chip-dot"></span>Netlist to Netlist</div>
+          <div class="chip chip-soon"><span class="chip-dot"></span>Clock Gating App Option</div>
+        </div>
+
+        <div class="lab-bar">
+          <span class="lab-bar-icon">⚗</span>
+          <span class="lab-bar-text">Each module includes a <strong>Guided lab</strong> and a <strong>Challenge lab</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Stage 3: PnR ══ -->
+  <div class="stage">
+    <div class="stage-node"><span>03</span></div>
+    <div class="stage-body">
+      <div class="stage-header">
+        <p class="stage-label">Stage 3</p>
+        <h2 class="stage-title">PnR</h2>
+        <p class="stage-desc">The core of physical design — take a synthesized netlist from an empty floorplan through to a fully routed, chip-finished layout. Modules follow the natural order of the PnR flow, so each lab builds directly on the output of the previous one.</p>
+        <span class="tool-badge badge-choice">Cadence or Synopsys — your choice</span>
+      </div>
+      <div class="modules-wrap">
+        <p class="modules-section-label label-available">Available now</p>
+        <div class="chips">
+          <div class="chip chip-available"><span class="chip-dot"></span>Design Init</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Floorplan</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Placement</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>CTS</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Route</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Post Route</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Chip Finish</div>
+        </div>
+
+        <div class="modules-divider"></div>
+
+        <p class="modules-section-label label-soon">Coming soon</p>
+        <div class="chips">
+          <div class="chip chip-soon"><span class="chip-dot"></span>Power Planning</div>
+          <div class="chip chip-soon"><span class="chip-dot"></span>Filler Gap Issues</div>
+          <div class="chip chip-soon"><span class="chip-dot"></span>DRC Flow</div>
+          <div class="chip chip-soon"><span class="chip-dot"></span>LVS Flow</div>
+          <div class="chip chip-soon"><span class="chip-dot"></span>LVS Debugging</div>
+          <div class="chip chip-soon"><span class="chip-dot"></span>Antenna</div>
+          <div class="chip chip-soon"><span class="chip-dot"></span>Dummy Fill</div>
+        </div>
+
+        <div class="lab-bar">
+          <span class="lab-bar-icon">⚗</span>
+          <span class="lab-bar-text">Each module includes a <strong>Guided lab</strong> and a <strong>Challenge lab</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Stage 4: PV ══ -->
+  <div class="stage">
+    <div class="stage-node"><span>04</span></div>
+    <div class="stage-body">
+      <div class="stage-header">
+        <p class="stage-label">Stage 4</p>
+        <h2 class="stage-title">PV</h2>
+        <p class="stage-desc">Run sign-off-grade physical verification on the finished layout using Calibre — the industry-standard tool for DRC, LVS, antenna checking, and fill. These labs are tool-agnostic at the PnR level, so all students work from the same environment regardless of their earlier tool choice.</p>
+        <span class="tool-badge badge-calibre">Calibre · Common for all students</span>
+      </div>
+      <div class="modules-wrap">
+        <p class="modules-section-label label-available">Available now</p>
+        <div class="chips">
+          <div class="chip chip-available"><span class="chip-dot"></span>DRC Flow</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>LVS Flow</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Antenna</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Dummy Fill FEOL</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>Dummy Fill BEOL</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>GDS Merging</div>
+        </div>
+        <div class="lab-bar">
+          <span class="lab-bar-icon">⚗</span>
+          <span class="lab-bar-text">Each module includes a <strong>Guided lab</strong> and a <strong>Challenge lab</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Stage 5: STA ══ -->
+  <div class="stage">
+    <div class="stage-node"><span>05</span></div>
+    <div class="stage-body">
+      <div class="stage-header">
+        <p class="stage-label">Stage 5</p>
+        <h2 class="stage-title">STA</h2>
+        <p class="stage-desc">Close timing on the routed design. Start with the basic STA flow to understand slack, critical paths, and constraint setup, then advance to DMSA — running analysis simultaneously across multiple PVT corners and generating logical and physical ECOs to resolve remaining violations.</p>
+        <span class="tool-badge badge-choice">Cadence or Synopsys — your choice</span>
+      </div>
+      <div class="modules-wrap">
+        <p class="modules-section-label label-available">Available now</p>
+        <div class="chips">
+          <div class="chip chip-available"><span class="chip-dot"></span>STA Flow</div>
+          <div class="chip chip-available"><span class="chip-dot"></span>DMSA Based ECO Generation</div>
+        </div>
+        <div class="lab-bar">
+          <span class="lab-bar-icon">⚗</span>
+          <span class="lab-bar-text">Each module includes a <strong>Guided lab</strong> and a <strong>Challenge lab</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Rationale ══ -->
+  <div class="rationale">
+    <h2>Why this order</h2>
+    <div class="rationale-grid">
+      <div class="rationale-row">
+        <span class="rationale-stage">Stage 1 · Synthesis</span>
+        <p class="rationale-text">Everything in physical design starts here. You cannot place and route a design that has not been synthesized into a gate-level netlist, so Synthesis is the entry point for every other stage in this course.</p>
+      </div>
+      <div class="rationale-row">
+        <span class="rationale-stage">Stage 2 · LEC</span>
+        <p class="rationale-text">Immediately after synthesis, verify that the netlist is functionally identical to the RTL. Catching equivalence failures before committing to layout is far cheaper than finding them after tape-out. LEC is placed here because it is a natural synthesis checkpoint — but it is not a hard prerequisite for PnR. See the flexible paths below.</p>
+      </div>
+      <div class="rationale-row">
+        <span class="rationale-stage">Stage 3 · PnR</span>
+        <p class="rationale-text">The core of physical design. Modules are sequenced to mirror the actual PnR flow: floorplan before placement, placement before routing, routing before chip finish. The stage order within PnR is fixed; the entry point into the course is not.</p>
+      </div>
+      <div class="rationale-row">
+        <span class="rationale-stage">Stage 4 · PV</span>
+        <p class="rationale-text">Physical verification operates on a completed, routed layout — it has no meaning earlier in the flow. Calibre is used here because it is the industry sign-off standard, independent of which PnR tool produced the layout.</p>
+      </div>
+      <div class="rationale-row">
+        <span class="rationale-stage">Stage 5 · STA</span>
+        <p class="rationale-text">Full static timing analysis — especially multi-corner DMSA — requires real post-route parasitics from the finished layout. Running STA last means the timing numbers are accurate and the ECOs generated are directly implementable.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Flexible Paths ══ -->
+  <div class="rationale" style="margin-top: 16px;">
+    <h2>Flexible entry points</h2>
+    <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px; line-height:1.7;">
+      The five-stage sequence above is the recommended path for students new to physical design. If you already have experience in one or more areas, you can enter the course at a different point or skip stages entirely. Three common patterns are shown below.
+    </p>
+
+    <div class="path-cards">
+
+      <!-- Path A -->
+      <div class="path-card">
+        <div class="path-card-header">
+          <span class="path-label">Path A</span>
+          <span class="path-title">Complete path — new to physical design</span>
+        </div>
+        <div class="path-flow">
+          <div class="pf-stage pf-active">Synthesis</div>
+          <div class="pf-arrow">→</div>
+          <div class="pf-stage pf-active">LEC</div>
+          <div class="pf-arrow">→</div>
+          <div class="pf-stage pf-active">PnR</div>
+          <div class="pf-arrow">→</div>
+          <div class="pf-stage pf-active">PV</div>
+          <div class="pf-arrow">→</div>
+          <div class="pf-stage pf-active">STA</div>
+        </div>
+        <p class="path-note">Follow all five stages in order. Each stage builds on the output of the previous one.</p>
+      </div>
+
+      <!-- Path B -->
+      <div class="path-card">
+        <div class="path-card-header">
+          <span class="path-label">Path B</span>
+          <span class="path-title">Already know synthesis — focus on layout</span>
+        </div>
+        <div class="path-flow">
+          <div class="pf-stage pf-skip">Synthesis</div>
+          <div class="pf-arrow pf-arrow-skip">→</div>
+          <div class="pf-stage pf-skip">LEC</div>
+          <div class="pf-arrow">→</div>
+          <div class="pf-stage pf-active">PnR</div>
+          <div class="pf-arrow">→</div>
+          <div class="pf-stage pf-active">PV</div>
+          <div class="pf-arrow">→</div>
+          <div class="pf-stage pf-active">STA</div>
+        </div>
+        <p class="path-note">Skip Synthesis and LEC — jump straight into PnR. You can always return to LEC later to strengthen formal verification skills.</p>
+      </div>
+
+      <!-- Path C -->
+      <div class="path-card">
+        <div class="path-card-header">
+          <span class="path-label">Path C</span>
+          <span class="path-title">Know synthesis and PnR — focus on sign-off</span>
+        </div>
+        <div class="path-flow">
+          <div class="pf-stage pf-skip">Synthesis</div>
+          <div class="pf-arrow pf-arrow-skip">→</div>
+          <div class="pf-stage pf-skip">LEC</div>
+          <div class="pf-arrow pf-arrow-skip">→</div>
+          <div class="pf-stage pf-skip">PnR</div>
+          <div class="pf-arrow">→</div>
+          <div class="pf-stage pf-active">PV</div>
+          <div class="pf-arrow">→</div>
+          <div class="pf-stage pf-active">STA</div>
+        </div>
+        <p class="path-note">Start directly at PV to learn Calibre-based sign-off checks, then close timing in STA. Assumes you are comfortable with floorplan-through-route flows.</p>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+</body>
+</html>
