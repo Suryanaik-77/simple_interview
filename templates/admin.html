@@ -2618,7 +2618,6 @@ function renderAcDetail(d) {
       const fups = pq.followup_qs || [];
       const qsc = pq.score || 0;
       const qcol = qsc >= 8 ? 'var(--green)' : qsc >= 5 ? 'var(--amber)' : 'var(--red)';
-      const exp = pq.expected_points || [];
       const mis = pq.missing_points || [];
       const comment = pq.comment || '';
       const label = fups.length ? `Q${mainQ} + ${fups.length} follow-up${fups.length>1?'s':''}` : `Q${mainQ}`;
@@ -2644,16 +2643,15 @@ function renderAcDetail(d) {
         qaFlow += `<div style="font-size:11px;color:var(--t2);background:var(--sf);padding:10px 12px;border-radius:6px;border-left:3px solid var(--blue);line-height:1.6;margin-bottom:12px">${escH(fTurn.answer||'(no answer)')}</div>`;
       });
 
-      // Score + reasoning + expected/missing at the bottom
+      // Score + reasoning + missing points at the bottom
       let footer = `<div style="border-top:1px solid var(--b);padding-top:12px;margin-top:4px">`;
       footer += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">`;
       footer += `<div style="font-family:var(--mono);font-size:20px;font-weight:600;color:${qcol}">${qsc}<span style="font-size:12px;color:var(--t4)">/10</span></div>`;
       footer += `<div style="flex:1;height:6px;background:var(--sf);border-radius:3px;overflow:hidden"><div style="height:100%;width:${qsc*10}%;background:${qcol};border-radius:3px"></div></div>`;
       footer += `</div>`;
       if (comment) footer += `<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:8px">${escH(comment)}</div>`;
-      if (exp.length) footer += `<div style="font-size:10px;margin-bottom:4px"><span style="color:var(--t4);font-weight:600">Expected: </span><span style="color:var(--t3)">${exp.map(escH).join(' · ')}</span></div>`;
       if (mis.length) footer += `<div style="font-size:10px"><span style="color:var(--red);font-weight:600">Missing: </span><span style="color:var(--red);opacity:.8">${mis.map(escH).join(' · ')}</span></div>`;
-      else if (exp.length) footer += `<div style="font-size:10px;color:var(--green)">All expected points covered</div>`;
+      else footer += `<div style="font-size:10px;color:var(--green)">All key points covered</div>`;
       footer += `</div>`;
 
       return `<div style="padding:16px;border:1px solid var(--b);border-radius:10px;margin-bottom:12px;background:var(--w)">
@@ -3232,7 +3230,6 @@ function renderRevSections() {
           <div style="font-size:11px;color:var(--t2);font-style:italic;padding:8px 10px;background:var(--off);border-radius:7px;border-left:3px solid var(--b2);line-height:1.6">"${escH(h.notes||'No AI notes recorded')}"</div>
           <div style="margin-top:8px;font-size:11px;color:var(--t2)"><strong>Quality:</strong> ${escH(h.quality||'—')} · <strong>Quadrant:</strong> ${escH((h.quadrant||'—').replace(/_/g,' '))} · <strong>Accuracy:</strong> ${escH(h.accuracy||'—')} · <strong>Level gap:</strong> ${h.level_gap||0}</div>
           ${h.score_reasoning ? `<div style="margin-top:6px;font-size:11px;color:var(--t2)"><strong>Reasoning:</strong> ${escH(h.score_reasoning)}</div>` : ''}
-          ${(h.expected_points||[]).length ? `<div style="margin-top:6px;font-size:11px;color:var(--t2)"><strong>Expected:</strong> ${(h.expected_points||[]).map(p=>escH(p)).join(' · ')}</div>` : ''}
           ${(h.missing_points||[]).length ? `<div style="margin-top:6px;font-size:11px;color:var(--red)"><strong>Missing:</strong> ${(h.missing_points||[]).map(p=>escH(p)).join(' · ')}</div>` : ''}
         </div>
       </div>

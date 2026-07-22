@@ -159,12 +159,6 @@ function render(data) {
             </div>
             <div class="q-text"><div class="q-label">${isFU?'Follow-up Question':'Question'}</div>${esc(t.question)}</div>
             <div class="a-text"><div class="a-label">Candidate Answer</div>${esc(t.answer)}</div>
-            ${(t.expected_points || []).length ? `
-                <div class="points">
-                    <div class="points-label">Expected Points</div>
-                    ${t.expected_points.map(p => `<div class="point-item point-expected">${esc(p)}</div>`).join('')}
-                </div>
-            ` : ''}
             ${(t.missing_points || []).length ? `
                 <div class="points" style="margin-top:6px">
                     <div class="points-label" style="color:#dc2626">Missing Points</div>

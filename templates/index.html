@@ -1253,7 +1253,6 @@ function renderReport(report) {
         <div class="pq-q">
           ${escapeHtml(q.question || '')}
           ${q.comment ? `<div class="pq-c">${escapeHtml(q.comment)}</div>` : ''}
-          ${(q.expected_points || []).length ? `<div class="text-[11px] text-text-secondary mt-1.5"><strong>Expected:</strong> ${(q.expected_points || []).map(p => escapeHtml(p)).join(' · ')}</div>` : ''}
           ${(q.missing_points || []).length ? `<div class="text-[11px] text-danger mt-1"><strong>Missing:</strong> ${(q.missing_points || []).map(p => escapeHtml(p)).join(' · ')}</div>` : ''}
         </div>
         <div class="pq-score" style="color:${col}">${s}/10</div>
@@ -1306,28 +1305,12 @@ function backToLobby() {
 }
 
 (function maybeShowReport() {
-  // Check if a report exists in localStorage to show nav link + banner
-  let raw = null;
-  try { raw = localStorage.getItem('interview_report'); } catch(e) {}
-  if (raw) {
-    const navReport = document.getElementById('nav-report');
-    if (navReport) navReport.classList.replace('hidden','flex');
-    const banner = document.getElementById('report-banner');
-    if (banner) banner.classList.remove('hidden');
-  }
-  // Auto-show report if URL param present
-  const qs = new URLSearchParams(location.search);
-  if (qs.get('show_report') !== '1') return;
-  if (!raw) {
-    renderReport({ status: 'error', candidate: {} });
-    return;
-  }
-  let report;
-  try { report = JSON.parse(raw); } catch(e) {
-    renderReport({ status: 'error', candidate: {} });
-    return;
-  }
-  renderReport(report);
+  // Candidate-facing report card is disabled. The interview is still evaluated
+  // server-side (visible to admins only) — candidates no longer see scores.
+  // Keep the report nav link + banner hidden, and clear any stale report a
+  // previous interview may have left in localStorage.
+  try { localStorage.removeItem('interview_report'); } catch(e) {}
+  return;
 })();
 
 // ── LMS AUTO-FILL ──

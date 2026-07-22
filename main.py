@@ -2231,7 +2231,7 @@ _EVAL_JSON_SCHEMA = """{
   "recommendation": "strong_yes|yes|maybe|no|strong_no",
   "level_fit": "below_level|at_level|above_level",
   "verdict": "one-line hire verdict",
-  "per_question": [{"q": <main question number>, "followup_qs": [<list of followup Q numbers grouped with this main question, empty if none>], "question": "<first ~10 words of main question>", "score": <0-10>, "comment": "one short clause", "expected_points": ["point 1", "point 2"], "missing_points": ["point 3"]}],
+  "per_question": [{"q": <main question number>, "followup_qs": [<list of followup Q numbers grouped with this main question, empty if none>], "question": "<first ~10 words of main question>", "score": <0-10>, "comment": "one short clause", "missing_points": ["point 3"]}],
   "communication_score": <integer 0-10>,
   "communication": "1-2 sentences on clarity, structure, and how they explain reasoning",
   "strengths": ["short bullet", "..."],
@@ -2244,7 +2244,7 @@ _EVAL_JSON_SCHEMA = """{
 # Appended to every level rubric: the numbered transcript, the per-question and
 # communication scoring instructions, and the JSON contract.
 _EVAL_TASK = """FULL TRANSCRIPT (each question is numbered [Q1], [Q2], ...; [A1] is the answer to [Q1]):
-The transcript includes [EXPECTED_POINTS Qn] lines — these are the key points already identified during the interview. Use them directly as the "expected_points" for that question. Do NOT regenerate expected points from scratch.
+The transcript includes [EXPECTED_POINTS Qn] lines — these are the key points already identified during the interview. Use them as the reference set of what a strong answer to that question should cover, both when scoring and when deciding missing_points. Do NOT regenerate them from scratch.
 Follow-up questions are explicitly marked with [FOLLOWUP_OF Qn] — for example, "[Q4] [FOLLOWUP_OF Q3] You mentioned skew but what about insertion delay?" means Q4 is a follow-up to Q3.
 
 {transcript}
@@ -2254,12 +2254,15 @@ The transcript ends with a QUESTION GROUPS section listing exactly which questio
 Questions marked [FOLLOWUP_OF Qn] are follow-ups — they MUST be merged with their parent into ONE per_question entry. The "per_question" array must have exactly ONE entry per group listed in QUESTION GROUPS. NEVER create a separate entry for a follow-up question — if Q5 is a follow-up of Q3, there must be NO entry with "q": 5, only an entry with "q": 3 and "followup_qs": [5].
 The score for each group reflects the candidate's COMBINED performance across the main question AND all its follow-ups. If the candidate missed a point initially but covered it in a follow-up, give credit.
 
-In addition to the overall assessment, do BOTH of these:
+In addition to the overall assessment, do ALL of these:
 - Score each group from QUESTION GROUPS as ONE entry in "per_question". Judge the candidate's combined technical merit across all answers in the group at THIS candidate's level.
-- For each grouped question in "per_question", populate:
-  - "expected_points": Merge the [EXPECTED_POINTS] from the main question AND its follow-ups. If no expected points were provided, generate 3-5 key points yourself.
-  - "missing_points": ONLY the concepts the candidate did NOT cover or got wrong across ALL answers in the group (main + follow-ups). If the candidate mentioned a concept correctly in ANY answer within the group (even partially), do NOT include it in missing_points. Use an empty list [] if they covered all expected points.
-CRITICAL: "missing_points" must be a STRICT SUBSET of "expected_points". Never copy expected_points into missing_points blindly. Read ALL of the candidate's answers in the group word by word — if they mentioned a concept anywhere, remove it from missing.
+
+SCORING PHILOSOPHY — read carefully, this is STRICT:
+- Treat the merged [EXPECTED_POINTS] for the main question AND its follow-ups as the reference set of what a strong answer covers. Judge each point's IMPORTANCE to that specific question yourself — some points are central to demonstrating understanding, others are minor details. Weight them accordingly.
+- Score the group on the WEIGHTED VALUE of the points the candidate actually COVERED WITH REAL DEPTH — not on what they omitted. Credit is EARNED, never deducted: a point demonstrated convincingly earns its full weight; a shallow, name-dropped mention with no reasoning earns little or nothing; an unaddressed point earns nothing.
+- A low score therefore means the candidate covered few of the important points, or covered them only superficially — NOT that you subtracted for gaps. Do the math as additive earned credit, then map it to 0-10.
+- Depth gates the important points: naming a concept is not the same as explaining it. Reserve high scores for answers that show genuine, specific understanding of the points that matter most for the question. A response that recites correct-but-surface fundamentals should score LOW.
+- "missing_points": ONLY the concepts the candidate did NOT cover or got wrong across ALL answers in the group (main + follow-ups). If the candidate mentioned a concept correctly in ANY answer within the group (even partially), do NOT include it in missing_points. Use an empty list [] if they covered everything important. missing_points is candidate feedback only — it does NOT drive the score; the score comes solely from what they DID demonstrate.
 - Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
 
 Return ONLY valid JSON, no prose, no markdown fences:
@@ -2405,9 +2408,6 @@ def _enforce_followup_grouping(session, per_question: list) -> list:
         for fq in expected_fups:
             fq_item = by_q.get(fq)
             if fq_item:
-                for pt in (fq_item.get("expected_points") or []):
-                    if pt not in (item.get("expected_points") or []):
-                        item.setdefault("expected_points", []).append(pt)
                 for pt in (fq_item.get("missing_points") or []):
                     if pt not in (item.get("missing_points") or []):
                         item.setdefault("missing_points", []).append(pt)
@@ -4671,7 +4671,6 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             "word_count": len((entry.get("answer") or "").split()),
             "answer_duration_sec": 0,
             "score_reasoning": comment,
-            "expected_points": (pq or {}).get("expected_points", []),
             "missing_points": (pq or {}).get("missing_points", []),
             "level_gap": 0,
             "behavioral_flags": [],
@@ -4797,7 +4796,6 @@ async def get_shared_session(token: str):
             "topic": entry.get("topic", ""),
             "score": (pq or {}).get("score", ""),
             "notes": (pq or {}).get("comment", ""),
-            "expected_points": (pq or {}).get("expected_points", []),
             "missing_points": (pq or {}).get("missing_points", []),
             "is_followup": qnum in followup_nums_lms,
             "followup_of": qnum_to_turn_lms.get(parent_qnum) if parent_qnum else None,
