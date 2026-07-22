@@ -4042,6 +4042,22 @@ def face_register(data: dict):
         if len(faces) > 1:
             return {"ok": False, "error": "Multiple faces detected — only one person should be visible"}
         face = faces[0]
+        # Reject poor-quality captures with actionable guidance so the reference
+        # is clear — a dark/blurry reference makes every CompareFaces during the
+        # interview unreliable. Rekognition Quality.Brightness/Sharpness are 0-100.
+        quality = face.get("Quality", {})
+        brightness = quality.get("Brightness", 100)
+        sharpness = quality.get("Sharpness", 100)
+        face_conf = face.get("Confidence", 100)
+        log.info(f"[FaceRegister] Quality — brightness={brightness:.0f} sharpness={sharpness:.0f} conf={face_conf:.0f}")
+        if brightness < 30:
+            return {"ok": False, "error": "Your face is too dark. Add more light in front of you (avoid sitting with a window or lamp behind you), then capture again."}
+        if brightness > 92:
+            return {"ok": False, "error": "The image is overexposed by bright light. Move away from the strong light source or dim it, then capture again."}
+        if sharpness < 15:
+            return {"ok": False, "error": "Your face isn't clear — the image is blurry. Hold still, improve the lighting, and make sure the camera lens is clean, then capture again."}
+        if face_conf < 90:
+            return {"ok": False, "error": "Your face isn't clearly visible. Face the camera directly in good, even lighting, then capture again."}
         glasses_info = face.get("Eyeglasses", {})
         wearing_glasses = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
         log.info(f"[FaceRegister] Glasses detected: {wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
