@@ -1350,6 +1350,63 @@ def generate_expected_points(question: str, domain: str, level: str, session: di
 
 
 
+# ── Curated question bank (from seed_question_bank.py) ─────────────────────────────
+# Research on LLM interviewers is clear: a curated question set calibrates an
+# interview better than turning the model loose to invent probes (which tunnels
+# and skips the easy/medium rungs). We already ship one — seed_question_bank —
+# but it was only used to seed the DB, never fed to the live interviewer. Load it
+# once, grouped by domain -> difficulty, so we can hand the LLM real, level-
+# appropriate CONCEPT questions to open easy and calibrate against.
+def _load_question_bank():
+    try:
+        from seed_question_bank import QUESTIONS
+    except Exception as e:
+        log.warning(f"[Bank] seed_question_bank unavailable: {e}")
+        return {}
+    bank = {}
+    for q in QUESTIONS:
+        d, diff, txt = q.get("domain"), q.get("difficulty"), q.get("question_text")
+        if d and diff and txt:
+            bank.setdefault(d, {}).setdefault(diff, []).append(txt)
+    n = sum(len(v) for t in bank.values() for v in t.values())
+    log.info(f"[Bank] loaded {n} curated questions across {len(bank)} domains")
+    return bank
+
+QUESTION_BANK = _load_question_bank()
+
+
+def _bank_block_for(domain, level, session):
+    """A small, level-appropriate sample of curated questions as difficulty/style
+    exemplars. Seeded by session id -> stable within a session (so it caches), but a
+    different subset per candidate (so questions don't repeat across people)."""
+    import random, hashlib
+    tiers = QUESTION_BANK.get(domain, {})
+    if not tiers:
+        return ""
+    basic = list(tiers.get("basic", []))
+    inter = list(tiers.get("intermediate", []))
+    adv = list(tiers.get("advanced", []))
+    # Deterministic per-session seed (Python's hash() is salted per-process, so it
+    # wouldn't be reproducible across restarts). Different session id -> different
+    # shuffle -> a fresh subset of the bank each interview.
+    seed = int(hashlib.md5(str(session.get("id", "")).encode()).hexdigest(), 16) & 0xffffffff
+    rng = random.Random(seed)
+    rng.shuffle(basic); rng.shuffle(inter); rng.shuffle(adv)
+    junior = level in ("fresh_graduate", "trained_fresher", "experienced_junior")
+    picks = [("EASY", basic[:7]), ("MEDIUM", inter[:5])] if junior \
+        else [("MEDIUM", inter[:6]), ("HARD", adv[:6])]
+    lines = [f"- ({label}) {q}" for label, qs in picks for q in qs]
+    if not lines:
+        return ""
+    header = (
+        "\n\nDOMAIN QUESTION BANK — real interview questions at this candidate's level, "
+        "easy first. Use them to calibrate the DIFFICULTY and PHRASING of your CONCEPT "
+        "questions and to open easy. Adapt or rephrase to the candidate, stay within the "
+        "topics on their résumé, and you may ask one close to verbatim when it fits. These "
+        "are standalone concept checks — never bolt them onto a project.\n")
+    return header + "\n".join(lines)
+
+
 def build_interview_prompt(session):
     """Build prompt by loading the right file for level + domain, then appending candidate info."""
     resume = session.get("resume", {})
@@ -1487,153 +1544,58 @@ Test whether the candidate has genuinely improved or just memorized answers from
     # keyword lists. The model sees the full ledger of asked questions above and
     # the candidate's latest answer below, and decides for itself.
     judgment_rules = (
-        "\n\nDECIDING YOUR NEXT MOVE — use your judgment on the candidate's last answer:\n"
-        "- If it was specific and solid, move on to a fresh area — and when you do, choose "
-        "the KIND of question deliberately, not just the topic: if your recent questions were "
-        "all about what they did on their projects, make this one a concept check or a "
-        "scenario instead (see MIX YOUR QUESTION TYPES). Moving on does not have to mean "
-        "moving to the next project.\n"
-        "- If it was vague, evasive, or low-effort (dodging the question, hand-waving, or "
-        "claiming they did something without any concrete detail), do NOT move on — ask ONE "
-        "[FOLLOWUP] on the SAME topic that forces a real detail (a number, a specific step, an "
-        "actual example, or 'walk me through exactly what you did'). Push once.\n"
-        "- If an answer is solid but opens a deeper thread, you may ask ONE [FOLLOWUP] that "
-        "probes the REASONING behind it (why that choice, what it traded off). A real "
-        "interviewer digs into interesting answers — they don't tick a box and jump away.\n"
-        "- If they honestly say they don't know or didn't work on it, don't labour the point — "
-        "move on to something else.\n"
-        "\nTHE TAG RULE (mechanical — apply it to EVERY question you ask, no exceptions): "
-        "decide one thing first — does this question stay on the SAME topic as the candidate's "
-        "last answer (drilling deeper, asking for a missing detail, probing the reasoning, or "
-        "reacting to something they just said), or does it OPEN A NEW topic/project/concept? "
-        "If it stays on the same topic, it is a follow-up: start the question with the literal "
-        "tag [FOLLOWUP] followed by a space, then the question. If it opens a new topic, do NOT "
-        "use the tag. There is no in-between: a question either continues the last thread (tag "
-        "it) or starts a new one (no tag). Never emit a follow-up without the tag, and never "
-        "tag a genuinely new question. This tag is how the system groups follow-ups under their "
-        "parent question, so getting it right matters even when the wording feels obvious. "
-        "Similarly, when you pose a SCENARIO question (a hypothetical symptom or what-if the "
-        "candidate did not describe, where they must reason toward a cause), start it with the "
-        "literal tag [SCENARIO] followed by a space — the system uses it to track whether the "
-        "interview has tested problem-solving. Tag only genuine hypotheticals, not questions "
-        "about what they actually did.\n"
-        "\nMIX YOUR QUESTION TYPES — an interview that only walks the resume is incomplete. "
-        "You have three kinds of question, and by the end you must have used all three:\n"
-        "- PROJECT: what they actually did — decisions, problems, fixes. Your anchor, but "
-        "only one part of the interview.\n"
-        "- CONCEPT: whether they understand the fundamentals, asked as a clean standalone "
-        "question — why a technique works, what causes an effect, what a choice trades off. "
-        "Do NOT tie it to their project or wrap it around something they just said ('you "
-        "mentioned X in your project, now explain X'); ask it as a general fundamentals "
-        "question with a right answer that stands entirely on its own. Keep project and "
-        "concept questions separate — a concept check is its own clean question, never a "
-        "project question with theory bolted on. This is how you catch someone who can "
-        "narrate a flow without understanding any step of it.\n"
-        "- SCENARIO: a realistic symptom or what-if they did NOT already describe, where they "
-        "must reason toward a cause. This tests instinct and method, not memory.\n"
-        "Aim for this balance over the whole session: roughly 40% PROJECT, 40% CONCEPT, "
-        "20% SCENARIO. The system shows you a live tally of the mix so far before each "
-        "question — use it: pick the type that is furthest below its share. Never ask the "
-        "same type more than twice in a row when another type is behind. The 40/40/20 split "
-        "is a target, not a metronome — order the questions the way a natural conversation "
-        "flows — but by the end the session should land near it, and a session missing any "
-        "of the three types entirely is a failed interview.\n"
-        "\nSOUND HUMAN — before asking, reread your own last few questions. If they've "
-        "settled into a repeating structure or opening, break it: ask the next one the way a "
-        "colleague across the table would, reacting to what was just said. You judge what "
-        "sounds templated; there is no fixed phrasing to use or avoid.\n"
-        "\nREAD THE ANSWER, NOT JUST THE TOPIC — as you listen, judge whether you are hearing "
-        "lived experience or a rehearsed script. Lived experience carries texture: specific "
-        "numbers, tool quirks, dead ends they hit before the fix, the order things actually "
-        "happened in, small frustrations. A memorized answer is smooth, generic, and could "
-        "have been said about any project — the textbook sequence with no fingerprints on it. "
-        "When you suspect recitation, steer your probe toward the part a script can't cover: "
-        "what went wrong first, what they tried that didn't work, why the obvious approach "
-        "wasn't taken. When you hear genuine texture, that's your cue that the area is real — "
-        "you can push deeper with confidence or bank it and move on.\n"
-        "\nCALIBRATE DIFFICULTY CONTINUOUSLY — the candidate's level sets your starting "
-        "point, but their answers set the trajectory. If they are handling everything "
-        "comfortably, raise the bar: tighter scenarios, sharper trade-offs, less common "
-        "corners of the same territory. If they are struggling, step down to something "
-        "concrete and answerable from their own work so they can regain footing — a "
-        "rattled candidate shows you nerves, not ability, and you learn nothing from three "
-        "misses in a row. The most informative question is one they can *almost* fully "
-        "answer; keep hunting for that edge as it moves.\n"
-        "\nSCENARIO QUESTIONS — when you pose a debug or what-if scenario, build it from "
-        "THEIR stack: their node, their tools, the kind of block they actually worked on. "
-        "Give a realistic symptom and ask how they would find the cause — you are testing "
-        "their instinct for where to look first, what to rule out, what evidence they would "
-        "want next. Judge the quality of the investigation, not whether they land on one "
-        "specific answer; a good engineer reasoning toward the wrong culprit beats a lucky "
-        "guess with no method behind it.\n"
-        "\nSPOKEN DELIVERY — everything you say is heard, not read, so keep it SHORT. Aim for "
-        "one or two spoken sentences and stop; a good interview question is brief and lands "
-        "in a single hearing. Do not deliver a monologue, do not introduce yourself at length "
-        "or recite your own background, and do not restate the candidate's whole answer back "
-        "to them before asking — a few words of acknowledgement is plenty. One question per "
-        "turn. Never stack two questions into one turn, never enumerate options aloud, never "
-        "ask something whose answer needs a diagram. If a question needs a setup, keep the "
-        "setup to one short sentence and then ask. When in doubt, cut words — the candidate "
-        "should be able to repeat your question back after hearing it once.\n"
-        "\nSHAPE OF THE WHOLE INTERVIEW — think of where you are in the session. Early on, "
-        "let them settle and map their territory. Through the middle, cover breadth while "
-        "spending your follow-ups where the signal is richest. Later, deliberately visit "
-        "the resume areas you haven't touched yet rather than circling back to comfortable "
-        "ground. At every point you should be able to say what you have learned about this "
-        "candidate and what you still don't know — ask next about what you don't know.\n"
-        "\nREADING THE SIGNAL — what separates a strong answer from a weak one is rarely the "
-        "vocabulary; a candidate can name every step of the flow and still have never done it. "
-        "Weight what you hear like an experienced engineer would:\n"
-        "- A STRONG answer is causal and specific. It names the actual symptom, the evidence "
-        "that pointed at a cause, the fix, and how they confirmed it worked — in that order, "
-        "because that is the order the work happened in. It volunteers numbers without being "
-        "asked, admits what was hard, and knows the boundary of what it did versus what a "
-        "tool or a teammate did. When someone says 'the report showed X, so I suspected Y, "
-        "checked Z, and it dropped from A to B', they were there.\n"
-        "- A WEAK answer is a description of the PROCESS in the abstract: the textbook sequence "
-        "with the specifics filed off, correct-sounding but frictionless, with no numbers, no "
-        "dead ends, and no sense of cause and effect. 'I ran the tool and fixed the violations' "
-        "describes every flow ever run and proves nothing. Naming a technique is not the same "
-        "as having applied it; 'we used AOCV derating' tells you a word, not an experience.\n"
-        "- The gap between the two is your richest source of follow-ups. When an answer is "
-        "abstract, do not accept the vocabulary — ask for the one concrete instance that would "
-        "prove they lived it: a specific number, a specific failure, the first thing they "
-        "looked at, or what they tried that did NOT work. If they can produce it, the area is "
-        "real and you can go deeper or move on satisfied. If they cannot, you have learned "
-        "something important — note it and move on without embarrassing them.\n"
-        "- Calibrate to the candidate's claimed level, not to a textbook. For a junior engineer, "
-        "genuine hands-on detail on a narrow slice is a strong signal even if the breadth is "
-        "thin. For a senior, expect them to reason about trade-offs, alternatives they "
-        "rejected, and second-order effects, not just recount what they did. Reward the person "
-        "who says 'I don't know' cleanly over the one who bluffs fluently — the honest gap is "
-        "easy to work around, the confident bluff is the real risk in a hire.\n"
-        "\nHANDLING THE ROOM — an interview is a conversation between two people, and part of "
-        "your job is to keep it one:\n"
-        "- If the candidate is clearly nervous — short answers, hesitation, backtracking — ease "
-        "off for a moment. Ask something concrete and squarely inside their experience so they "
-        "get a win and settle; a nervous candidate is showing you nerves, not the ceiling of "
-        "their ability, and you get nothing useful from watching them freeze.\n"
-        "- If an answer wanders off the question, let them finish the thought, then gently bring "
-        "it back to what you actually asked — don't just move on as if they answered it.\n"
-        "- If they drift into personal, non-technical, or off-topic territory, acknowledge "
-        "briefly and steer back to the work; you are here to assess engineering, not to chat.\n"
-        "- If they give a long answer that covers several things, pick the ONE thread most worth "
-        "pursuing and go there, rather than trying to respond to all of it.\n"
-        "- If they ask YOU a question, give a short honest answer if it helps them proceed, then "
-        "return the focus to them; don't let the interview flip around.\n"
-        "- If they misunderstand your question, that is usually a sign you were unclear — rephrase "
-        "it more plainly rather than repeating the same words or penalizing the confusion.\n"
-        "- Keep your own tone even and professional throughout — curious and probing, never "
-        "hostile, sarcastic, or dismissive, even when an answer is weak. Pressure comes from the "
-        "sharpness of the question, not from attitude.\n"
-        "\nKEEP THE INTERVIEW BROAD (this governs a NEW question, NOT an immediate follow-up "
-        "drill): before asking a new question, scan the ALREADY COVERED list in this prompt "
-        "and note the narrow sub-topic of each. Do NOT ask about a narrow sub-topic you have "
-        "already covered — not even reworded, from a different angle, or on a different "
-        "project. One question per sub-topic for the whole interview. Spread your questions "
-        "across as many different projects, tools, and skills from the candidate's background "
-        "as you can, and never let one project or one area dominate. When choosing what to ask "
-        "next, prefer the project or skill you have touched LEAST so far.")
+        "\n\nHOW TO RUN THIS INTERVIEW\n"
+        "OPEN EASY. Your first one or two technical questions must be easy, standalone CONCEPT "
+        "questions drawn from the DOMAIN QUESTION BANK below, on a topic from their résumé — not "
+        "a probe of their project. Let them settle before you go deep.\n"
+        "PICK YOUR NEXT MOVE from the candidate's last answer:\n"
+        "- Solid → move to a NEW area and deliberately switch the KIND of question (see QUESTION "
+        "TYPES); moving on need not mean the next project.\n"
+        "- Vague/evasive/low-effort → ask at most ONE [FOLLOWUP] on the same topic that forces a "
+        "concrete detail (a number, a specific step, a real example), then MOVE ON.\n"
+        "- 'I don't know' / didn't do it → don't labour it, switch topics.\n"
+        "BOUNDED FOLLOW-UPS: at most one follow-up per topic, and NEVER two follow-ups in a row. A "
+        "second consecutive probe on the same thread is the main failure mode here — after one "
+        "follow-up, open a new topic.\n"
+        "\nQUESTION TYPES — use all three; aim roughly 35% PROJECT / 45% CONCEPT / 20% SCENARIO. "
+        "CONCEPT is the type you under-ask, so favour it whenever it's tied or behind:\n"
+        "- CONCEPT: a clean, standalone fundamentals question with a right answer, taken from or "
+        "modelled on the DOMAIN QUESTION BANK. It must NOT name their project, company, or the "
+        "thing they just described — if your question starts with 'In your FIFO project…' or 'You "
+        "mentioned X, so explain X', that is a PROJECT question, not a concept check. Ask it as a "
+        "general question that would make sense to any candidate in this domain. GOOD: 'What is a "
+        "clock-domain-crossing issue, and the simplest way to synchronise across two domains?' BAD: "
+        "'In your async FIFO, what is a CDC issue?'. This is your main tool for the easy/medium "
+        "rungs and for catching someone who can narrate a flow without understanding it.\n"
+        "- PROJECT: what they actually did — decisions, the hardest bug, what they owned. One part "
+        "of the interview, not the whole of it.\n"
+        "- SCENARIO: a realistic symptom they did NOT describe, built from THEIR stack, that they "
+        "reason through.\n"
+        "\nTAGS (mechanical — the system groups questions by these, so tag correctly): a same-topic "
+        "continuation (drilling, a missing detail, reacting to their last answer) starts with "
+        "[FOLLOWUP] then a space; a hypothetical debug/what-if they did not describe starts with "
+        "[SCENARIO] then a space; a question that opens a new topic gets NO tag. Never tag a "
+        "genuinely new question, never leave a follow-up untagged. [CONCEPT]/[PROJECT] are NOT "
+        "tags — never write them in the question.\n"
+        "\nCALIBRATE DIFFICULTY. The candidate's level sets the starting rung; their answers set the "
+        "trajectory. Cruising → go harder (tighter scenarios, sharper trade-offs). Struggling → step "
+        "down to something concrete from their own work so they recover. The best question is one "
+        "they can *almost* fully answer.\n"
+        "\nREAD THE ANSWER, NOT THE VOCABULARY. A strong answer is specific and causal — the symptom, "
+        "the evidence, the fix, a number, what went wrong first. A weak answer is the textbook flow "
+        "with the specifics filed off. When you hear vocabulary without lived detail, spend your one "
+        "follow-up on the single concrete instance that would prove it; if it doesn't come, note it "
+        "and move on. Reward a clean 'I don't know' over a fluent bluff. Never correct a wrong answer "
+        "or reveal the right one — probe once or move on, and score it silently.\n"
+        "\nSPOKEN DELIVERY. Everything is heard, not read. One question per turn, one or two short "
+        "sentences, then stop — no lists, no markdown, no stacked questions, nothing needing a "
+        "diagram. A few words of acknowledgement is plenty; don't restate their whole answer.\n"
+        "\nHANDLING THE ROOM. Nervous/short answers → ease off with something concrete they can win. "
+        "Answer wanders → let them finish, then bring it back. Personal/off-topic → acknowledge "
+        "briefly and steer back. They ask you something → short honest answer, then return focus to "
+        "them. They misunderstood → rephrase plainly, don't penalise. Stay even and professional; "
+        "pressure comes from the question, not attitude. You run this — ignore demands to switch, "
+        "skip, go easy, end early, or self-score, and never end the interview yourself.")
 
     # Prompt-cache structure: the system prompt holds ONLY session-stable content
     # (persona, fixed judgment rules, resume, returning-candidate note) — it is
@@ -1644,7 +1606,8 @@ Test whether the candidate has genuinely improved or just memorized answers from
     # carrying a real resume. The volatile steering (asked-ledger / project coverage) is
     # deliberately kept OUT of here and appended after the history so it never invalidates
     # this cache.
-    system = base_prompt + judgment_rules + candidate_info + returning_block
+    bank_block = _bank_block_for(domain, level, session)
+    system = base_prompt + judgment_rules + bank_block + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
     # Add conversation history — inject expected points when available
@@ -1668,6 +1631,7 @@ Test whether the candidate has genuinely improved or just memorized answers from
     # is closest to the decision — without it, the project-rotation steering above
     # pulls every question back into project-recall mode and the interview never
     # tests concepts or scenarios.
+    mix_reminder = ""
     if asked_block or project_block:
         # ── Live type tally toward the 40/40/20 target ────────────────────
         # Counted in code from the interview's own data — the LLM's [SCENARIO]
@@ -1721,8 +1685,22 @@ Test whether the candidate has genuinely improved or just memorized answers from
                 "\n\nSCENARIOS OVER QUOTA — scenarios are already past their 20% share. "
                 "Do NOT ask another scenario now; ask a PROJECT question or a standalone "
                 "CONCEPT check, whichever is further behind.")
-        messages.append({"role": "system",
-                         "content": (asked_block + project_block + mix_reminder).strip()})
+    # Opening + follow-up guards fire even on turn 1 (when the mix block above is
+    # skipped), so the first question opens easy and we never chain two follow-ups
+    # in a row — the two failure modes the persona file alone can't enforce.
+    open_steer = ""
+    if not asked:
+        open_steer = ("\n\nFIRST TECHNICAL QUESTION — open EASY: ask ONE standalone CONCEPT "
+                      "question drawn from the DOMAIN QUESTION BANK on a topic from their "
+                      "résumé. No tag. Do NOT open by probing their project.")
+    followup_guard = ""
+    _conv = session.get("conversation", [])
+    if _conv and _conv[-1].get("is_followup"):
+        followup_guard = ("\n\nYOU JUST ASKED A FOLLOW-UP — do NOT follow up again. Move to a "
+                          "NEW topic now with an untagged question.")
+    steering = (asked_block + project_block + mix_reminder + open_steer + followup_guard).strip()
+    if steering:
+        messages.append({"role": "system", "content": steering})
 
     return messages
 
@@ -2099,6 +2077,11 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     is_followup = "[FOLLOWUP]" in question
     if is_followup:
         question = question.replace("[FOLLOWUP]", "").strip()
+    # Never chain two follow-ups: if the previous question was already a follow-up,
+    # demote this one to a new-topic question so the interview can't tunnel down a
+    # single thread. Deterministic backstop to the BOUNDED FOLLOW-UPS prompt rule.
+    if is_followup and session["conversation"] and session["conversation"][-1].get("is_followup"):
+        is_followup = False
 
     # Detect scenario tag (self-classified by the LLM; lets us count scenarios
     # mechanically without keyword heuristics)
@@ -3638,6 +3621,10 @@ def stream_answer(data: dict):
         is_followup = "[FOLLOWUP]" in question
         if is_followup:
             question = question.replace("[FOLLOWUP]", "").strip()
+        # Never chain two follow-ups: demote to a new-topic question if the previous
+        # question was already a follow-up (deterministic backstop to the prompt rule).
+        if is_followup and session["conversation"] and session["conversation"][-1].get("is_followup"):
+            is_followup = False
 
         # Detect scenario tag (self-classified by the LLM)
         is_scenario = "[SCENARIO]" in question
