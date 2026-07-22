@@ -517,16 +517,58 @@ def api_ask(req: AskRequest):
                 "content": _sanitize_paths(content),
             })
 
+        # Cross-tool probe: when nothing in-scope verified, the asked-about
+        # command/term may simply belong to the OTHER vendor's flow (e.g.
+        # create_clock_tree_spec is Cadence Innovus; Synopsys ICC2 builds the
+        # tree directly via clock_opt). If an unfiltered search ranks another
+        # provider's chunk ABOVE every in-scope hit, include that full section
+        # as clearly-labelled other-tool context so the answer can name the
+        # right tool instead of dead-ending on a bare "not present".
+        picked = (req.facets or {}).get("provider")
+        if fallback and picked:
+            xhits = engine.search(req.question, k=1, lab_name=req.lab_name)
+            x = xhits[0] if xhits else None
+            xfac = (x.get("facets") or {}) if x else {}
+            xprov = xfac.get("provider")
+            # Only surface the OTHER vendor's chunk when it's the same STAGE —
+            # i.e. that tool's version of the SAME task (CTS Synopsys vs CTS
+            # Cadence), not an unrelated stage that merely out-scores a weak
+            # in-scope hit (e.g. a Siemens PV antenna check for a CTS question).
+            tstage = (hits[0].get("facets") or {}).get("stage")
+            if (x and xprov and xprov != picked
+                    and xfac.get("stage") and xfac.get("stage") == tstage
+                    and x["score"] > hits[0]["score"]):
+                sections.append({
+                    "lab_name": x["lab_name"],
+                    "heading": x["heading"],
+                    "source": x["source"],
+                    "score": round(x["score"], 3),
+                    "facets": x.get("facets") or {},
+                    "other_tool": _PROVIDER_LABEL.get(xprov, xprov),
+                    "content": _sanitize_paths(
+                        engine.get_section(x["lab_name"], x["heading"])),
+                })
+
     # 5. Final answer from the reassembled full sections.
     context = "\n\n".join(
-        f"[{n + 1}] ({s['lab_name']} :: {s['heading']})\n{s['content']}"
+        f"[{n + 1}] ({s['lab_name']} :: {s['heading']})"
+        + (f" — NOTE: this section is from the {s['other_tool']} flow, NOT the "
+           "tool the user chose" if s.get("other_tool") else "")
+        + f"\n{s['content']}"
         for n, s in enumerate(sections)
     )
+    other_tool = next((s["other_tool"] for s in sections if s.get("other_tool")),
+                      None)
     fallback_note = (
         "\n\nNote: no section directly matches the question. If these sections "
         "do not contain the exact command/term asked about, say plainly that it "
         "is not part of this lab/tool, then briefly state what this lab uses "
         "instead — using ONLY these sections, never outside knowledge."
+        + (f" The section marked as from the {other_tool} flow shows the "
+           f"asked-about item DOES exist there: say in one sentence that it "
+           f"belongs to the {other_tool} flow and name the exact command from "
+           f"that section, but do not present {other_tool} steps as part of "
+           "the chosen tool's flow." if other_tool else "")
     ) if fallback else ""
     resp = _client.chat.completions.create(
         model=CHAT_MODEL,
