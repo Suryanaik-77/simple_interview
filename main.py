@@ -1474,6 +1474,15 @@ def _load_question_bank():
 
 QUESTION_BANK = _load_question_bank()
 
+# Per-domain job descriptions — these scope the interview (concept/scenario
+# topics come from the role's JD, not the candidate's self-listed skills).
+try:
+    from job_descriptions import render_job_description
+except Exception as _jd_e:  # keep the app running even if the JD file is missing
+    log.warning(f"[JD] job_descriptions unavailable ({_jd_e}) — falling back to résumé scope")
+    def render_job_description(domain):
+        return ""
+
 
 def _bank_block_for(domain, level, session, session_index=0):
     """A small, level-appropriate sample of curated questions as difficulty/style
@@ -1531,8 +1540,8 @@ def build_interview_prompt(session):
     level = resume.get("level", "trained_fresher")
     domain = resume.get("domain", "physical_design")
     years = resume.get("years_experience", 0)
-    tools = ", ".join(str(t) for t in resume.get("tools", [])) or "not specified"
-    skills = ", ".join(str(s) for s in resume.get("skills", [])) or "not specified"
+    # NOTE: tools/skills are intentionally not read into the prompt here — they are
+    # for on-page display only. Only projects (below) reach the interviewer.
 
     # Format projects with descriptions if available
     raw_projects = resume.get("key_projects", [])
@@ -1548,18 +1557,14 @@ def build_interview_prompt(session):
 
     # Load self-contained prompt for this level + domain
     base_prompt = get_interview_prompt(level, domain)
+    # Only the candidate's PROJECTS (and their descriptions) reach the prompt.
+    # Tools and skills are deliberately NOT sent to the interviewer — they exist
+    # only for display on the interview page. The interview's topic scope comes
+    # from the JOB DESCRIPTION (below); projects drive PROJECT-type questions.
     if "\n" in projects_str:
-        candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Tools: {tools} | Skills: {skills}\nProjects:\n{projects_str}"
+        candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years\nProjects:\n{projects_str}"
     else:
-        candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Tools: {tools} | Projects: {projects_str} | Skills: {skills}"
-
-    # Append raw resume text so interviewer can reference actual project details.
-    # Generous cap: this is session-stable prefix content, so it caches — and the
-    # more real resume detail the interviewer sees, the more grounded and specific
-    # its questions get (it also helps clear Claude's 4096-token cache minimum).
-    resume_text = resume.get("resume_text", "")
-    if resume_text:
-        candidate_info += f"\n\nFULL RESUME:\n{resume_text[:6000]}"
+        candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Projects: {projects_str}"
 
     # Check for returning candidate
     returning_block = ""
@@ -1663,8 +1668,9 @@ Test whether the candidate has genuinely improved or just memorized answers from
     judgment_rules = (
         "\n\nHOW TO RUN THIS INTERVIEW\n"
         "OPEN EASY. Your first one or two technical questions must be easy, standalone CONCEPT "
-        "questions drawn from the DOMAIN QUESTION BANK below, on a topic from their résumé — not "
-        "a probe of their project. Let them settle before you go deep.\n"
+        "questions drawn from the DOMAIN QUESTION BANK below, on a topic from the ROLE's required "
+        "skills (see JOB DESCRIPTION) — not a probe of their project. Let them settle before you "
+        "go deep.\n"
         "PICK YOUR NEXT MOVE from the candidate's last answer:\n"
         "- Solid → move to a NEW area and deliberately switch the KIND of question (see QUESTION "
         "TYPES); moving on need not mean the next project.\n"
@@ -1703,7 +1709,14 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "or reveal the right one — probe once or move on, and score it silently.\n"
         "\nSPOKEN DELIVERY. Everything is heard, not read. One question per turn, one or two short "
         "sentences, then stop — no lists, no markdown, no stacked questions, nothing needing a "
-        "diagram. A few words of acknowledgement is plenty; don't restate their whole answer.\n"
+        "diagram.\n"
+        "\nNEUTRAL ACKNOWLEDGEMENT — this is critical. Open with at most three or four NEUTRAL words "
+        "('Okay.', 'Right, thanks.', 'Got it — moving on.') then go straight to the next question. "
+        "Do NOT tell them whether they were right or wrong. Do NOT confirm, grade, or praise the "
+        "answer ('that's right', 'exactly', 'correct', 'good', 'you've got it', 'that's the core of "
+        "it'). Do NOT restate, complete, or fill in the fact they gave or missed — no 'Right, so X is "
+        "Y and A is B'. Confirming or completing the answer coaches the candidate and corrupts the "
+        "assessment. Just acknowledge in a few neutral words and ask the next question.\n"
         "\nHANDLING THE ROOM. Nervous/short answers → ease off with something concrete they can win. "
         "Answer wanders → let them finish, then bring it back. Personal/off-topic → acknowledge "
         "briefly and steer back. They ask you something → short honest answer, then return focus to "
@@ -1720,8 +1733,24 @@ Test whether the candidate has genuinely improved or just memorized answers from
     # carrying a real resume. The volatile steering (asked-ledger / project coverage) is
     # deliberately kept OUT of here and appended after the history so it never invalidates
     # this cache.
+    # ── Job description (role scope) ──────────────────────────────────────
+    # The role's JD — not the candidate's self-listed skills — decides which
+    # concept/scenario topics get tested. Session-stable (domain-based), so it
+    # sits inside the cached prefix.
+    jd_text = render_job_description(domain)
+    jd_block = ""
+    if jd_text:
+        jd_block = (
+            "\n\nJOB DESCRIPTION — THE ROLE YOU ARE INTERVIEWING FOR\n"
+            "This defines what to test. Draw your CONCEPT and SCENARIO topics from the required "
+            "skills and responsibilities below and cover them across the interview, EVEN IF the "
+            "candidate did not list them on their résumé. Do NOT narrow the interview to only the "
+            "skills the candidate happens to mention. Use the candidate's own projects (further "
+            "below) for PROJECT questions — what they actually built — and to anchor scenarios in "
+            "their tools.\n" + jd_text)
+
     bank_block = _bank_block_for(domain, level, session, session_index)
-    system = base_prompt + judgment_rules + bank_block + candidate_info + returning_block
+    system = base_prompt + judgment_rules + jd_block + bank_block + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
     # Add conversation history — inject expected points when available
