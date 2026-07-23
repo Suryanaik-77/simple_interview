@@ -456,10 +456,17 @@ textarea::placeholder{color:var(--t4)}
       <input type="text" id="obs-search" placeholder="Filter by session ID…" oninput="filterObsLogs()" style="flex:1;min-width:140px;padding:6px 10px;border:1px solid var(--b2);border-radius:7px;background:var(--w);font-size:12px;font-family:inherit;outline:none">
       <select id="obs-step-filter" onchange="filterObsLogs()" style="padding:6px 9px;border:1px solid var(--b2);border-radius:7px;background:var(--w);font-size:12px;font-family:inherit;outline:none">
         <option value="">All steps</option>
+        <option value="LLM_greeting">LLM greeting</option>
         <option value="LLM_question">LLM question</option>
+        <option value="LLM_expected_points">Expected points</option>
+        <option value="LLM_tag_classify">Tag classify</option>
+        <option value="LLM_ai_detect">AI detection</option>
+        <option value="LLM_stop_agent">Stop agent</option>
         <option value="LLM_evaluation">LLM evaluation</option>
         <option value="STT">STT</option>
         <option value="TTS">TTS</option>
+        <option value="TTS_greeting">TTS greeting</option>
+        <option value="Rekognition">AWS Rekognition</option>
         <option value="resume_parsing">Resume parsing</option>
       </select>
       <select id="obs-status-filter" onchange="filterObsLogs()" style="padding:6px 9px;border:1px solid var(--b2);border-radius:7px;background:var(--w);font-size:12px;font-family:inherit;outline:none">
@@ -2498,8 +2505,8 @@ function renderAcDetail(d) {
     if (!obs || !obs.total_calls) {
       return '<div style="font-size:12px;color:var(--t4);padding:12px 0">No API call data recorded yet. Run an interview first.</div>';
     }
-    const colors = {LLM_question:'#2563EB',LLM_greeting:'#3B82F6',LLM_ai_detect:'#8B5CF6',LLM_evaluation:'#7C3AED',STT:'#16A34A',TTS:'#D97706',TTS_greeting:'#F59E0B',resume_parsing:'#EA580C'};
-    const labels = {LLM_question:'LLM question',LLM_greeting:'LLM greeting',LLM_ai_detect:'AI detection',LLM_evaluation:'LLM eval',STT:'STT',TTS:'TTS',TTS_greeting:'TTS greeting',resume_parsing:'Resume parse'};
+    const colors = {LLM_question:'#2563EB',LLM_greeting:'#3B82F6',LLM_expected_points:'#0EA5E9',LLM_tag_classify:'#06B6D4',LLM_ai_detect:'#8B5CF6',LLM_stop_agent:'#DB2777',LLM_evaluation:'#7C3AED',STT:'#16A34A',TTS:'#D97706',TTS_greeting:'#F59E0B',Rekognition:'#0D9488',resume_parsing:'#EA580C'};
+    const labels = {LLM_question:'LLM question',LLM_greeting:'LLM greeting',LLM_expected_points:'Expected points',LLM_tag_classify:'Tag classify',LLM_ai_detect:'AI detection',LLM_stop_agent:'Stop agent',LLM_evaluation:'LLM eval',STT:'STT',TTS:'TTS',TTS_greeting:'TTS greeting',Rekognition:'AWS Rekognition',resume_parsing:'Resume parse'};
     const failColor   = (obs.failure_calls||0) > 0 ? 'var(--red)' : 'var(--green)';
     const failBg      = (obs.failure_calls||0) > 0 ? 'var(--rb)'  : 'var(--gb)';
     const failBorder  = (obs.failure_calls||0) > 0 ? 'var(--rbd)' : 'var(--gbd)';
@@ -2836,17 +2843,28 @@ function renderObsSummary(sum) {
   document.getElementById('o-sr').style.color     = (sum.success_rate_pct||100)<97?'var(--amber)':'var(--green)';
 
   const by   = sum.by_step || {};
-  const keys = ['LLM_question','LLM_evaluation','STT','TTS','resume_parsing'];
   const SC_CFG = {
-    LLM_question:  {color:'#2563EB',bg:'#EFF6FF',label:'LLM question'},
-    LLM_greeting:  {color:'#3B82F6',bg:'#EFF6FF',label:'LLM greeting'},
-    LLM_ai_detect: {color:'#8B5CF6',bg:'#F5F3FF',label:'AI detection'},
-    LLM_evaluation:{color:'#7C3AED',bg:'#F5F3FF',label:'LLM eval'},
-    STT:           {color:'#16A34A',bg:'#F0FDF4',label:'STT'},
-    TTS:           {color:'#D97706',bg:'#FFFBEB',label:'TTS'},
-    TTS_greeting:  {color:'#F59E0B',bg:'#FFFBEB',label:'TTS greeting'},
-    resume_parsing:{color:'#EA580C',bg:'#FFF7ED',label:'Resume parsing'},
+    LLM_question:      {color:'#2563EB',bg:'#EFF6FF',label:'LLM question'},
+    LLM_greeting:      {color:'#3B82F6',bg:'#EFF6FF',label:'LLM greeting'},
+    LLM_expected_points:{color:'#0EA5E9',bg:'#F0F9FF',label:'Expected points'},
+    LLM_tag_classify:  {color:'#06B6D4',bg:'#ECFEFF',label:'Tag classify'},
+    LLM_ai_detect:     {color:'#8B5CF6',bg:'#F5F3FF',label:'AI detection'},
+    LLM_stop_agent:    {color:'#DB2777',bg:'#FDF2F8',label:'Stop agent'},
+    LLM_evaluation:    {color:'#7C3AED',bg:'#F5F3FF',label:'LLM eval'},
+    STT:               {color:'#16A34A',bg:'#F0FDF4',label:'STT'},
+    TTS:               {color:'#D97706',bg:'#FFFBEB',label:'TTS'},
+    TTS_greeting:      {color:'#F59E0B',bg:'#FFFBEB',label:'TTS greeting'},
+    Rekognition:       {color:'#0D9488',bg:'#F0FDFA',label:'AWS Rekognition'},
+    resume_parsing:    {color:'#EA580C',bg:'#FFF7ED',label:'Resume parsing'},
   };
+  // Show every step actually present in the data (known order first, then any
+  // extras), so newly-added cost sources are never silently dropped.
+  const _ORDER = ['LLM_greeting','LLM_question','LLM_expected_points','LLM_tag_classify','LLM_ai_detect','LLM_stop_agent','LLM_evaluation','STT','TTS','TTS_greeting','Rekognition','resume_parsing'];
+  const _present = Object.keys(by);
+  const keys = _ORDER.filter(k=>_present.includes(k)).concat(_present.filter(k=>!_ORDER.includes(k)));
+  // Any step present in the data but without a config gets a neutral fallback so
+  // the cards/charts render (never crash) for a brand-new cost source.
+  keys.forEach(k=>{ if(!SC_CFG[k]) SC_CFG[k]={color:'#94A3B8',bg:'#F1F5F9',label:k}; });
   const maxP95   = Math.max(...keys.map(k=>by[k]?.p95||0), 1);
   const totalCost= Math.max(keys.reduce((a,k)=>a+(by[k]?.cost_usd||0),0), 0.000001);
   const totalCalls= Math.max(keys.reduce((a,k)=>a+(by[k]?.calls||0),0), 1);

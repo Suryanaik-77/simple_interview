@@ -1865,7 +1865,7 @@ def _should_end_interview(session) -> tuple[bool, str]:
 # until the question minimum is met, then on EVERY turn it judges whether the
 # interview should continue. When it says STOP the SERVER ends the interview —
 # it does not depend on the interviewer model emitting [END_INTERVIEW].
-STOP_AGENT_MIN_Q = 8        # dormant until this many answered questions
+STOP_AGENT_MIN_Q = 12       # dormant until this many answered questions
 STOP_AGENT_HARD_MAX = 30    # absolute ceiling — always stop here
 
 # Fixed rubric — kept as a stable prefix so the LLM provider can prompt-cache it
@@ -1879,8 +1879,13 @@ Apply these rules using the number of questions answered (given at the end):
 - 24 or more answered: END unless the candidate is exceptional and every recent answer still adds real signal."""
 
 def _count_answered(session) -> int:
+    """Single source of truth for "how many questions the candidate answered".
+    The stop agent and the evaluator MUST use this same count — otherwise the
+    stop agent can end an interview at its floor while the eval gate sees fewer
+    and skips scoring, leaving no score. Follow-ups are part of their parent
+    question, so they don't count as separate answered questions."""
     return sum(1 for e in session.get("conversation", [])
-               if (e.get("question") or "").strip() and e.get("answer") is not None)
+               if (e.get("answer") or "").strip() and not e.get("is_followup"))
 
 def _stop_agent_transcript(session, max_chars: int = 16000) -> str:
     # Oldest-first so the string grows as a stable prefix across turns (good for
@@ -2395,13 +2400,6 @@ def _fill_eval_prompt(template: str, **kw) -> str:
     return out
 
 
-def _answered_count(session) -> int:
-    """How many main questions the candidate actually answered (non-empty answer).
-    Follow-ups are part of the parent question, not separate questions."""
-    return sum(1 for e in session.get("conversation", [])
-               if (e.get("answer") or "").strip() and not e.get("is_followup"))
-
-
 def _build_eval_transcript(session, max_chars: int = 25000) -> str:
     """Render the conversation as numbered Q/A pairs so the evaluator can map a
     per-question score back to each question by its number.
@@ -2536,7 +2534,7 @@ def evaluate_interview(session) -> dict:
         if existing and existing.get("status") in ("done", "skipped"):
             return existing
 
-        answered = _answered_count(session)
+        answered = _count_answered(session)
         if answered < MIN_ANSWERS_FOR_EVAL:
             result = {"status": "skipped", "answered": answered,
                       "reason": f"only {answered} answered (need {MIN_ANSWERS_FOR_EVAL})"}
@@ -3343,11 +3341,17 @@ def start_interview(data: dict):
                 raise HTTPException(428, "Camera is off or no frame was captured. "
                                          "Enable your camera so we can verify your identity, then try again.")
             try:
+                _fg_t0 = time.time()
                 resp = rekognition_client.compare_faces(
                     SourceImage={"Bytes": base64.b64decode(ref_b64)},
                     TargetImage={"Bytes": base64.b64decode(live_b64)},
                     SimilarityThreshold=0.0,
                 )
+                # One CompareFaces call per interview start — record its cost.
+                session.setdefault("obs_log", []).append(
+                    _obs_entry("Rekognition", "aws-rekognition-compare-faces",
+                               round((time.time() - _fg_t0) * 1000),
+                               cost_usd=_REKOGNITION_COST_PER_IMAGE))
                 matches = resp.get("FaceMatches", [])
                 similarity = matches[0]["Similarity"] if matches else 0.0
                 gate_ok = similarity >= FACE_COMPARE_THRESHOLD
@@ -4202,11 +4206,17 @@ def face_compare(data: dict):
     try:
         ref_bytes = base64.b64decode(ref_b64)
         target_bytes = base64.b64decode(image_b64)
+        _fc_t0 = time.time()
         resp = rekognition_client.compare_faces(
             SourceImage={"Bytes": ref_bytes},
             TargetImage={"Bytes": target_bytes},
             SimilarityThreshold=0.0,
         )
+        # Recurring per-interview cost: this endpoint is polled ~once a minute.
+        session.setdefault("obs_log", []).append(
+            _obs_entry("Rekognition", "aws-rekognition-compare-faces",
+                       round((time.time() - _fc_t0) * 1000),
+                       cost_usd=_REKOGNITION_COST_PER_IMAGE))
         matches = resp.get("FaceMatches", [])
         if matches:
             similarity = matches[0]["Similarity"]
@@ -4219,10 +4229,15 @@ def face_compare(data: dict):
         glasses_mismatch = None
         ref_glasses = session.get("face_ref_glasses", False)
         try:
+            _dg_t0 = time.time()
             detect_resp = rekognition_client.detect_faces(
                 Image={"Bytes": target_bytes},
                 Attributes=["ALL"]
             )
+            session.setdefault("obs_log", []).append(
+                _obs_entry("Rekognition", "aws-rekognition-detect-faces",
+                           round((time.time() - _dg_t0) * 1000),
+                           cost_usd=_REKOGNITION_COST_PER_IMAGE))
             live_faces = detect_resp.get("FaceDetails", [])
             if live_faces:
                 live_glasses_info = live_faces[0].get("Eyeglasses", {})
@@ -4603,8 +4618,9 @@ def admin_sessions(_=Depends(require_admin)):
 # logs but not listed here (e.g. a newly-added cost source) is still shown,
 # appended alphabetically — so the admin cost view never silently drops a step.
 _OBS_STEP_ORDER = [
-    "LLM_greeting", "LLM_question", "LLM_ai_detect", "LLM_evaluation",
-    "LLM_stop_agent", "STT", "TTS", "TTS_greeting", "Rekognition",
+    "LLM_greeting", "LLM_question", "LLM_expected_points", "LLM_tag_classify",
+    "LLM_ai_detect", "LLM_stop_agent", "LLM_evaluation",
+    "STT", "TTS", "TTS_greeting", "Rekognition",
 ]
 
 def _ordered_obs_steps(logs):

@@ -1323,6 +1323,13 @@
     let speechDetected = false;
     let recordingStartTime = 0;
     let currentAudio = null;
+    // TTS playback speed. Deepgram Aura has no rate param, so we slow the voice
+    // on the client. <1 = slower; preservesPitch keeps it natural (no chipmunk).
+    const TTS_PLAYBACK_RATE = 0.9;
+    function applyTtsRate(a) {
+        try { a.preservesPitch = true; a.mozPreservesPitch = true; a.webkitPreservesPitch = true; } catch(e) {}
+        a.playbackRate = TTS_PLAYBACK_RATE;
+    }
     // No-answer nudge state (reset each new question in displayQuestion)
     let _noAnswerNudged = false;   // voice nudge already played this turn
     let _nudgePlaying = false;     // nudge audio playing — suppress answer capture
@@ -1682,11 +1689,14 @@
             const blob = new Blob([bytes], { type: detectAudioType(bytes) });
             const url = URL.createObjectURL(blob);
             currentAudio = new Audio(url);
+            applyTtsRate(currentAudio);
 
             await new Promise(resolve => {
                 // Start typewriter synced to audio duration
                 currentAudio.onloadedmetadata = () => {
-                    const durationMs = (currentAudio.duration || 3) * 1000;
+                    // Actual speaking time is longer at <1x playback — scale so the
+                    // typewriter finishes with the voice, not before it.
+                    const durationMs = (currentAudio.duration || 3) * 1000 / TTS_PLAYBACK_RATE;
                     if (_pendingQuestionText) {
                         typewriterText(document.getElementById('question-text'), _pendingQuestionText, durationMs);
                         _pendingQuestionText = '';
@@ -1743,6 +1753,7 @@
             const blob = new Blob([bytes], { type: detectAudioType(bytes) });
             const url = URL.createObjectURL(blob);
             currentAudio = new Audio(url);
+            applyTtsRate(currentAudio);
             await new Promise(resolve => {
                 currentAudio.onended = resolve;
                 currentAudio.onerror = resolve;
@@ -2238,6 +2249,7 @@
                 const blob = new Blob([bytes], { type: 'audio/mpeg' });
                 const url = URL.createObjectURL(blob);
                 const audio = new Audio(url);
+                applyTtsRate(audio);
                 currentAudio = audio;
                 await new Promise(resolve => {
                     audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
