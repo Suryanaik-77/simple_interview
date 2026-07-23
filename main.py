@@ -1293,10 +1293,29 @@ def get_interview_prompt(level: str, domain: str) -> str:
 _BASE = _load_prompt("experienced_junior", "physical_design")
 
 
+def _norm_expected_points(ep):
+    """Normalize expected_points to a list of (text, weight) tuples. Tolerates the
+    old string format (treated as 'core') and the new weighted-object format."""
+    out = []
+    for p in ep or []:
+        if isinstance(p, dict):
+            t = str(p.get("point", "")).strip()
+            w = str(p.get("weight", "core")).lower()
+            w = "core" if w not in ("core", "extra") else w
+        elif isinstance(p, str):
+            t, w = p.strip(), "core"
+        else:
+            continue
+        if t:
+            out.append((t, w))
+    return out
+
+
 def generate_expected_points(question: str, domain: str, level: str, session: dict):
-    """Background LLM call to generate expected key points for a question.
-    Stores result in the conversation entry so the next turn's prompt can
-    inject them, giving the interviewer concrete points to probe."""
+    """Background LLM call to generate expected key points for a question, each tagged
+    with a weight (core = essential, extra = nice-to-have). Stored on the conversation
+    entry so the next turn can (a) steer follow-ups toward MISSING CORE points only and
+    (b) give the evaluator an explicit importance-weighted reference set."""
     if not question or _is_pause_prompt(question):
         return
     # Skip greetings / non-technical questions
@@ -1308,17 +1327,19 @@ def generate_expected_points(question: str, domain: str, level: str, session: di
 
     # System message is static per domain+level — gets cached by Bedrock/Claude
     system_msg = (f"You are a VLSI {domain.replace('_', ' ')} expert evaluator. "
-                  f"For each interview question, list 3-5 KEY POINTS expected in a good answer "
-                  f"from a {level.replace('_', ' ')} candidate. "
-                  f"Each point must be 1 short sentence (under 15 words). "
-                  f"Return ONLY a valid JSON array, no markdown. Example: [\"point 1\", \"point 2\"]")
+                  f"For the interview question, list 3-5 KEY POINTS expected in a good answer "
+                  f"from a {level.replace('_', ' ')} candidate. Tag each point's weight: "
+                  f"\"core\" = essential to show real understanding (1-3 of these), "
+                  f"\"extra\" = a nice-to-have detail. Each point is 1 short sentence (under 15 words). "
+                  f"Return ONLY a valid JSON array of objects, no markdown. "
+                  f"Example: [{{\"point\":\"...\",\"weight\":\"core\"}},{{\"point\":\"...\",\"weight\":\"extra\"}}]")
     user_msg = f'Question: "{question}"'
 
     try:
         t0 = time.time()
         raw, usage = call_llm([{"role": "system", "content": system_msg},
                                {"role": "user", "content": user_msg}],
-                              temperature=0.0, max_tokens=300)
+                              temperature=0.0, max_tokens=400)
         ms = round((time.time() - t0) * 1000)
         points = safe_json(raw)
         # Fallback: if truncated JSON array, try to salvage complete entries
@@ -1710,10 +1731,18 @@ Test whether the candidate has genuinely improved or just memorized answers from
         # Inject expected points BEFORE the candidate's answer so the interviewer
         # knows what to look for when reading the answer
         if entry.get("expected_points") and entry.get("answer"):
-            pts = ", ".join(entry["expected_points"])
+            _np = _norm_expected_points(entry["expected_points"])
+            core = [t for t, w in _np if w == "core"]
+            extra = [t for t, w in _np if w == "extra"]
+            _core_txt = "; ".join(core) if core else "(none)"
+            _extra_txt = "; ".join(extra) if extra else "(none)"
             messages.append({"role": "system", "content":
-                f"EXPECTED POINTS for your last question: {pts}\n"
-                "Check which points the candidate covers below. Probe MISSING points before moving on."})
+                f"EXPECTED POINTS for your last question — CORE (must cover): {_core_txt}. "
+                f"NICE-TO-HAVE: {_extra_txt}.\n"
+                "If the candidate covered the CORE points, MOVE ON to a new topic — do NOT "
+                "follow up just to collect nice-to-have points. Only ask a follow-up if a CORE "
+                "point is missing or shaky AND the candidate claims to have done that work. If "
+                "they honestly say they never faced or worked on this, do not push — move on."})
         if entry.get("answer"):
             messages.append({"role": "user", "content": entry["answer"]})
 
@@ -2319,11 +2348,12 @@ In addition to the overall assessment, do ALL of these:
 - Score each group from QUESTION GROUPS as ONE entry in "per_question". Judge the candidate's combined technical merit across all answers in the group at THIS candidate's level.
 
 SCORING PHILOSOPHY — read carefully, this is STRICT:
-- Treat the merged [EXPECTED_POINTS] for the main question AND its follow-ups as the reference set of what a strong answer covers. Judge each point's IMPORTANCE to that specific question yourself — some points are central to demonstrating understanding, others are minor details. Weight them accordingly.
+- Treat the merged [EXPECTED_POINTS] for the main question AND its follow-ups as the reference set of what a strong answer covers. Each point is tagged (core) or (extra): CORE points are essential and carry most of the weight; EXTRA points are minor details worth little. Covering the core points with real depth should score well even if some extra points are missed.
+- HONESTY / NOT-APPLICABLE (apply strictly): If the candidate truthfully says they did NOT encounter or use something (e.g. "I didn't face metastability", "I didn't add synchronizer stages", "we didn't use that"), then the expected points that describe that un-encountered thing are NOT APPLICABLE to this candidate: (a) do NOT list them in missing_points, and (b) do NOT lower the score for them. Score the question ONLY on the parts the candidate DID claim to have done. You MAY still expect them to explain a technique THEY themselves brought up (e.g. if they say "I used gray-code pointers", it's fair to want why). A question whose only gaps are things the candidate honestly never faced must NOT receive a low score on that basis — a truthful "I didn't hit that" scores at least as well as, and usually better than, a vague bluff. When a question is largely not-applicable, lean toward a neutral/omitted score rather than a low one.
 - Score the group on the WEIGHTED VALUE of the points the candidate actually COVERED WITH REAL DEPTH — not on what they omitted. Credit is EARNED, never deducted: a point demonstrated convincingly earns its full weight; a shallow, name-dropped mention with no reasoning earns little or nothing; an unaddressed point earns nothing.
 - A low score therefore means the candidate covered few of the important points, or covered them only superficially — NOT that you subtracted for gaps. Do the math as additive earned credit, then map it to 0-10.
 - Depth gates the important points: naming a concept is not the same as explaining it. Reserve high scores for answers that show genuine, specific understanding of the points that matter most for the question. A response that recites correct-but-surface fundamentals should score LOW.
-- "missing_points": ONLY the concepts the candidate did NOT cover or got wrong across ALL answers in the group (main + follow-ups). If the candidate mentioned a concept correctly in ANY answer within the group (even partially), do NOT include it in missing_points. Use an empty list [] if they covered everything important. missing_points is candidate feedback only — it does NOT drive the score; the score comes solely from what they DID demonstrate.
+- "missing_points": ONLY the concepts the candidate did NOT cover or got wrong across ALL answers in the group (main + follow-ups). If the candidate mentioned a concept correctly in ANY answer within the group (even partially), do NOT include it in missing_points. Also EXCLUDE any point the candidate honestly said they never encountered or worked on — that is not a knowledge gap to hold against them. Use an empty list [] if they covered everything important. missing_points is candidate feedback only — it does NOT drive the score; the score comes solely from what they DID demonstrate.
 - Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
 
 Return ONLY valid JSON, no prose, no markdown fences:
@@ -2395,9 +2425,9 @@ def _build_eval_transcript(session, max_chars: int = 25000) -> str:
             lines.append(f"[Q{n}] {q}")
             last_main_q = n
             groups.setdefault(n, [])
-        pts = e.get("expected_points")
-        if pts and isinstance(pts, list):
-            lines.append(f"[EXPECTED_POINTS Q{n}] {'; '.join(pts)}")
+        pts = _norm_expected_points(e.get("expected_points"))
+        if pts:
+            lines.append(f"[EXPECTED_POINTS Q{n}] " + "; ".join(f"{t} ({w})" for t, w in pts))
         lines.append(f"[A{n}] {a if a else '(no answer)'}")
 
     if groups:
