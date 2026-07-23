@@ -1349,6 +1349,85 @@ def generate_expected_points(question: str, domain: str, level: str, session: di
         log.error(f"[ExpectedPts] Failed: {e}")
 
 
+def classify_question_tags(session, question: str):
+    """Background agent that labels a freshly-asked question by comparing it with the
+    PREVIOUS question and the candidate's ANSWER to it. It decides:
+      - is_followup: does this continue the same thread, or open a new topic?
+      - is_scenario: is it a hypothetical debug/what-if the candidate didn't describe?
+      - qtype: PROJECT / CONCEPT / SCENARIO (feeds the 40/40/20 mix steering).
+    Runs OFF the hot path (like expected-points) so it never delays the question the
+    candidate hears. Writes the flags onto the conversation entry and persists them,
+    so the next turn's steering can read them."""
+    if not question or _is_pause_prompt(question):
+        return
+    q_lower = question.lower()
+    if any(p in q_lower for p in ("tell me about yourself", "introduce yourself",
+                                  "little about yourself")):
+        return
+    conv = session.get("conversation", [])
+    idx = next((i for i in range(len(conv) - 1, -1, -1)
+                if conv[i].get("question") == question), None)
+    if idx is None:
+        return
+    prev = conv[idx - 1] if idx > 0 else None
+    prev_q = (prev or {}).get("question", "")
+    prev_a = (prev or {}).get("answer", "")
+    prev_was_followup = bool((prev or {}).get("is_followup"))
+    # The previous "question" being the greeting/intro means THIS is the first real
+    # technical question — it can never be a follow-up of an intro.
+    prev_is_intro = (not prev_q) or any(g in prev_q.lower() for g in
+        ("tell me about yourself", "introduce yourself", "little about yourself"))
+
+    system_msg = (
+        "You label one interview question. Compare the NEW question with the PREVIOUS "
+        "question and the candidate's ANSWER to it. Return ONLY JSON: "
+        '{"followup": true/false, "scenario": true/false, "type": "PROJECT|CONCEPT|SCENARIO"}.\n'
+        "followup=true if the NEW question stays on the SAME topic/thread — drilling the "
+        "previous answer, asking for a missing detail, or reacting to something they just "
+        "said; false if it opens a NEW topic.\n"
+        "scenario=true if the NEW question is a hypothetical symptom / what-if the candidate "
+        "did NOT already describe and must reason through.\n"
+        "type=PROJECT if it is about their own work/projects; CONCEPT if it is a clean "
+        "standalone fundamentals question; SCENARIO if it is a hypothetical.")
+    user_msg = (f"PREVIOUS question: {prev_q or '(none — first question)'}\n"
+                f"Candidate ANSWER: {prev_a or '(none)'}\n"
+                f"NEW question: {question}")
+    try:
+        t0 = time.time()
+        raw, usage = call_llm([{"role": "system", "content": system_msg},
+                               {"role": "user", "content": user_msg}],
+                              temperature=0.0, max_tokens=60)
+        ms = round((time.time() - t0) * 1000)
+        data = safe_json(raw) or {}
+        is_followup = bool(data.get("followup"))
+        is_scenario = bool(data.get("scenario"))
+        qtype = str(data.get("type", "")).upper()
+        if qtype not in ("PROJECT", "CONCEPT", "SCENARIO"):
+            qtype = "SCENARIO" if is_scenario else "CONCEPT"
+        # Keep the scenario flag consistent with the type verdict.
+        if qtype == "SCENARIO":
+            is_scenario = True
+        # A first technical question is never a follow-up of the intro.
+        if prev_is_intro:
+            is_followup = False
+        # Never chain two follow-ups in a row (deterministic backstop).
+        if is_followup and prev_was_followup:
+            is_followup = False
+        entry = conv[idx]
+        entry["is_followup"] = is_followup
+        entry["is_scenario"] = is_scenario
+        entry["qtype"] = qtype
+        if database.is_available():
+            database.save_active_session(session["id"], session)
+        session.setdefault("obs_log", []).append(
+            _obs_entry("LLM_tag_classify", RUNTIME_CONFIG["qgen_model"], ms, "success",
+                       input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
+                       cost_usd=usage["cost_usd"]))
+        log.info(f"[TagClassify] {ms}ms followup={is_followup} scenario={is_scenario} type={qtype}")
+    except Exception as e:
+        log.error(f"[TagClassify] Failed: {e}")
+
+
 
 # ── Curated question bank (from seed_question_bank.py) ─────────────────────────────
 # Research on LLM interviewers is clear: a curated question set calibrates an
@@ -1568,7 +1647,7 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "PICK YOUR NEXT MOVE from the candidate's last answer:\n"
         "- Solid → move to a NEW area and deliberately switch the KIND of question (see QUESTION "
         "TYPES); moving on need not mean the next project.\n"
-        "- Vague/evasive/low-effort → ask at most ONE [FOLLOWUP] on the same topic that forces a "
+        "- Vague/evasive/low-effort → ask at most ONE follow-up on the same topic that forces a "
         "concrete detail (a number, a specific step, a real example), then MOVE ON.\n"
         "- 'I don't know' / didn't do it → don't labour it, switch topics.\n"
         "BOUNDED FOLLOW-UPS: at most one follow-up per topic, and NEVER two follow-ups in a row. A "
@@ -1588,12 +1667,9 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "of the interview, not the whole of it.\n"
         "- SCENARIO: a realistic symptom they did NOT describe, built from THEIR stack, that they "
         "reason through.\n"
-        "\nTAGS (mechanical — the system groups questions by these, so tag correctly): a same-topic "
-        "continuation (drilling, a missing detail, reacting to their last answer) starts with "
-        "[FOLLOWUP] then a space; a hypothetical debug/what-if they did not describe starts with "
-        "[SCENARIO] then a space; a question that opens a new topic gets NO tag. Never tag a "
-        "genuinely new question, never leave a follow-up untagged. [CONCEPT]/[PROJECT] are NOT "
-        "tags — never write them in the question.\n"
+        "\nJust ask the question in natural words — do NOT prefix it with any tag or label "
+        "like [FOLLOWUP], [SCENARIO], [CONCEPT] or [PROJECT]; the system classifies the "
+        "question type for you.\n"
         "\nCALIBRATE DIFFICULTY. The candidate's level sets the starting rung; their answers set the "
         "trajectory. Cruising → go harder (tighter scenarios, sharper trade-offs). Struggling → step "
         "down to something concrete from their own work so they recover. The best question is one "
@@ -1662,14 +1738,18 @@ Test whether the candidate has genuinely improved or just memorized answers from
             if not q or _is_pause_prompt(q) or any(g in q.lower() for g in
                     ("tell me about yourself", "introduce yourself", "little about yourself")):
                 continue
-            if e.get("is_scenario"):
-                qt = "SCENARIO"
-            elif e.get("is_followup") and last_type:
-                qt = last_type  # a follow-up keeps its parent's type
-            elif any(_mentions(q, nm) for nm in proj_names):
-                qt = "PROJECT"
-            else:
-                qt = "CONCEPT"
+            # Prefer the background classifier's verdict (qtype); fall back to the old
+            # heuristic for entries not yet classified (e.g. the most recent turn).
+            qt = e.get("qtype")
+            if qt not in ("PROJECT", "CONCEPT", "SCENARIO"):
+                if e.get("is_scenario"):
+                    qt = "SCENARIO"
+                elif e.get("is_followup") and last_type:
+                    qt = last_type
+                elif any(_mentions(q, nm) for nm in proj_names):
+                    qt = "PROJECT"
+                else:
+                    qt = "CONCEPT"
             counts_by_type[qt] += 1
             last_type = qt
         n_proj = counts_by_type["PROJECT"]
@@ -1683,10 +1763,8 @@ Test whether the candidate has genuinely improved or just memorized answers from
             "below its share; that takes priority over project rotation. A concept "
             "check must be a clean standalone fundamentals question — do NOT tie it "
             "to their project or bolt it onto something they just described. A "
-            "genuine follow-up on the last answer is always allowed and keeps its "
-            "parent's type. Never write type labels like [CONCEPT] or [PROJECT] in "
-            "the question text — the only tags that exist are [FOLLOWUP] and "
-            "[SCENARIO].")
+            "genuine follow-up on the last answer is always allowed. Ask the question "
+            "in plain words with no tags or labels.")
         # Deterministic guards on top of the steer (still from tags/names, no
         # content heuristics): force the first scenario in by mid-session, and
         # brake scenarios once they are over their 20% share.
@@ -1695,8 +1773,7 @@ Test whether the candidate has genuinely improved or just memorized answers from
                 "\n\nSCENARIO DUE — none of the questions so far was a scenario. THIS "
                 "question must be one: give a concrete, realistic symptom in the "
                 "candidate's domain and stack that they have NOT already described, and "
-                "ask how they would investigate it. Start it with the [SCENARIO] tag. "
-                "Any pending follow-up can wait one turn.")
+                "ask how they would investigate it. Any pending follow-up can wait one turn.")
         elif n_typed >= 3 and n_scen / n_typed > 0.25:
             mix_reminder += (
                 "\n\nSCENARIOS OVER QUOTA — scenarios are already past their 20% share. "
@@ -1709,7 +1786,7 @@ Test whether the candidate has genuinely improved or just memorized answers from
     if not asked:
         open_steer = ("\n\nFIRST TECHNICAL QUESTION — open EASY: ask ONE standalone CONCEPT "
                       "question drawn from the DOMAIN QUESTION BANK on a topic from their "
-                      "résumé. No tag. Do NOT open by probing their project.")
+                      "résumé. Do NOT open by probing their project.")
     followup_guard = ""
     _conv = session.get("conversation", [])
     if _conv and _conv[-1].get("is_followup"):
@@ -2090,25 +2167,12 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         question = question.replace("[END_INTERVIEW]", "").strip()
         session["phase"] = "ended"
 
-    # Detect follow-up tag
-    is_followup = "[FOLLOWUP]" in question
-    if is_followup:
-        question = question.replace("[FOLLOWUP]", "").strip()
-    # Never chain two follow-ups: if the previous question was already a follow-up,
-    # demote this one to a new-topic question so the interview can't tunnel down a
-    # single thread. Deterministic backstop to the BOUNDED FOLLOW-UPS prompt rule.
-    if is_followup and session["conversation"] and session["conversation"][-1].get("is_followup"):
-        is_followup = False
-
-    # Detect scenario tag (self-classified by the LLM; lets us count scenarios
-    # mechanically without keyword heuristics)
-    is_scenario = "[SCENARIO]" in question
-    if is_scenario:
-        question = question.replace("[SCENARIO]", "").strip()
-
-    # Defensive: strip type labels the model sometimes invents from the mix
-    # steering ([CONCEPT]/[PROJECT] are not real tags) so they never reach TTS/UI.
-    question = question.replace("[CONCEPT]", "").replace("[PROJECT]", "").strip()
+    # Tag decisions (follow-up / scenario / type) are NOT made by the main prompt
+    # anymore — a background classifier decides them by comparing this question with
+    # the previous Q&A. Just strip any stray tag the model might still emit.
+    for _t in ("[FOLLOWUP]", "[SCENARIO]", "[CONCEPT]", "[PROJECT]"):
+        question = question.replace(_t, "")
+    question = question.strip()
 
     # Pause prompt ("Take your time", "Go ahead") — don't count as a new question.
     is_pause_prompt = _is_pause_prompt(question)
@@ -2117,25 +2181,22 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         session["_last_was_pause"] = True
     else:
         session.pop("_last_was_pause", None)
-        entry = {"question": question, "answer": None, "turn": session["turn"]}
-        if is_followup:
-            entry["is_followup"] = True
-        if is_scenario:
-            entry["is_scenario"] = True
-        session["conversation"].append(entry)
-        if not is_followup:
-            session["turn"] += 1
+        session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
+        session["turn"] += 1
 
     # Store LLM timing + cost
     session.setdefault("obs_log", []).append(obs)
 
-    # Fire background expected-points generation for the new question
+    # Fire background jobs for the new question (off the hot path): expected points
+    # for scoring, and tag classification (follow-up / scenario / type).
     if not llm_end and not is_pause_prompt:
         resume = session.get("resume", {})
         domain = resume.get("domain", "physical_design")
         level = resume.get("level", "trained_fresher")
         threading.Thread(target=generate_expected_points,
                          args=(question, domain, level, session), daemon=True).start()
+        threading.Thread(target=classify_question_tags,
+                         args=(session, question), daemon=True).start()
 
     return {"question": question, "should_end": llm_end, "pause_prompt": is_pause_prompt, "llm_ms": llm_ms}
 
@@ -3482,11 +3543,12 @@ def stream_answer(data: dict):
         if topics_covered:
             pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
         # Ending is owned by the stop agent (server-enforced), NOT the interviewer —
-        # so the interviewer must never end on its own. Keep the rest of its behavior
-        # (including [FOLLOWUP] drills on weak answers) unchanged.
+        # so the interviewer must never end on its own. It keeps drilling weak answers
+        # with follow-ups; the system classifies question type on its own (no tags).
         pacing += ("\nDo NOT end the interview yourself and do NOT output [END_INTERVIEW] — ending is "
                    "handled for you. Otherwise interview normally: when an answer is vague or hand-wavy "
-                   "on something that matters, use [FOLLOWUP] to pin it down; otherwise move to a new topic.")
+                   "on something that matters, ask one follow-up to pin it down; otherwise move to a new "
+                   "topic. Ask in plain words with no tags or labels.")
         messages.append({"role": "user", "content": answer + pacing})
 
         # Stream LLM tokens, buffer into sentences
@@ -3634,22 +3696,11 @@ def stream_answer(data: dict):
         question = re.sub(r'`([^`]+)`', r'\1', question)
         question = re.sub(r'#{1,3}\s*', '', question).strip()
 
-        # Detect follow-up tag
-        is_followup = "[FOLLOWUP]" in question
-        if is_followup:
-            question = question.replace("[FOLLOWUP]", "").strip()
-        # Never chain two follow-ups: demote to a new-topic question if the previous
-        # question was already a follow-up (deterministic backstop to the prompt rule).
-        if is_followup and session["conversation"] and session["conversation"][-1].get("is_followup"):
-            is_followup = False
-
-        # Detect scenario tag (self-classified by the LLM)
-        is_scenario = "[SCENARIO]" in question
-        if is_scenario:
-            question = question.replace("[SCENARIO]", "").strip()
-
-        # Defensive: strip invented type labels (not real tags) before storing.
-        question = question.replace("[CONCEPT]", "").replace("[PROJECT]", "").strip()
+        # Follow-up / scenario / type are decided by the background classifier now,
+        # not the main prompt. Strip any stray classification tags the model emits.
+        for _t in ("[FOLLOWUP]", "[SCENARIO]", "[CONCEPT]", "[PROJECT]"):
+            question = question.replace(_t, "")
+        question = question.strip()
 
         # Check behavior tags
         is_end = False
@@ -3675,14 +3726,12 @@ def stream_answer(data: dict):
             session["_last_was_pause"] = True
         else:
             session.pop("_last_was_pause", None)
-            entry = {"question": question, "answer": None, "turn": session["turn"]}
-            if is_followup:
-                entry["is_followup"] = True
-            if is_scenario:
-                entry["is_scenario"] = True
-            session["conversation"].append(entry)
-            if not is_followup:
-                session["turn"] += 1
+            session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
+            session["turn"] += 1
+            # Background tag classification (follow-up / scenario / type), off the hot path.
+            if not is_end:
+                threading.Thread(target=classify_question_tags,
+                                 args=(session, question), daemon=True).start()
 
         # Track LLM cost
         tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
