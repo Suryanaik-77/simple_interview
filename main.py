@@ -3100,14 +3100,8 @@ async def lms_launch(
     if voice_bytes:
         session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
 
-    # Load face reference from DB if candidate already has one
-    if email and ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
-        face_bytes, face_conf, face_glasses = database.get_face_reference(email)
-        if face_bytes:
-            session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
-            session["face_liveness_confidence"] = face_conf
-            session["face_ref_glasses"] = face_glasses
-            log.info(f"[FaceID] LMS: loaded face reference for {email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
+    # Face reference reuse disabled — each session registers a fresh face capture.
+    # Re-enable by restoring the get_face_reference lookup here.
 
     sessions[sid] = session
 
