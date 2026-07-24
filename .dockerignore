@@ -1,0 +1,13 @@
+__pycache__
+*.pyc
+*.pyo
+.git
+.env
+*.pem
+*.key
+_labs_aside/
+prompt_backups/
+.playwright-mcp/
+rag_interview/data/index.pkl
+candidate_history.json
+*.log
