@@ -69,21 +69,32 @@ SYSTEM_PROMPT = (
 # asks which one the user means instead of guessing. This agent decides that and
 # returns concrete options the UI renders as clickable buttons.
 CLARIFY_PROMPT = (
-    "You are a VLSI engineer deciding whether a user's question is too ambiguous "
-    "to answer well from the retrieved lab sections. It is ambiguous when the "
-    "sections span DISTINCT options the user has not chosen between:\n"
-    "  - different tool / provider (Synopsys Formality vs Cadence Conformal),\n"
-    "  - different flow or stage (RTL-to-Gate vs Gate-to-Gate LEC),\n"
-    "  - different testcase (guided vs challenge; AES vs CVA6 vs Iguana), or\n"
-    "  - a generic concept explanation vs step-by-step commands for one "
-    "testcase.\n"
-    "Return STRICT JSON: {\"clarify\": bool, \"question\": string, "
-    "\"options\": [string, ...]}. Set clarify=true ONLY when choosing one option "
-    "materially changes the answer AND the user did not already specify it. Give "
-    "a short question and 2-5 concrete, short option labels drawn from the ACTUAL "
-    "sections (e.g. \"Gate-to-Gate LEC (Iguana challenge)\"), each pickable in "
-    "one click. If the question is already specific, names a testcase, or only "
-    "one option fits, set clarify=false with an empty options list."
+    "You are a VLSI physical-design assistant deciding whether a user's question "
+    "genuinely needs the user to disambiguate before it can be answered well, "
+    "given the lab sections retrieved for it.\n"
+    "You are told, per FACET, the distinct values the retrieved sections span:\n"
+    "  - provider: the EDA tool vendor (Synopsys, Cadence, Siemens/Calibre).\n"
+    "  - stage: the flow stage (Synthesis, LEC, PnR, PV, STA).\n"
+    "Decide with an engineer's judgment:\n"
+    "  - Use your OWN knowledge to dismiss a FALSE spread. If the question is "
+    "about CTS, floorplan, placement, routing or chip finish, the stage is "
+    "obviously PnR even if a stray Synthesis section was retrieved — do NOT ask "
+    "about stage. DRC/LVS/antenna/fill are PV; equivalence is LEC; etc.\n"
+    "  - If the user already named the tool or stage — including via a tool name "
+    "(ICC2/Design Compiler/PrimeTime/Formality = Synopsys; Innovus/Genus/Tempus/"
+    "Conformal = Cadence; Calibre = Siemens) — that facet is settled; do NOT ask "
+    "it.\n"
+    "  - If the question asks to LIST or COUNT labs, explain a concept, or is "
+    "about a whole stage or the whole course, it is NOT ambiguous — answer it; do "
+    "NOT ask.\n"
+    "  - Only ask when picking one value would genuinely change the answer (e.g. "
+    "the exact command/flow differs between Synopsys and Cadence for the SAME "
+    "task the user asked about).\n"
+    "Return STRICT JSON: {\"clarify\": bool, \"facet\": \"provider\"|\"stage\"|"
+    "null, \"question\": string, \"options\": [labels]}. When clarify=true, set "
+    "facet to the ONE facet to disambiguate and options to the human labels for "
+    "its values EXACTLY as given to you. When clarify=false, question=\"\" and "
+    "options=[]."
 )
 
 # Whether to ask the student "Synopsys or Cadence?" before listing a stage's
@@ -177,53 +188,89 @@ def _verify_relevant(question, hits):
         return list(range(min(3, len(hits)))), False
 
 
-# Facets whose value materially changes the answer, in the order we'd ask about
-# them (coarsest first). Each entry: (facet_key, label_key, question_text).
-# NOTE: doc_type (guided vs challenge vs overview) is deliberately NOT a clarify
-# facet — nearly every topic has all three, so gating on it asks the user
-# "guided or challenge?" on almost every question. The guided page reliably
-# carries the commands, so we just answer instead of asking.
+# Facets whose value materially changes the answer. Each entry:
+# (facet_key, label_key, default_question_text). doc_type (guided vs challenge)
+# is deliberately NOT a clarify facet — the guided page reliably carries the
+# commands, so we answer instead of asking.
 _CLARIFY_FACETS = (
     ("stage", "stage_label", "Which flow/stage do you mean?"),
     ("provider", "provider_label", "Which tool do you mean?"),
 )
+_FACET_Q = {fk: q for fk, _lk, q in _CLARIFY_FACETS}
 
 
-def _facet_clarify(question, hits, only=None):
-    """Deterministic clarify from real filename facets — no LLM guessing.
-
-    If the retrieved hits span more than one value of a materially-different
-    facet (stage / provider / guided-vs-challenge) that the question did NOT
-    already specify, return that facet's real values as clickable options.
-    `only` optionally restricts which facets may be asked (e.g. ("provider",)
-    for catalog-level questions, where a "which stage?" clarify is nonsensical
-    but a Cadence-vs-Synopsys tool choice is still real).
-    Returns {"question", "options", "facet", "option_values"} or None.
-    """
-    qlc = question.lower()
-    for fk, lk, qtext in _CLARIFY_FACETS:
-        if only and fk not in only:
-            continue
-        values = {}                       # code -> human label, first seen wins
+def _facet_spread(hits):
+    """Deterministic DATA (not a heuristic): for each clarify facet, the distinct
+    {code: label} the retrieved hits actually span. Only facets with 2+ distinct
+    values are returned — those are the only ones there could be a choice about."""
+    spread = {}
+    for fk, lk, _q in _CLARIFY_FACETS:
+        vals = {}
         for h in hits:
-            f = h.get("facets") or {}
-            code = f.get(fk)
-            if code and code not in values:
-                values[code] = f.get(lk) or code
-        if len(values) < 2:
-            continue
-        # Skip if the user already named one of these (by code or label).
-        if any(code.lower() in qlc or str(lbl).lower() in qlc
-               for code, lbl in values.items()):
-            continue
-        codes = list(values.keys())
-        return {
-            "question": qtext,
-            "options": [values[c] for c in codes],
-            "facet": fk,
-            "option_values": codes,
-        }
-    return None
+            code = (h.get("facets") or {}).get(fk)
+            if code and code not in vals:
+                vals[code] = (h.get("facets") or {}).get(lk) or code
+        if len(vals) >= 2:
+            spread[fk] = vals
+    return spread
+
+
+def _clarify_decision(question, hits):
+    """LLM judgment: does this question genuinely need the user to disambiguate a
+    facet before we can answer well? The facet SPREAD (what the hits actually
+    span) is computed deterministically and handed to the model, which applies
+    engineering judgment — dismissing false spreads it can resolve itself (CTS is
+    obviously PnR), skipping facets the user already named, and never asking for
+    list/count/concept questions. Returns a facet-shaped clarify dict (so the
+    picked option still hard-restricts the corpus on the round-trip), or None."""
+    spread = _facet_spread(hits)
+    if not spread:
+        return None                       # hits agree on every facet → no choice
+
+    spread_desc = "\n".join(
+        f"- {fk}: " + ", ".join(sorted(vals.values()))
+        for fk, vals in spread.items())
+    topics = "\n".join(
+        f"  · [{(h.get('facets') or {}).get('stage_label', '?')}/"
+        f"{(h.get('facets') or {}).get('provider_label', '?')}] "
+        f"{h['lab_name']} :: {h['heading']}"
+        for h in hits[:6])
+    try:
+        resp = _client.chat.completions.create(
+            model=VERIFY_MODEL, temperature=0, max_tokens=600,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": CLARIFY_PROMPT},
+                {"role": "user", "content":
+                    f"Question: {question}\n\n"
+                    f"Facets the retrieved sections span:\n{spread_desc}\n\n"
+                    f"Retrieved section topics:\n{topics}"},
+            ],
+        )
+        data = json.loads(resp.choices[0].message.content)
+    except Exception:
+        return None
+    if not data.get("clarify"):
+        return None
+    fk = data.get("facet")
+    if fk not in spread:                  # model picked a facet that isn't split
+        return None
+    vals = spread[fk]                     # {code: label}
+    # Map the model's chosen labels back to REAL codes; drop anything invented.
+    by_label = {str(l).lower(): c for c, l in vals.items()}
+    codes = []
+    for o in data.get("options", []):
+        c = by_label.get(str(o).strip().lower())
+        if c and c not in codes:
+            codes.append(c)
+    if len(codes) < 2:                    # fall back to all real values for facet
+        codes = list(vals.keys())
+    return {
+        "question": data.get("question") or _FACET_Q[fk],
+        "options": [vals[c] for c in codes],
+        "facet": fk,
+        "option_values": codes,
+    }
 
 
 _PROVIDER_LABEL = {"SNPS": "Synopsys", "CDN": "Cadence", "SIE": "Siemens"}
@@ -261,21 +308,6 @@ _STAGE_PATTERNS = {
 }
 
 
-def _stage_providers():
-    """{stage_code: {provider_codes}} present in the corpus — the ground truth
-    for whether a stage offers a real tool choice."""
-    sp = {}
-    for c in engine.chunks:
-        f = c.get("facets") or {}
-        st, pr = f.get("stage"), f.get("provider")
-        if st and pr:
-            sp.setdefault(st, set()).add(pr)
-    return sp
-
-
-STAGE_PROVIDERS = _stage_providers()
-
-
 def _asks_stage_labs(question):
     """Narrow LLM gate: is the user asking for a single stage's ordered labs?"""
     try:
@@ -308,20 +340,6 @@ def _stage_catalog(question):
     return named[0]
 
 
-def _stage_tool_clarify(stage):
-    """Provider clarify for a stage that offers a real tool choice, else None."""
-    codes = [p for p in ("SNPS", "CDN", "SIE")
-             if p in STAGE_PROVIDERS.get(stage, set())]
-    if len(codes) < 2:                      # stage is fixed to one tool
-        return None
-    return {
-        "question": "Which tool do you mean?",
-        "options": [_PROVIDER_LABEL.get(c, c) for c in codes],
-        "facet": "provider",
-        "option_values": codes,
-    }
-
-
 OVERVIEW_SOURCE = "pd_learning_path.html"
 
 
@@ -352,43 +370,141 @@ def _overview_doc_sections():
     return out
 
 
-def _clarify_needed(question, hits):
-    """Return {"question", "options"} if the request is ambiguous, else None."""
-    listing = "\n".join(
-        f"{i}. [lab: {h['lab_name']} | section: {h['heading']}] "
-        f"{_sanitize_paths(h['content'][:180])}"
-        for i, h in enumerate(hits)
-    )
-    try:
-        resp = _client.chat.completions.create(
-            model=VERIFY_MODEL,
-            temperature=0,
-            max_tokens=800,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": CLARIFY_PROMPT},
-                {"role": "user",
-                 "content": f"Question: {question}\n\nSections:\n{listing}"},
-            ],
-        )
-        data = json.loads(resp.choices[0].message.content)
-        if not data.get("clarify"):
-            return None
-        opts, seen = [], set()
-        for o in data.get("options", []):
-            label = _sanitize_paths(str(o)).strip()
-            if label and label.lower() not in seen:
-                seen.add(label.lower())
-                opts.append(label)
-        opts = opts[:5]
-        if len(opts) < 2:            # nothing meaningful to choose between
-            return None
-        q = _sanitize_paths(str(data.get("question") or "").strip()) \
-            or "Which one do you mean?"
-        return {"question": q, "options": opts}
-    except Exception:
-        # On any failure, don't block — fall through to a normal answer.
+# ---------------------------------------------------------------------------
+# Module-order routing for "what's the next lab?" questions.
+#
+# "Which lab comes after X" is a CURRICULUM question — its answer is the fixed
+# course order, not anything inside a testcase. Left to normal retrieval it's
+# unreliable: a testcase's own "Next Step" section (meaning the next step WITHIN
+# that lab) can outrank the right content, so the same question flips between
+# "next lab = Floorplan" and "next = the challenge testcase". We answer it
+# deterministically from the ordered curriculum below (mirrors the
+# available-now modules of pd_learning_path.html, in stage order). Tool-agnostic
+# — the module order is identical for Synopsys and Cadence — so no tool clarify.
+# ---------------------------------------------------------------------------
+_CURRICULUM = [
+    ("SYN", "Synthesis", "Unresolved References"),
+    ("SYN", "Synthesis", "Check Timing Issues"),
+    ("SYN", "Synthesis", "Logic Aware Synthesis"),
+    ("SYN", "Synthesis", "Physical Aware Synthesis"),
+    ("LEC", "LEC", "RTL to Netlist"),
+    ("LEC", "LEC", "Netlist to Netlist"),
+    ("LEC", "LEC", "Clock Gating App Option"),
+    ("PNR", "PnR", "Design Init"),
+    ("PNR", "PnR", "Floorplan"),
+    ("PNR", "PnR", "Placement"),
+    ("PNR", "PnR", "CTS"),
+    ("PNR", "PnR", "Route"),
+    ("PNR", "PnR", "Post Route"),
+    ("PNR", "PnR", "Chip Finish"),
+    ("PV", "PV", "DRC Flow"),
+    ("PV", "PV", "LVS Flow"),
+    ("PV", "PV", "Antenna"),
+    ("PV", "PV", "Dummy Fill FEOL"),
+    ("PV", "PV", "Dummy Fill BEOL"),
+    ("PV", "PV", "GDS Merging"),
+    ("STA", "STA", "STA Flow"),
+    ("STA", "STA", "DMSA Based ECO Generation"),
+]
+_STAGE_NUM = {"SYN": 1, "LEC": 2, "PNR": 3, "PV": 4, "STA": 5}
+
+# Alias patterns per module. Matching picks the LONGEST match so "post route"
+# resolves to Post Route rather than Route.
+_MODULE_ALIASES = {
+    "Unresolved References": r"unresolved\s+ref\w*|missing\s+ref\w*|unresolved",
+    "Check Timing Issues":   r"check\s+timing|timing\s+issue\w*",
+    "Logic Aware Synthesis": r"logic[\s-]*aware(?:\s+synth\w*)?",
+    "Physical Aware Synthesis": r"physical[\s-]*aware(?:\s+synth\w*)?",
+    "RTL to Netlist":  r"rtl[\s-]*to[\s-]*netlist|rtl2netlist|\br2n\b",
+    "Netlist to Netlist": r"netlist[\s-]*to[\s-]*netlist|\bn2n\b",
+    "Clock Gating App Option": r"clock[\s-]*gating(?:\s+app\w*)?",
+    "Design Init":  r"design\s*init\w*|design\s+initial\w*|initializ\w*|\bdi\b|\binit\b",
+    "Floorplan":    r"floor[\s-]*plan\w*|\bfp\b",
+    "Placement":    r"placement|\bplacing\b|\bplace\b|\bpl\b",
+    "CTS":          r"\bcts\b|clock\s+tree(?:\s+synth\w*)?",
+    "Route":        r"\brout(?:e|ing)\b|detail\s+rout\w*|\brt\b",
+    "Post Route":   r"post[\s-]*rout\w*",
+    "Chip Finish":  r"chip\s*finish\w*|\bcf\b",
+    "DRC Flow":     r"\bdrc\b",
+    "LVS Flow":     r"\blvs\b",
+    "Antenna":      r"antenna",
+    "Dummy Fill FEOL": r"dummy\s*fill\s*feol|feol\s*(?:fill|dummy)|\bfeol\b",
+    "Dummy Fill BEOL": r"dummy\s*fill\s*beol|beol\s*(?:fill|dummy)|\bbeol\b",
+    "GDS Merging":  r"gds\s*merg\w*|merg\w*\s*gds",
+    "STA Flow":     r"\bsta\s*flow\b|static\s+timing(?:\s+analysis)?",
+    "DMSA Based ECO Generation": r"\bdmsa\b|eco\s+generation",
+}
+
+_NEXT_INTENT_RE = re.compile(
+    r"\b(next|after|following|subsequent|proceed|onwards?)\b"
+    r"|what\s+now|now\s+what|move\s+on|where\s+to\b", re.I)
+# If the question is command/step scoped, it isn't a curriculum "next lab" ask.
+_CMD_SCOPE_RE = re.compile(
+    r"\b(command|cmd|script|run|execute|syntax|option|flag|tcl|step)\b", re.I)
+
+
+def _match_module(text):
+    """Return the canonical module named in text (longest alias match), or None."""
+    best = None  # (match_len, canonical_name)
+    for canon, pat in _MODULE_ALIASES.items():
+        m = re.search(pat, text, re.I)
+        if m and (best is None or (m.end() - m.start()) > best[0]):
+            best = (m.end() - m.start(), canon)
+    return best[1] if best else None
+
+
+def _stage_order(stage_code):
+    """Ordered module names of one stage, for showing the sequence."""
+    return [m for (sc, _, m) in _CURRICULUM if sc == stage_code]
+
+
+def _next_lab_route(question):
+    """If the question asks which lab/module comes next after a named module,
+    answer deterministically from _CURRICULUM. Else None (fall through to RAG).
+    """
+    if _CMD_SCOPE_RE.search(question) or not _NEXT_INTENT_RE.search(question):
         return None
+    module = _match_module(question)
+    if not module:
+        return None
+    idx = next((i for i, (_, _, m) in enumerate(_CURRICULUM) if m == module), None)
+    if idx is None:
+        return None
+
+    sc, slabel, mod = _CURRICULUM[idx]
+    snum = _STAGE_NUM[sc]
+    order = " → ".join(_stage_order(sc))
+    if idx == len(_CURRICULUM) - 1:
+        answer = (
+            f"You've completed **{mod}** — the final lab in the course "
+            f"(Stage {snum}, {slabel}). That's the end of the physical-design "
+            f"learning path. 🎉\n\n{slabel} order: {order}")
+    else:
+        nsc, nslabel, nmod = _CURRICULUM[idx + 1]
+        if nsc == sc:
+            answer = (
+                f"You finished **{mod}**. The next lab in **Stage {snum} — "
+                f"{slabel}** is **{nmod}**.\n\n{slabel} order: {order}\n\n"
+                f"Each module has a **Guided** lab (step-by-step) then a "
+                f"**Challenge** lab (open-ended), so do {nmod} Guided next.")
+        else:
+            nnum = _STAGE_NUM[nsc]
+            answer = (
+                f"You finished **{mod}**, the last lab in **Stage {snum} — "
+                f"{slabel}**. Next is **Stage {nnum} — {nslabel}**, starting "
+                f"with **{nmod}**.\n\n{nslabel} order: "
+                f"{' → '.join(_stage_order(nsc))}")
+
+    source = {
+        "n": 1,
+        "lab_name": "Recommended Learning Path",
+        "heading": f"Stage {snum} — {slabel}",
+        "source": OVERVIEW_SOURCE,
+        "score": 1.0,
+        "facets": {},
+        "content": f"{slabel} modules, in order: {order}",
+    }
+    return {"answer": answer, "sources": [source]}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -405,7 +521,14 @@ def api_labs():
 
 @app.post("/api/ask")
 def api_ask(req: AskRequest):
-    # 0. If the question already names a vendor-specific tool (e.g. ICC2 =
+    # 0a. "Which lab comes after X?" is a curriculum-order question — answer it
+    #     deterministically from the course sequence before any retrieval, so it
+    #     never gets hijacked by a testcase's internal "Next Step" section.
+    routed = _next_lab_route(req.question)
+    if routed:
+        return routed
+
+    # 0b. If the question already names a vendor-specific tool (e.g. ICC2 =
     #    Synopsys, Innovus = Cadence), the tool is settled — resolve the provider
     #    silently so retrieval restricts to that vendor and we skip a redundant
     #    "Synopsys or Cadence?" clarify. Only when the user hasn't picked one.
@@ -420,33 +543,25 @@ def api_ask(req: AskRequest):
     if not hits:
         return {"answer": "No lab content is indexed.", "sources": []}
 
-    # 2. Ambiguity check. Prefer DETERMINISTIC facet clarify (real Synopsys vs
-    #    Cadence / stage / guided-vs-challenge values from the filenames); only
-    #    fall back to the LLM clarify for subtler within-facet ambiguity. The UI
-    #    renders the options as buttons.
-    # The learning-path / lab-catalog overview page carries no facets (it's
-    # tool- and stage-agnostic). A question is "catalog-level" when either that
-    # page is the strongest hit OR it asks for one stage's ordered labs (routed
-    # by _stage_catalog even if a specific lab ranks #1 — retrieval order is
-    # phrasing-sensitive). We only probe _stage_catalog when the overview page
-    # is actually retrieved, so specific lab questions pay no extra LLM call.
+    # 2. Ambiguity check — a single LLM judgment call. The learning-path overview
+    #    page carries no facets; a question is "catalog-level" when that page is
+    #    the strongest hit OR it asks for one stage's ordered labs (routed by
+    #    _stage_catalog even if a specific lab ranks #1). Catalog questions are
+    #    answered from the whole overview page — which already covers every tool
+    #    and stage — so they never need disambiguation. Only lab-content questions
+    #    with confident retrieval go through the clarify judgment, which decides
+    #    (using the real facet spread of the hits) whether a tool/stage choice
+    #    genuinely changes the answer. The picked option comes back as a facet, so
+    #    it hard-restricts the corpus on the follow-up request.
     top_is_overview = not (hits[0].get("facets") or {})
     overview_in_hits = any(not (h.get("facets") or {}) for h in hits)
-    already_picked_tool = bool((req.facets or {}).get("provider"))
     stage_catalog = _stage_catalog(req.question) \
         if (req.allow_clarify and overview_in_hits) else None
     overview_mode = top_is_overview or stage_catalog is not None
 
-    if req.allow_clarify and (overview_mode or hits[0]["score"] >= MIN_CLARIFY_SCORE):
-        # Catalog-level question: a "which stage?" clarify is nonsensical, but a
-        # Cadence-vs-Synopsys choice is real when the asked-about stage offers
-        # both tools (e.g. "give me the synthesis labs in order"). Testcase-led
-        # question: use the deterministic filename facets.
-        if overview_mode:
-            clar = _stage_tool_clarify(stage_catalog) \
-                if (stage_catalog and not already_picked_tool) else None
-        else:
-            clar = _facet_clarify(req.question, hits)
+    if req.allow_clarify and not overview_mode \
+            and hits[0]["score"] >= MIN_CLARIFY_SCORE:
+        clar = _clarify_decision(req.question, hits)
         if clar:
             return {
                 "clarify": True,
@@ -456,20 +571,6 @@ def api_ask(req: AskRequest):
                 "option_values": clar["option_values"],
                 "sources": [],
             }
-        # LLM clarify only for MEANINGFUL within-provider variant ambiguity
-        # (e.g. logic- vs physical-aware synthesis) — NOT guided-vs-challenge of
-        # the same variant, which we answer directly from the guided page.
-        variants = {(h.get("facets") or {}).get("variant") for h in hits}
-        variants.discard(None)
-        if not overview_mode and len(variants) > 1:
-            clar = _clarify_needed(req.question, hits)
-            if clar:
-                return {
-                    "clarify": True,
-                    "question": clar["question"],
-                    "options": clar["options"],
-                    "sources": [],
-                }
 
     # 3. Overview-led catalog question: ground on the WHOLE (tiny) learning-path
     #    page, in document order, so the answer is complete. Skips the top-k

@@ -726,6 +726,79 @@
     </p>
   </div>
 
+  <div class="rationale" style="margin-top: 16px;">
+    <h2>Where the labs live on disk — lab directory paths</h2>
+    <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px; line-height:1.7;">
+      Every lab lives under <code>~/pd/labs/</code>. A lab's directory is named <code>&lt;STAGE&gt;-&lt;TOOL&gt;-&lt;MODULE&gt;</code>, where TOOL is <strong>SNPS</strong> (Synopsys), <strong>CDN</strong> (Cadence) or <strong>SIE</strong> (Siemens Calibre). Inside each lab directory are its testcase folders: the Guided testcase <code>TC-&lt;STAGE&gt;-&lt;TOOL&gt;-&lt;MODULE&gt;-GD-001</code> and the Challenge testcase <code>TC-&lt;STAGE&gt;-&lt;TOOL&gt;-&lt;MODULE&gt;-CH-001</code>. So a full path looks like <code>~/pd/labs/PNR-SNPS-DI/TC-PNR-SNPS-DI-GD-001</code> (Synopsys Design-Init guided lab). To open a lab you <code>cd</code> into its testcase folder.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 4 — PV (Calibre, tool code SIE):</strong>
+      DRC Flow: <code>~/pd/labs/PV-SIE-DRC/TC-PV-SIE-DRC-GD-001</code>.
+      LVS Flow: <code>~/pd/labs/PV-SIE-LVS/TC-PV-SIE-LVS-GD-001</code>.
+      Antenna: <code>~/pd/labs/PV-SIE-ANT/TC-PV-SIE-ANT-GD-001</code>.
+      Dummy Fill FEOL: <code>~/pd/labs/PV-SIE-DF_FEOL/TC-PV-SIE-DF_FEOL-GD-001</code>.
+      Dummy Fill BEOL: <code>~/pd/labs/PV-SIE-DF_BEOL/TC-PV-SIE-DF_BEOL-GD-001</code>.
+      GDS Merging: <code>~/pd/labs/PV-SIE-GDS/TC-PV-SIE-GDS-GD-001</code>.
+      (PV is Calibre-only, so there is no SNPS/CDN variant and only a Guided testcase.)
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 1 — Synthesis</strong> module codes (each with SNPS and CDN dirs): Unresolved References <code>URR</code>, Check Timing Issues <code>CT</code>, Logic Aware Synthesis <code>LS</code>, Physical Aware Synthesis <code>PS</code> — e.g. <code>~/pd/labs/SYN-SNPS-URR/TC-SYN-SNPS-URR-GD-001</code>.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 2 — LEC</strong> module codes (Synopsys Formality only, SNPS dirs): RTL to Netlist <code>R2N</code>, Netlist to Netlist <code>N2N</code>, Clock Gating App Option <code>CG</code> — e.g. <code>~/pd/labs/LEC-SNPS-CG/TC-LEC-SNPS-CG-GD-001</code>.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 3 — PnR</strong> module codes (each with SNPS and CDN dirs): Design Init <code>DI</code>, Floorplan <code>FP</code>, Placement <code>PL</code>, CTS <code>CTS</code>, Route <code>RT</code>, Chip Finish <code>CF</code> — e.g. <code>~/pd/labs/PNR-CDN-CTS/TC-PNR-CDN-CTS-GD-001</code>.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 5 — STA</strong> module codes (each with SNPS and CDN dirs): STA Flow <code>STA</code>, DMSA Based ECO Generation <code>DMSA</code> — e.g. <code>~/pd/labs/STA-SNPS-STA/TC-STA-SNPS-STA-GD-001</code>.
+    </p>
+  </div>
+
+  <div class="rationale" style="margin-top: 16px;">
+    <h2>Time estimates — how long does each lab take</h2>
+    <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px; line-height:1.7;">
+      Each module has two lab variants: a <strong>Guided lab</strong> (step-by-step with checkpoints, shorter) and a <strong>Challenge lab</strong> (open-ended, minimal hints, longer). Estimates below are per-module averages across both tool choices (Synopsys and Cadence times are similar for most modules).
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 1 — Synthesis (4 modules):</strong>
+      Unresolved References: Guided 45–60 min, Challenge 90–120 min.
+      Check Timing Issues: Guided 45–60 min, Challenge 90–120 min.
+      Logic Aware Synthesis: Guided 60–90 min, Challenge 90–120 min.
+      Physical Aware Synthesis: Guided 90–120 min, Challenge 90–120 min.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 2 — LEC (3 modules, Synopsys Formality):</strong>
+      RTL to Netlist: Guided 45–60 min, Challenge 90–120 min.
+      Netlist to Netlist: Guided 45–60 min, Challenge 90–120 min.
+      Clock Gating App Option: Guided 60–90 min, Challenge 60 min.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 3 — PnR (7 modules):</strong>
+      Design Init: Guided 60–90 min, Challenge 90–120 min.
+      Floorplan: Guided 60–90 min, Challenge 90–120 min.
+      Placement: Guided 60–90 min, Challenge 90–120 min.
+      CTS: Guided 60–90 min, Challenge 90–120 min.
+      Route: Guided 120–150 min, Challenge 90–150 min.
+      Post Route: Guided 60–90 min, Challenge 90–120 min.
+      Chip Finish: Guided 60–90 min, Challenge 90–120 min.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 4 — PV (6 modules, Calibre):</strong>
+      DRC Flow: 20 min. LVS Flow: 30 min. Antenna: 20 min.
+      Dummy Fill FEOL: 20 min. Dummy Fill BEOL: 20 min. GDS Merging: 20 min.
+      PV labs are shorter because they run on a pre-completed routed layout.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      <strong>Stage 5 — STA (2 modules):</strong>
+      STA Flow: Guided 1.5–2 hours, Challenge 1.5–6 hours (Synopsys STA is longer due to full multi-corner setup).
+      DMSA Based ECO Generation: Guided 60–90 min, Challenge 60–90 min.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.7;">
+      Overall: plan for <strong>1–2 hours per Guided lab</strong> and <strong>1.5–3 hours per Challenge lab</strong>, except PV labs which are 20–30 minutes each. Total course time across all 35 labs is approximately <strong>60–80 hours</strong> depending on tool choice and experience level.
+    </p>
+  </div>
+
 </main>
 </body>
 </html>

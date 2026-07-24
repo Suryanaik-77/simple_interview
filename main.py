@@ -2639,7 +2639,8 @@ def evaluate_interview(session) -> dict:
         log.info(f"[Eval] {sid[:8]} ({level}): score={result.get('overall_score', '?')} "
                  f"rec={result.get('recommendation', '?')} {eval_ms}ms ${usage['cost_usd']:.4f}")
 
-        # Send results to LMS if this was an LMS-launched session
+        # LMS fetches results directly from the DB (lms_interview_results view).
+        # Push callback kept for backward compat with any older LMS integration.
         if session.get("lms_callback_url"):
             threading.Thread(target=_lms_callback, args=(session,), daemon=True).start()
 
@@ -3094,8 +3095,8 @@ async def lms_launch(
     if rekog_obs:
         session.setdefault("obs_log", []).append(rekog_obs)
     import base64
-    if callback_url:
-        session["lms_callback_url"] = callback_url
+    # LMS now reads results directly from the DB (lms_interview_results view).
+    # callback_url is no longer used for new sessions.
     if voice_bytes:
         session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
 

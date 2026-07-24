@@ -261,3 +261,54 @@ CREATE TABLE IF NOT EXISTS cognition_state (
     state_value     JSONB NOT NULL DEFAULT '{}',
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ═══════════════════════════════════════════
+-- LMS READ-ONLY VIEW
+-- EduSpark LMS queries this view directly using a read-only DB connection.
+-- The lms_reader user (created once via lms_db_setup.sql) has SELECT on this
+-- view only — nothing else in the database is visible to it.
+-- ═══════════════════════════════════════════
+CREATE OR REPLACE VIEW lms_interview_results AS
+SELECT
+    s.session_id,
+    s.session_data->'resume'->>'email'              AS email,
+    s.session_data->'resume'->>'candidate_name'     AS candidate_name,
+    s.session_data->'resume'->>'domain'             AS domain,
+    s.session_data->'resume'->>'level'              AS level,
+    (s.session_data->'resume'->>'years_experience')::real AS years_experience,
+    s.session_data->>'mode'                         AS mode,
+
+    -- Evaluation summary
+    s.session_data->'evaluation'->>'status'         AS eval_status,
+    (s.session_data->'evaluation'->>'overall_score')::real   AS overall_score,
+    (s.session_data->'evaluation'->>'communication_score')::real AS communication_score,
+    s.session_data->'evaluation'->>'grade'          AS grade,
+    s.session_data->'evaluation'->>'verdict'        AS verdict,
+    s.session_data->'evaluation'->>'trajectory'     AS trajectory,
+    s.session_data->'evaluation'->>'level_fit'      AS level_fit,
+    s.session_data->'evaluation'->>'recommendation' AS recommendation,
+    s.session_data->'evaluation'->>'summary'        AS summary,
+    s.session_data->'evaluation'->'strengths'       AS strengths,
+    s.session_data->'evaluation'->'weaknesses'      AS weaknesses,
+    s.session_data->'evaluation'->'topic_scores'    AS topic_scores,
+    (s.session_data->'evaluation'->>'answered')::int AS questions_answered,
+
+    -- Integrity / anti-cheat
+    s.session_data->'anticheat_log'->>'trust_score'          AS trust_score,
+    (s.session_data->'anticheat_log'->>'ai_detection_flags')::int  AS ai_detection_flags,
+    (s.session_data->'anticheat_log'->>'face_mismatch_count')::int AS face_mismatch_count,
+    (s.session_data->'anticheat_log'->>'tab_switch_count')::int    AS tab_switch_count,
+    (s.session_data->>'speaker_mismatch_count')::int               AS voice_mismatch_count,
+
+    -- Timestamps
+    to_timestamp((s.session_data->>'started_at')::double precision) AS started_at,
+    s.updated_at                                    AS completed_at,
+
+    -- Per-question detail (JSON array — parse on LMS side if needed)
+    s.session_data->'evaluation'->'per_question_scores' AS per_question_scores,
+    s.session_data->'conversation'                  AS conversation
+
+FROM active_sessions s
+WHERE s.session_data->>'phase' = 'done'
+  AND s.session_data->'evaluation' IS NOT NULL
+  AND s.session_data->'evaluation' != 'null'::jsonb;
