@@ -3080,11 +3080,9 @@ async def lms_launch(
             except Exception as e:
                 log.error(f"[FaceID] LMS face detection failed: {e}")
                 raise HTTPException(500, f"Face detection failed: {e}")
-        # Save to DB for reuse across sessions
-        if not database.save_face_reference(email, face_image_bytes, 0, wearing_glasses=face_wearing_glasses):
-            log.error(f"[FaceID] WARNING: failed to save face reference for {email}")
-        else:
-            log.info(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
+        # Save to DB — reference will be set into session below after session is created
+        database.save_face_reference(email, face_image_bytes, 0, wearing_glasses=face_wearing_glasses)
+        log.info(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
 
     sid = secrets.token_hex(8)
     session = {
@@ -3099,9 +3097,10 @@ async def lms_launch(
     # callback_url is no longer used for new sessions.
     if voice_bytes:
         session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
-
-    # Face reference reuse disabled — each session registers a fresh face capture.
-    # Re-enable by restoring the get_face_reference lookup here.
+    # Set face reference in session so start-gate + per-minute compare work
+    if face_image_bytes:
+        session["face_ref_image"] = base64.b64encode(face_image_bytes).decode("ascii")
+        session["face_ref_glasses"] = face_wearing_glasses
 
     sessions[sid] = session
 
