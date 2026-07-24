@@ -1341,8 +1341,8 @@
     const SILENCE_TIMEOUT = 2000;     // 2.0s total silence → finalize turn (no re-send)
     const MAX_CHUNK_MS = 30000;   // 30s auto-send
     const NO_SPEECH_TIMEOUT = 10000;  // 10s no speech → prompt candidate
-    const NO_ANSWER_NUDGE_MS = 5000;    // 5s of total silence (no answer) → voice nudge
-    const NO_ANSWER_ADVANCE_MS = 5000;  // still silent 5s after the nudge → next question
+    const NO_ANSWER_NUDGE_MS = 15000;   // 15s of total silence (no answer) → voice nudge
+    const NO_ANSWER_ADVANCE_MS = 15000; // still silent 15s after the nudge → next question
 
     // Pause-tracking across recorder restarts (survives the 1s auto-commit restart)
     let _pauseStartedAt = null;       // wall-clock of pause start; null while speaking
