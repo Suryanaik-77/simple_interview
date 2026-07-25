@@ -661,6 +661,24 @@
         return t.readyState === 'ended' || t.enabled === false || t.muted === true;
     }
 
+    // Returns true when the live frame is too dark — camera physically covered or
+    // blocked by a finger/object. Samples a 32×24 thumbnail for speed.
+    function isFrameDark() {
+        const v = document.getElementById('cam-video');
+        if (!v || v.readyState < 2) return false;
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 24;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(v, 0, 0, 32, 24);
+            const data = ctx.getImageData(0, 0, 32, 24).data;
+            let sum = 0;
+            for (let i = 0; i < data.length; i += 4)
+                sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            return (sum / (data.length / 4)) < 12; // average luma < 12/255 ≈ near-black
+        } catch (e) { return false; }
+    }
+
     // Grab a JPEG (base64, no data-url prefix) from the live webcam, or null if
     // the camera isn't ready. Used for the pre-interview face gate.
     function captureCamFrameB64() {
@@ -950,7 +968,9 @@
             // early-returned silently, letting a candidate kill the camera to
             // escape face checks. Now treat it as face-absence so the same
             // warn → pause → terminate path fires.
-            const camOff = faceDetectEnabled && cameraWasEverOn && !camReady;
+            // Also treat a physically-covered camera (dark frame) as off.
+            const frameCovered = camReady && isFrameDark();
+            const camOff = faceDetectEnabled && cameraWasEverOn && (!camReady || frameCovered);
 
             if (!camOff) {
                 if (!video.srcObject || video.readyState < 2) return; // stream warming up
@@ -977,7 +997,7 @@
 
             // Update visible status on camera PIP
             if (!present) {
-                faceStatus.textContent = camOff ? 'CAMERA OFF!' : 'NO FACE!';
+                faceStatus.textContent = frameCovered ? 'CAMERA COVERED!' : (camOff ? 'CAMERA OFF!' : 'NO FACE!');
                 faceStatus.style.color = '#f44';
             } else if (headTurned) {
                 faceStatus.textContent = 'HEAD TURNED ' + direction + '!';
@@ -1007,23 +1027,28 @@
 
                 if (noFaceCount >= NO_FACE_LIMIT) {
                     cameraWarnings++;
-                    sendAntiCheat(camOff ? 'camera_off' : 'face_not_detected', `warnings:${cameraWarnings}`);
+                    const antiCheatTag = frameCovered ? 'camera_covered' : (camOff ? 'camera_off' : 'face_not_detected');
+                    sendAntiCheat(antiCheatTag, `warnings:${cameraWarnings}`);
 
                     if (cameraWarnings < 3) {
                         const warnText = cameraWarnings >= 2
                             ? 'Warning ' + cameraWarnings + ' of 2 — next time the interview will end.'
                             : 'Warning ' + cameraWarnings + ' of 2';
-                        pauseInterview(camOff ? 'camera_off' : 'face_not_detected',
-                            camOff
+                        const pauseReason2 = frameCovered ? 'camera_off' : (camOff ? 'camera_off' : 'face_not_detected');
+                        const pauseMsg = frameCovered
+                            ? 'Your camera appears to be covered.<br>Please uncover your camera to continue.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your face is clearly visible.</span>'
+                            : (camOff
                               ? 'Your camera appears to be turned off.<br>Please turn your camera back on to continue.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your camera is on and your face is visible.</span>'
-                              : 'We can\'t see your face on camera.<br>Please make sure you\'re visible and well-lit.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your face is detected.</span>',
-                            warnText);
+                              : 'We can\'t see your face on camera.<br>Please make sure you\'re visible and well-lit.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your face is detected.</span>');
+                        pauseInterview(pauseReason2, pauseMsg, warnText);
                     } else {
-                        sendAntiCheat(camOff ? 'camera_off_termination' : 'face_absence_termination', `${camOff ? 'camera_off' : 'no_face'}_${cameraWarnings}_times`);
+                        sendAntiCheat(frameCovered ? 'camera_covered_termination' : (camOff ? 'camera_off_termination' : 'face_absence_termination'), `${antiCheatTag}_${cameraWarnings}_times`);
                         if (interviewPaused) resumeInterview();
-                        endSessionWithMessage(camOff
-                          ? 'Interview ended — camera was turned off.'
-                          : 'Interview ended — candidate not detected on camera.');
+                        endSessionWithMessage(frameCovered
+                          ? 'Interview ended — camera was repeatedly covered.'
+                          : (camOff
+                            ? 'Interview ended — camera was turned off.'
+                            : 'Interview ended — candidate not detected on camera.'));
                     }
                     noFaceCount = 0;
                 }

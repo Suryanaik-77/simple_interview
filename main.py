@@ -1358,14 +1358,14 @@ def generate_expected_points(question: str, domain: str, level: str, session: di
                 if entry.get("question") == question:
                     entry["expected_points"] = points
                     break
-            # Persist to DB so the points survive between requests
-            if database.is_available():
-                database.save_active_session(session["id"], session)
             log.info(f"[ExpectedPts] {ms}ms | {len(points)} points | ${usage['cost_usd']:.4f}")
+        # Append obs_log entry BEFORE saving so the cost is captured in the same DB snapshot
         session.setdefault("obs_log", []).append(
             _obs_entry("LLM_expected_points", RUNTIME_CONFIG["qgen_model"], ms, "success",
                        input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
                        cost_usd=usage["cost_usd"]))
+        if database.is_available():
+            database.save_active_session(session["id"], session)
     except Exception as e:
         log.error(f"[ExpectedPts] Failed: {e}")
 
@@ -2188,11 +2188,13 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         "(The candidate did not respond within the time limit. Do not repeat that question — "
         "briefly acknowledge and move on to a NEW question on a different topic.)"
         if no_response else candidate_answer)
+    # Hard per-turn length reminder — keeps GPT-4.1-mini / Haiku from rambling
+    pacing += "\nONE question only. Maximum 2 short spoken sentences. Stop after the question mark."
     messages.append({"role": "user", "content": llm_answer + pacing})
 
     # Single LLM call — handles question generation + behavior detection
     t0_llm = time.time()
-    question, usage = call_llm(messages, temperature=0.7, max_tokens=200)
+    question, usage = call_llm(messages, temperature=0.7, max_tokens=150)
     llm_ms = round((time.time() - t0_llm) * 1000)
     log.info(f"[LLM] {RUNTIME_CONFIG['qgen_model']} {llm_ms}ms — turn {session['turn']} | in={usage['input_tokens']} out={usage['output_tokens']} ${usage['cost_usd']:.4f}")
 
