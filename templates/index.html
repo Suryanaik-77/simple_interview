@@ -768,9 +768,27 @@ function lobbyCameraOff() {
   return t.readyState === 'ended' || t.enabled === false || t.muted === true;
 }
 
+// True when the camera is streaming but the frame is near-black (physically covered).
+// Samples a 32×24 thumbnail for speed; luma threshold <12/255 ≈ covered.
+function isLobbyFrameDark() {
+  const video = document.getElementById('cam-preview');
+  if (!video || video.readyState < 2 || lobbyCameraOff()) return false;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32; canvas.height = 24;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, 32, 24);
+    const data = ctx.getImageData(0, 0, 32, 24).data;
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4)
+      sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    return (sum / (data.length / 4)) < 12;
+  } catch(e) { return false; }
+}
+
 // Camera was turned off after being enabled — revoke the "passed" state so the
 // interview can't start until it's re-enabled.
-function markCameraOff() {
+function markCameraOff(covered) {
   if (!S.camPassed) return;
   S.camPassed = false;
   const btn = document.getElementById('cam-btn');
@@ -780,9 +798,11 @@ function markCameraOff() {
   const placeholder = document.getElementById('cam-placeholder');
   video.classList.add('hidden');
   placeholder.classList.remove('hidden');
-  chip.textContent = 'Camera off'; chip.className = 'text-[10px] font-semibold text-danger';
+  chip.textContent = covered ? 'Camera covered' : 'Camera off';
+  chip.className = 'text-[10px] font-semibold text-danger';
   dot.className = 'w-2 h-2 rounded-full bg-danger';
-  btn.disabled = false; btn.textContent = 'Re-enable';
+  btn.disabled = false;
+  btn.textContent = covered ? 'Uncover & Re-enable' : 'Re-enable';
   btn.className = 'px-4 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors';
   updateChecks();
 }
@@ -791,8 +811,10 @@ let _camMonitor = null;
 function startCameraMonitor() {
   if (_camMonitor) return;
   // Track events aren't fired reliably across every "turn off" path, so poll too.
+  // Also check for covered camera (dark frame) every cycle.
   _camMonitor = setInterval(() => {
-    if (S.camPassed && lobbyCameraOff()) markCameraOff();
+    if (S.camPassed && lobbyCameraOff()) { markCameraOff(false); return; }
+    if (S.camPassed && isLobbyFrameDark()) { markCameraOff(true); }
   }, 1000);
 }
 
@@ -971,6 +993,10 @@ async function captureFaceRef() {
   const video = document.getElementById('cam-preview');
   if (!video || !video.srcObject || video.readyState < 2) {
     alert('Please enable your camera first.');
+    return;
+  }
+  if (isLobbyFrameDark()) {
+    alert('Your camera appears to be covered. Please uncover the camera and try again.');
     return;
   }
   btn.disabled = true; btn.textContent = 'Capturing...';
