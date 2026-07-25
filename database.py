@@ -289,6 +289,86 @@ def update_session_ai_detection(session_id, turn_index, detection):
         return False
 
 
+def update_session_question_tags(session_id, turn_index, is_followup, is_scenario, qtype):
+    """Atomically write tag-classifier results onto a single conversation turn.
+    Uses jsonb_set so it never races with the foreground turn handler."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        # Build the patch by chaining jsonb_set calls at the SQL level.
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE active_sessions
+                    SET session_data = jsonb_set(
+                        jsonb_set(
+                            jsonb_set(session_data,
+                                %s::text[], %s::jsonb, true),
+                            %s::text[], %s::jsonb, true),
+                        %s::text[], %s::jsonb, true),
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                """, (
+                    ["conversation", str(turn_index), "is_followup"], json.dumps(is_followup),
+                    ["conversation", str(turn_index), "is_scenario"], json.dumps(is_scenario),
+                    ["conversation", str(turn_index), "qtype"], json.dumps(qtype),
+                    session_id,
+                ))
+                conn.commit()
+                return True
+    except Exception as e:
+        log.error(f"[DB] update_session_question_tags failed: {e}")
+        return False
+
+
+def update_session_expected_points(session_id, turn_index, points):
+    """Atomically write expected_points onto a single conversation turn via jsonb_set."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        path = ["conversation", str(turn_index), "expected_points"]
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE active_sessions
+                    SET session_data = jsonb_set(session_data, %s::text[], %s::jsonb, true),
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                """, (path, json.dumps(points), session_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        log.error(f"[DB] update_session_expected_points failed: {e}")
+        return False
+
+
+def append_session_obs_log(session_id, entry):
+    """Atomically append one obs_log entry to a session via jsonb array append."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE active_sessions
+                    SET session_data = jsonb_set(
+                        session_data,
+                        '{obs_log}',
+                        COALESCE(session_data->'obs_log', '[]'::jsonb) || %s::jsonb,
+                        true),
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                """, (json.dumps([entry]), session_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        log.error(f"[DB] append_session_obs_log failed: {e}")
+        return False
+
+
 def get_app_config(key):
     """Read shared app config (e.g. runtime LLM/TTS/STT settings). None on miss."""
     if not _db_available:

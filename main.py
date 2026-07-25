@@ -1352,20 +1352,22 @@ def generate_expected_points(question: str, domain: str, level: str, session: di
                 if not candidate.startswith("["):
                     candidate = "[" + candidate.split("[", 1)[-1]
                 points = safe_json(candidate)
+        obs = _obs_entry("LLM_expected_points", RUNTIME_CONFIG["qgen_model"], ms, "success",
+                         input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
+                         cost_usd=usage["cost_usd"])
+        # Update in-memory session (same worker, same request context)
+        session.setdefault("obs_log", []).append(obs)
         if isinstance(points, list) and points:
-            # Store in the matching conversation entry
             for entry in reversed(session.get("conversation", [])):
                 if entry.get("question") == question:
+                    turn_idx = session["conversation"].index(entry)
                     entry["expected_points"] = points
+                    # Atomic DB patch — avoids full read-modify-write race with Redis cache
+                    database.update_session_expected_points(session["id"], turn_idx, points)
                     break
             log.info(f"[ExpectedPts] {ms}ms | {len(points)} points | ${usage['cost_usd']:.4f}")
-        # Append obs_log entry BEFORE saving so the cost is captured in the same DB snapshot
-        session.setdefault("obs_log", []).append(
-            _obs_entry("LLM_expected_points", RUNTIME_CONFIG["qgen_model"], ms, "success",
-                       input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
-                       cost_usd=usage["cost_usd"]))
-        if database.is_available():
-            database.save_active_session(session["id"], session)
+        # Persist cost separately so it survives even if another worker overwrites the session
+        database.append_session_obs_log(session["id"], obs)
     except Exception as e:
         log.error(f"[ExpectedPts] Failed: {e}")
 
@@ -1435,15 +1437,17 @@ def classify_question_tags(session, question: str):
         if is_followup and prev_was_followup:
             is_followup = False
         entry = conv[idx]
+        obs = _obs_entry("LLM_tag_classify", RUNTIME_CONFIG["qgen_model"], ms, "success",
+                         input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
+                         cost_usd=usage["cost_usd"])
+        # Update in-memory (same worker)
         entry["is_followup"] = is_followup
         entry["is_scenario"] = is_scenario
         entry["qtype"] = qtype
-        if database.is_available():
-            database.save_active_session(session["id"], session)
-        session.setdefault("obs_log", []).append(
-            _obs_entry("LLM_tag_classify", RUNTIME_CONFIG["qgen_model"], ms, "success",
-                       input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
-                       cost_usd=usage["cost_usd"]))
+        session.setdefault("obs_log", []).append(obs)
+        # Atomic DB patches — avoid full read-modify-write race with stale Redis cache
+        database.update_session_question_tags(session["id"], idx, is_followup, is_scenario, qtype)
+        database.append_session_obs_log(session["id"], obs)
         log.info(f"[TagClassify] {ms}ms followup={is_followup} scenario={is_scenario} type={qtype}")
     except Exception as e:
         log.error(f"[TagClassify] Failed: {e}")
