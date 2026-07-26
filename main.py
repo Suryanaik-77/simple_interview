@@ -3331,6 +3331,8 @@ async def create_session_endpoint(
     mode: str = Form("mock"),
     domain: str = Form("physical_design"),
     user_voice: UploadFile = File(None),
+    face_ref_b64: str = Form(""),
+    face_ref_glasses: str = Form("0"),
 ):
     resume = {}
     if resume_text:
@@ -3361,15 +3363,31 @@ async def create_session_endpoint(
             session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
             log.info(f"[Voice] Stored reference voice for session {sid} ({len(voice_bytes)} bytes)")
 
-    # Load face reference from DB if candidate already has one (by email)
+    # Face reference for the start-gate + per-minute compare. Prefer the face captured
+    # THIS session (passed from the lobby) so the gate always compares the live camera
+    # against today's reference — never a stale DB reference by email (which caused the
+    # real candidate to be rejected). Fall back to the DB reference only if no fresh
+    # capture was provided.
     candidate_email = resume.get("email", "")
-    if candidate_email and ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
-        face_bytes, face_conf, face_glasses = database.get_face_reference(candidate_email)
-        if face_bytes:
-            session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
-            session["face_liveness_confidence"] = face_conf
-            session["face_ref_glasses"] = face_glasses
-            log.info(f"[FaceID] Loaded existing face reference for {candidate_email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
+    if ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
+        if face_ref_b64:
+            session["face_ref_image"] = face_ref_b64
+            session["face_ref_glasses"] = (face_ref_glasses == "1")
+            # Refresh the stored reference so it stays current for this candidate.
+            if candidate_email:
+                try:
+                    database.save_face_reference(candidate_email, base64.b64decode(face_ref_b64),
+                                                 0, wearing_glasses=(face_ref_glasses == "1"))
+                except Exception as e:
+                    log.error(f"[FaceID] Failed to refresh stored reference for {candidate_email}: {e}")
+            log.info(f"[FaceID] Using fresh session face capture ({len(face_ref_b64)} b64 chars, glasses={face_ref_glasses=='1'})")
+        elif candidate_email:
+            face_bytes, face_conf, face_glasses = database.get_face_reference(candidate_email)
+            if face_bytes:
+                session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
+                session["face_liveness_confidence"] = face_conf
+                session["face_ref_glasses"] = face_glasses
+                log.info(f"[FaceID] No fresh capture; loaded stored reference for {candidate_email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
 
     sessions[sid] = session
     return {"session_id": sid, "resume": resume}

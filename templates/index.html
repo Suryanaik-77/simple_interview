@@ -952,6 +952,12 @@ async function startInterview() {
     if (S.voiceBlob) {
       form.append('user_voice', S.voiceBlob, 'voice_sample.webm');
     }
+    // Pass the face captured THIS session directly, so the start-gate compares the
+    // live camera against today's reference — not a stale DB reference by email.
+    if (S.faceRefB64) {
+      form.append('face_ref_b64', S.faceRefB64);
+      form.append('face_ref_glasses', S.refWearingGlasses ? '1' : '0');
+    }
     const r = await fetch('/api/create-session', { method: 'POST', body: form });
     const d = await r.json();
     window.location.href = '/interview?session_id=' + d.session_id;
