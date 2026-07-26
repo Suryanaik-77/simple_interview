@@ -5162,4 +5162,8 @@ if __name__ == "__main__":
     log.info(f"  Bedrock: {'ready' if bedrock_client else 'not configured'}")
     log.info(f"  Grok: {'ready' if xai_client else 'not configured'}")
     log.info(f"  Redis cache: {'ready' if redis_cache.is_available() else 'not configured'}")
-    uvicorn.run("main:app", host="0.0.0.0", port=8001, workers=4)
+    # 2 workers to match the 2-core box. 4 workers oversubscribed CPU and, at
+    # ~250MB RSS each, exhausted the 2GB RAM (with RAG + realtime + Postgres +
+    # Redis co-located) → swapping → interview lag. Raise this only alongside a
+    # bigger instance.
+    uvicorn.run("main:app", host="0.0.0.0", port=8001, workers=2)
