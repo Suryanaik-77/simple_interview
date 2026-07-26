@@ -1355,19 +1355,22 @@ def generate_expected_points(question: str, domain: str, level: str, session: di
         obs = _obs_entry("LLM_expected_points", RUNTIME_CONFIG["qgen_model"], ms, "success",
                          input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
                          cost_usd=usage["cost_usd"])
-        # Update in-memory session (same worker, same request context)
-        session.setdefault("obs_log", []).append(obs)
+        conv = session.get("conversation", [])
         if isinstance(points, list) and points:
-            for entry in reversed(session.get("conversation", [])):
-                if entry.get("question") == question:
-                    turn_idx = session["conversation"].index(entry)
-                    entry["expected_points"] = points
-                    # Atomic DB patch — avoids full read-modify-write race with Redis cache
-                    database.update_session_expected_points(session["id"], turn_idx, points)
-                    break
+            # Locate the turn by scanning from the end (positional index — do NOT use
+            # list.index(), which matches by value and can hit an earlier duplicate turn).
+            turn_idx = next((i for i in range(len(conv) - 1, -1, -1)
+                             if conv[i].get("question") == question), None)
+            if turn_idx is not None:
+                conv[turn_idx]["expected_points"] = points
+                # Atomic DB patch — avoids full read-modify-write race with the session blob.
+                database.update_session_expected_points(session["id"], turn_idx, points)
             log.info(f"[ExpectedPts] {ms}ms | {len(points)} points | ${usage['cost_usd']:.4f}")
-        # Persist cost separately so it survives even if another worker overwrites the session
+        # Persist cost as an atomic array-append (not an in-memory append that a later
+        # full-save would double-count), then invalidate the stale cache so the next
+        # read repopulates from Postgres — which now holds the patch.
         database.append_session_obs_log(session["id"], obs)
+        redis_cache.delete_session(session["id"])
     except Exception as e:
         log.error(f"[ExpectedPts] Failed: {e}")
 
@@ -1440,14 +1443,16 @@ def classify_question_tags(session, question: str):
         obs = _obs_entry("LLM_tag_classify", RUNTIME_CONFIG["qgen_model"], ms, "success",
                          input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
                          cost_usd=usage["cost_usd"])
-        # Update in-memory (same worker)
         entry["is_followup"] = is_followup
         entry["is_scenario"] = is_scenario
         entry["qtype"] = qtype
-        session.setdefault("obs_log", []).append(obs)
-        # Atomic DB patches — avoid full read-modify-write race with stale Redis cache
+        # Atomic DB patches — avoid full read-modify-write race with the session blob.
+        # Persist the cost as an array-append (not an in-memory append a later full-save
+        # would double-count), then invalidate the stale cache so the next read
+        # repopulates from Postgres — which now holds these patches.
         database.update_session_question_tags(session["id"], idx, is_followup, is_scenario, qtype)
         database.append_session_obs_log(session["id"], obs)
+        redis_cache.delete_session(session["id"])
         log.info(f"[TagClassify] {ms}ms followup={is_followup} scenario={is_scenario} type={qtype}")
     except Exception as e:
         log.error(f"[TagClassify] Failed: {e}")
