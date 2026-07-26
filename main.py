@@ -2198,7 +2198,9 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         "briefly acknowledge and move on to a NEW question on a different topic.)"
         if no_response else candidate_answer)
     # Hard per-turn length reminder — keeps GPT-4.1-mini / Haiku from rambling
-    pacing += "\nONE question only. Maximum 2 short spoken sentences. Stop after the question mark."
+    pacing += ("\nKeep it short and conversational: a brief acknowledgement, then ONE clear question. "
+                   "A scenario may add one short setup sentence. Never stack multiple questions or a long "
+                   "multi-part setup into one turn.")
     messages.append({"role": "user", "content": llm_answer + pacing})
 
     # Single LLM call — handles question generation + behavior detection
@@ -3617,6 +3619,10 @@ def stream_answer(data: dict):
                    "handled for you. Otherwise interview normally: when an answer is vague or hand-wavy "
                    "on something that matters, ask one follow-up to pin it down; otherwise move to a new "
                    "topic. Ask in plain words with no tags or labels.")
+        # Hard per-turn length reminder — keeps GPT-4.1-mini / Haiku from rambling.
+        pacing += ("\nKeep it short and conversational: a brief acknowledgement, then ONE clear question. "
+                   "A scenario may add one short setup sentence. Never stack multiple questions or a long "
+                   "multi-part setup into one turn.")
         messages.append({"role": "user", "content": answer + pacing})
 
         # Stream LLM tokens, buffer into sentences
@@ -3670,7 +3676,7 @@ def stream_answer(data: dict):
                     return [f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"]
                 return []
 
-            for token in stream_llm(messages, temperature=0.7, max_tokens=200):
+            for token in stream_llm(messages, temperature=0.7, max_tokens=150):
                 full_text += token
                 sentence_buffer += token
                 token_hold.append(token)
