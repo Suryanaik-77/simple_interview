@@ -836,8 +836,10 @@ async function enableCamera() {
     // Detect if the camera is stopped/muted after being enabled.
     const track = S.mediaStream.getVideoTracks()[0];
     if (track) {
-      track.onended = markCameraOff;
-      track.onmute = markCameraOff;
+      // Wrap so the Event object isn't passed as the `covered` arg (it's truthy,
+      // which would mislabel a real camera-off as "covered").
+      track.onended = () => markCameraOff(false);
+      track.onmute = () => markCameraOff(false);
     }
     startCameraMonitor();
     updateChecks();

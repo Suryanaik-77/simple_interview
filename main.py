@@ -3822,8 +3822,15 @@ def stream_answer(data: dict):
             session.pop("_last_was_pause", None)
             session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
             session["turn"] += 1
-            # Background tag classification (follow-up / scenario / type), off the hot path.
+            # Background jobs (off the hot path): expected points for scoring + follow-up
+            # steering, and tag classification (follow-up / scenario / type). Both must be
+            # spawned here too — this streaming path is what live interviews use.
             if not is_end:
+                resume = session.get("resume", {})
+                _domain = resume.get("domain", "physical_design")
+                _level = resume.get("level", "trained_fresher")
+                threading.Thread(target=generate_expected_points,
+                                 args=(question, _domain, _level, session), daemon=True).start()
                 threading.Thread(target=classify_question_tags,
                                  args=(session, question), daemon=True).start()
 
