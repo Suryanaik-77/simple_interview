@@ -1386,23 +1386,22 @@ def classify_question_tags(session, question: str):
     so the next turn's steering can read them."""
     if not question or _is_pause_prompt(question):
         return
-    q_lower = question.lower()
-    if any(p in q_lower for p in ("tell me about yourself", "introduce yourself",
-                                  "little about yourself")):
-        return
     conv = session.get("conversation", [])
     idx = next((i for i in range(len(conv) - 1, -1, -1)
                 if conv[i].get("question") == question), None)
     if idx is None:
         return
+    # Never classify the opening greeting itself.
+    if conv[idx].get("is_greeting"):
+        return
     prev = conv[idx - 1] if idx > 0 else None
     prev_q = (prev or {}).get("question", "")
     prev_a = (prev or {}).get("answer", "")
     prev_was_followup = bool((prev or {}).get("is_followup"))
-    # The previous "question" being the greeting/intro means THIS is the first real
-    # technical question — it can never be a follow-up of an intro.
-    prev_is_intro = (not prev_q) or any(g in prev_q.lower() for g in
-        ("tell me about yourself", "introduce yourself", "little about yourself"))
+    # The previous turn being the greeting/intro means THIS is the first real
+    # technical question — it can never be a follow-up of an intro. Keyed off the
+    # explicit is_greeting flag, not the greeting wording (which varies).
+    prev_is_intro = (not prev_q) or bool((prev or {}).get("is_greeting"))
 
     system_msg = (
         "You label one interview question. Compare the NEW question with the PREVIOUS "
@@ -1617,25 +1616,25 @@ This is a completely NEW interview. Ask fresh questions from different angles on
 Test whether the candidate has genuinely improved or just memorized answers from before."""
 
     # ── Anti-repetition ledger ────────────────────────────────────────────
-    # The message history below is capped at the last 10 turns, so questions
-    # asked earlier scroll out of context and the model re-asks them (the #1
-    # source of duplicate questions — e.g. metal-spacing DRC or multi-clock CTS
-    # asked twice). Give it a compact list of everything already asked this
-    # session so it always knows what's been covered, even beyond the window.
+    # The Q&A history below is intentionally trimmed to the last 2 turns (focused
+    # context for a follow-up), so everything earlier is out of the model's view.
+    # This ledger lists EVERY question asked this session so the model always knows
+    # the full set it has already covered and cannot re-ask or reword one — the #1
+    # source of duplicate questions.
     asked = [e["question"] for e in history
-             if e.get("question") and not _is_pause_prompt(e["question"])]
-    # Drop the opening greeting/intro so it isn't treated as a topic.
-    asked = [q for q in asked if not any(g in q.lower() for g in
-             ("tell me about yourself", "introduce yourself", "little about yourself"))]
+             if e.get("question") and not _is_pause_prompt(e["question"])
+             and not e.get("is_greeting")]
     asked_block = ""
     if asked:
         asked_lines = "\n".join(f"- {q}" for q in asked)
         asked_block = (
-            "\n\nALREADY COVERED THIS SESSION — do NOT ask any of these again, and do NOT "
-            "ask a reworded version of the same topic. You may still drill deeper on the "
-            "candidate's MOST RECENT answer, but never re-open an earlier topic you already "
-            "moved on from. Each new top-level question must explore a NEW project, tool, or "
-            f"concept not already in this list:\n{asked_lines}")
+            "\n\nQUESTIONS ALREADY ASKED THIS SESSION — this is the COMPLETE list. Do NOT "
+            "ask any of these again, and do NOT ask a reworded or rephrased version of the "
+            "SAME topic (e.g. 'what is a guard ring' and 'what are guard rings' are the same "
+            "question — never both). You may drill deeper on the candidate's MOST RECENT "
+            "answer, but never re-open an earlier topic you already moved on from. Every new "
+            "top-level question MUST be about a topic, project, tool, or concept that does NOT "
+            f"appear anywhere in this list:\n{asked_lines}")
 
     # ── Resume-project rotation ───────────────────────────────────────────
     # Data-driven balance using the candidate's OWN project names (not a
@@ -1762,8 +1761,10 @@ Test whether the candidate has genuinely improved or just memorized answers from
     system = base_prompt + judgment_rules + jd_block + bank_block + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
-    # Add conversation history — inject expected points when available
-    for entry in history[-10:]:
+    # Add conversation history — only the last 2 turns for focused follow-up context.
+    # The full list of asked questions rides in the anti-repetition ledger below, so
+    # trimming the transcript here does NOT lose track of what's been covered.
+    for entry in history[-2:]:
         if entry.get("question"):
             messages.append({"role": "assistant", "content": entry["question"]})
         # Inject expected points BEFORE the candidate's answer so the interviewer
@@ -1802,8 +1803,7 @@ Test whether the candidate has genuinely improved or just memorized answers from
         last_type = None
         for e in history:
             q = e.get("question") or ""
-            if not q or _is_pause_prompt(q) or any(g in q.lower() for g in
-                    ("tell me about yourself", "introduce yourself", "little about yourself")):
+            if not q or _is_pause_prompt(q) or e.get("is_greeting"):
                 continue
             # Prefer the background classifier's verdict (qtype); fall back to the old
             # heuristic for entries not yet classified (e.g. the most recent turn).
@@ -1859,7 +1859,23 @@ Test whether the candidate has genuinely improved or just memorized answers from
     if _conv and _conv[-1].get("is_followup"):
         followup_guard = ("\n\nYOU JUST ASKED A FOLLOW-UP — do NOT follow up again. Move to a "
                           "NEW topic now with an untagged question.")
-    steering = (asked_block + project_block + mix_reminder + open_steer + followup_guard).strip()
+    # ── Difficulty ramp ──────────────────────────────────────────────────
+    # After the candidate clears the easy warm-up concepts, stop asking bare
+    # "what is X" definitions and climb the ladder. Counted from the ledger, no
+    # content heuristics — just "how many questions in are we".
+    ramp_steer = ""
+    n_asked = len(asked)
+    if 3 <= n_asked < 7:
+        ramp_steer = ("\n\nRAMP UP — the warm-up is over. Stop asking bare definition questions "
+                      "('what is X'). Ask APPLIED questions: how/why/when, a trade-off, a "
+                      "comparison, or a 'how would you decide' — something a textbook definition "
+                      "alone won't answer.")
+    elif n_asked >= 7:
+        ramp_steer = ("\n\nGO DEEPER — this candidate is well past the basics. Do NOT ask "
+                      "definition-level questions. Every question now should test real depth: a "
+                      "concrete trade-off, a debug/scenario in their stack, a design decision and "
+                      "its consequence, or why one approach beats another. No 'what is X'.")
+    steering = (asked_block + project_block + mix_reminder + open_steer + followup_guard + ramp_steer).strip()
     if steering:
         messages.append({"role": "system", "content": steering})
 
@@ -2347,7 +2363,11 @@ Rules:
         session["is_returning"] = True
         session["previous_sessions"] = len(prev_sessions)
 
-    session["conversation"].append({"question": greeting, "answer": None, "turn": 0})
+    # Flag the opening turn explicitly. Downstream logic (tag classifier, ledger,
+    # type-mix counting) keys off this flag instead of string-matching the greeting
+    # wording — the LLM phrases the intro many ways ("telling me about yourself",
+    # "walk me through your background", …) and substring guards kept missing them.
+    session["conversation"].append({"question": greeting, "answer": None, "turn": 0, "is_greeting": True})
     return greeting
 
 
