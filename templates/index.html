@@ -964,17 +964,15 @@ async function startInterview() {
 }
 
 // ── FACE VERIFICATION (AWS Rekognition Liveness) ──
+// Reference reuse is DISABLED: every session captures a fresh reference so the
+// start-gate compares today's live camera against today's face. Reusing a stored
+// reference (by email) meant a stale/month-old capture — or a different person who
+// registered under that email first — and CompareFaces then failed the real
+// candidate. So we no longer auto-pass on an existing reference; the candidate must
+// capture now, which overwrites the stored reference with today's face.
 async function checkExistingFaceRef(email) {
-  try {
-    const r = await fetch('/api/face/check?email=' + encodeURIComponent(email));
-    const d = await r.json();
-    if (d.has_reference) {
-      S.refWearingGlasses = d.wearing_glasses || false;
-      markFacePassed(true);
-      // Schedule a pre-interview glasses check once webcam is ready
-      scheduleGlassesCheck();
-    }
-  } catch(e) { console.warn('[Face] check failed:', e); }
+  // Intentionally a no-op. Kept so existing call sites don't need to change.
+  return;
 }
 
 function markFacePassed(existing) {
