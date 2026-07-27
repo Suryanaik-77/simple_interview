@@ -964,15 +964,12 @@
             const camReady = !!(video.srcObject && video.readyState >= 2 && !isCameraOff());
             if (camReady) cameraWasEverOn = true;
 
-            // Camera turned OFF after having been on — previously this state
-            // early-returned silently, letting a candidate kill the camera to
-            // escape face checks. Now treat it as face-absence so the same
-            // warn → pause → terminate path fires.
-            // Also treat a physically-covered camera (dark frame) as off.
+            // Detect physical camera issues: no stream OR dark frame (covered/blocked).
             const frameCovered = camReady && isFrameDark();
-            const camOff = faceDetectEnabled && cameraWasEverOn && (!camReady || frameCovered);
+            const cameraPhysicallyOff = !camReady || frameCovered;
 
-            if (!camOff) {
+            // If camera stream is warming up or MediaPipe not ready, skip check.
+            if (!cameraPhysicallyOff) {
                 if (!video.srcObject || video.readyState < 2) return; // stream warming up
                 if (!mediapipeReady || !faceMesh) return;
             }
@@ -980,11 +977,12 @@
             detecting = true;
 
             let present, headTurned, direction, eyeReading, eyeDirection, eyeScanning;
-            if (camOff) {
+            if (cameraPhysicallyOff && cameraWasEverOn) {
+                // Camera stream lost or covered — skip MediaPipe, treat as no face.
                 present = false; headTurned = false; direction = null;
                 eyeReading = false; eyeDirection = null; eyeScanning = false;
-            } else {
-                // Send frame to MediaPipe
+            } else if (!cameraPhysicallyOff) {
+                // Camera stream OK — send frame to MediaPipe to detect face.
                 try {
                     await faceMesh.send({ image: video });
                 } catch(e) {
@@ -995,9 +993,14 @@
             }
             const isAnswering = orbState === 'listening' || isRecording;
 
-            // Update visible status on camera PIP
-            if (!present) {
-                faceStatus.textContent = frameCovered ? 'CAMERA COVERED!' : (camOff ? 'CAMERA OFF!' : 'NO FACE!');
+            // Update visible status on camera PIP.
+            // Three distinct cases: camera off/covered, user not in front (camera on but no face), face issues.
+            if (cameraPhysicallyOff) {
+                faceStatus.textContent = frameCovered ? 'CAMERA COVERED!' : 'CAMERA OFF!';
+                faceStatus.style.color = '#f44';
+            } else if (!present) {
+                // Camera is on, stream is fine, but MediaPipe detected no face -> user not in front.
+                faceStatus.textContent = 'USER NOT IN FRONT!';
                 faceStatus.style.color = '#f44';
             } else if (headTurned) {
                 faceStatus.textContent = 'HEAD TURNED ' + direction + '!';
@@ -1017,38 +1020,39 @@
             if (!faceDetectEnabled) { noFaceCount = 0; }
             else if (present) {
                 noFaceCount = 0;
-                // Auto-resume if paused for face or camera-off
-                if (interviewPaused && (pauseReason === 'face_not_detected' || pauseReason === 'camera_off')) {
+                // Auto-resume if paused for any face/camera issue
+                if (interviewPaused && (pauseReason === 'face_not_detected' || pauseReason === 'camera_off' || pauseReason === 'camera_covered' || pauseReason === 'user_not_in_front')) {
                     resumeInterview();
                 }
             } else {
                 noFaceCount++;
-                console.log(`[FaceDetection] ${camOff ? 'Camera off' : 'No face'} (${noFaceCount}/${NO_FACE_LIMIT})`);
+                const issueType = frameCovered ? 'Camera covered' : (cameraPhysicallyOff ? 'Camera off' : 'User not in front');
+                console.log(`[FaceDetection] ${issueType} (${noFaceCount}/${NO_FACE_LIMIT})`);
 
                 if (noFaceCount >= NO_FACE_LIMIT) {
                     cameraWarnings++;
-                    const antiCheatTag = frameCovered ? 'camera_covered' : (camOff ? 'camera_off' : 'face_not_detected');
+                    const antiCheatTag = frameCovered ? 'camera_covered' : (cameraPhysicallyOff ? 'camera_off' : 'user_not_in_front');
                     sendAntiCheat(antiCheatTag, `warnings:${cameraWarnings}`);
 
                     if (cameraWarnings < 3) {
                         const warnText = cameraWarnings >= 2
                             ? 'Warning ' + cameraWarnings + ' of 2 — next time the interview will end.'
                             : 'Warning ' + cameraWarnings + ' of 2';
-                        const pauseReason2 = frameCovered ? 'camera_off' : (camOff ? 'camera_off' : 'face_not_detected');
+                        const pauseReason2 = frameCovered ? 'camera_covered' : (cameraPhysicallyOff ? 'camera_off' : 'user_not_in_front');
                         const pauseMsg = frameCovered
                             ? 'Your camera appears to be covered.<br>Please uncover your camera to continue.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your face is clearly visible.</span>'
-                            : (camOff
-                              ? 'Your camera appears to be turned off.<br>Please turn your camera back on to continue.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your camera is on and your face is visible.</span>'
-                              : 'We can\'t see your face on camera.<br>Please make sure you\'re visible and well-lit.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your face is detected.</span>');
+                            : (cameraPhysicallyOff
+                              ? 'Your camera appears to be turned off or disconnected.<br>Please turn your camera back on to continue.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your camera is on and your face is visible.</span>'
+                              : 'You are not in front of the camera.<br>Please position yourself clearly in front of the camera.<br><span style="color:#ef4444;font-weight:600;">Interview will resume when your face is detected.</span>');
                         pauseInterview(pauseReason2, pauseMsg, warnText);
                     } else {
-                        sendAntiCheat(frameCovered ? 'camera_covered_termination' : (camOff ? 'camera_off_termination' : 'face_absence_termination'), `${antiCheatTag}_${cameraWarnings}_times`);
+                        sendAntiCheat(frameCovered ? 'camera_covered_termination' : (cameraPhysicallyOff ? 'camera_off_termination' : 'user_not_in_front_termination'), `${antiCheatTag}_${cameraWarnings}_times`);
                         if (interviewPaused) resumeInterview();
                         endSessionWithMessage(frameCovered
                           ? 'Interview ended — camera was repeatedly covered.'
-                          : (camOff
-                            ? 'Interview ended — camera was turned off.'
-                            : 'Interview ended — candidate not detected on camera.'));
+                          : (cameraPhysicallyOff
+                            ? 'Interview ended — camera was turned off or disconnected.'
+                            : 'Interview ended — you were not in front of the camera.'));
                     }
                     noFaceCount = 0;
                 }
