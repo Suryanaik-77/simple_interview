@@ -984,7 +984,22 @@ Rules:
 - skills: VLSI/EDA specific only
 - tools: EDA tool names (ICC2, PrimeTime, Calibre, Virtuoso, VCS, etc.)
 - key_projects: list of objects with "name" and "description" (1-2 sentence summary including role, technology node, key challenges). Extract ALL projects.
-- domain: physical_design or analog_layout or design_verification
+- domain: the candidate's PRIMARY VLSI specialization. Choose exactly one, deciding from the TOOLS and PROJECTS as a whole (not a single keyword):
+    analog_layout — hand-drawn, transistor-level custom IC layout in Cadence Virtuoso:
+      device matching & symmetry, op-amps, LDOs, bandgap references, PLLs, VCOs, ADCs,
+      current mirrors, shielding, parasitic-aware layout, ESD / latch-up, EM/IR at the
+      device level. Tools: Virtuoso, Layout XL/Suite, Assura, PVS (Calibre for DRC/LVS).
+      IMPORTANT: analog-layout engineers also say "standard cell layout" and "DRC/LVS
+      clean" — those phrases ALONE do NOT make it physical_design. If the work is
+      DRAWING layout by hand in Virtuoso, it is analog_layout.
+    physical_design — digital RTL-to-GDSII implementation: synthesis, floorplan,
+      placement, CTS, routing, STA / setup-hold timing closure, power planning, IR/EM
+      signoff, ECO, congestion. Tools: Innovus, ICC2, Fusion Compiler, PrimeTime, Tempus.
+    design_verification — functional verification: SystemVerilog/UVM testbenches,
+      assertions, functional coverage, simulation/regressions. Tools: VCS, Questa, Xcelium.
+  Rule of thumb: Virtuoso + op-amp/LDO/PLL/VCO layout + device matching ⇒ analog_layout;
+  Innovus/ICC2 + timing closure/ECO ⇒ physical_design; UVM/testbench/coverage ⇒
+  design_verification. If genuinely ambiguous, leave "".
 
 RESUME:
 {resume_text[:3000]}
@@ -1911,6 +1926,57 @@ def _should_end_interview(session) -> tuple[bool, str]:
     if started and (time.time() - started) > SESSION_MAX_DURATION_SEC:
         return True, "We've run out of time. Thank you for your time."
     return False, ""
+
+
+# ── Domain-mismatch start gate ─────────────────────────────────────────────
+# When the role/interview domain is fixed (e.g. an LMS course) but the candidate's
+# résumé clearly shows a DIFFERENT VLSI specialization, running the full interview
+# only asks questions they cannot engage with. We detect this from the résumé up
+# front (candidate_domain captured at session creation, before the role domain
+# overwrites resume["domain"]) and end the interview at the very start.
+def _domain_mismatch(session) -> tuple[str, str] | None:
+    """Return (candidate_domain, role_domain) if the candidate's detected domain
+    clearly differs from the interview's role domain, else None."""
+    r = session.get("resume", {})
+    cand = r.get("candidate_domain")
+    role = r.get("domain")
+    if cand and role and cand in SUPPORTED_DOMAINS and role in SUPPORTED_DOMAINS and cand != role:
+        return cand, role
+    return None
+
+def _domain_mismatch_closing(cand: str, role: str) -> str:
+    c = SUPPORTED_DOMAINS.get(cand, cand.replace("_", " "))
+    r = SUPPORTED_DOMAINS.get(role, role.replace("_", " "))
+    return (f"Thanks for joining today. Looking at your background, your experience is in "
+            f"{c}, but this interview is set up for a {r} role. Since those specialisations "
+            f"don't line up, we won't run the full interview today — we'll be in touch about "
+            f"roles that better match your profile. All the best.")
+
+def _record_mismatch_evaluation(session, cand: str, role: str):
+    """Ending at the start skips normal scoring (below MIN_ANSWERS_FOR_EVAL), so write
+    an explicit report record explaining WHY, for the admin/LMS results view."""
+    c = SUPPORTED_DOMAINS.get(cand, cand.replace("_", " "))
+    r = SUPPORTED_DOMAINS.get(role, role.replace("_", " "))
+    result = {
+        "status": "skipped",
+        "reason": "domain_mismatch",
+        "recommendation": "domain_mismatch",
+        "overall_score": None,
+        "answered": 0,
+        "candidate_domain": cand,
+        "role_domain": role,
+        "summary": (f"Interview ended at the start: the candidate's background is {c}, but this "
+                    f"interview is for a {r} role. The specialisations do not match, so the "
+                    f"screening was not conducted."),
+    }
+    session["evaluation"] = result
+    try:
+        if database.is_available():
+            database.save_session_evaluation(session["id"], result)
+            redis_cache.delete_session(session["id"])
+    except Exception as e:
+        log.error(f"[DomainGate] failed to persist mismatch evaluation: {e}")
+    return result
 
 
 # ── Stop Decision Agent ────────────────────────────────────────────────────
@@ -3067,6 +3133,13 @@ async def lms_launch(
     parsed = parse_resume(text)
     parsed["candidate_name"] = name
     parsed["email"] = email
+    # Capture the candidate's OWN detected specialization BEFORE the LMS role domain
+    # overwrites it, so the start gate can flag a clear domain mismatch (see
+    # _domain_mismatch). The interview itself still runs for the LMS role domain.
+    cand_domain = DOMAIN_ALIASES.get(parsed.get("domain", ""), parsed.get("domain", ""))
+    if cand_domain in SUPPORTED_DOMAINS and cand_domain != domain:
+        parsed["candidate_domain"] = cand_domain
+        log.info(f"[DomainGate] LMS domain mismatch: résumé={cand_domain} vs role={domain}")
     parsed["domain"] = domain
     parsed["resume_text"] = text[:3000]
 
@@ -3399,6 +3472,31 @@ def start_interview(data: dict):
     sid = data.get("session_id")
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
+
+    # ── Domain-mismatch gate ────────────────────────────────────────────────
+    # If the candidate's résumé specialization clearly differs from this interview's
+    # role domain, end at the very start — no questions, and no need to run the face
+    # gate on someone we're turning away. A report record explains why.
+    mismatch = _domain_mismatch(session)
+    if mismatch:
+        cand, role = mismatch
+        closing = _domain_mismatch_closing(cand, role)
+        session["phase"] = "ended"
+        session["domain_mismatch"] = {"candidate": cand, "role": role}
+        log.info(f"[DomainGate] Session {sid[:8]}: ended at start — résumé={cand} vs role={role}")
+        _record_mismatch_evaluation(session, cand, role)
+        audio, tts_ms = synthesize_speech(closing)
+        tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
+        session.setdefault("obs_log", []).append(
+            _obs_entry("TTS_greeting", tts_provider, tts_ms, "success" if audio else "failure",
+                       chars=len(closing), cost_usd=_calc_tts_cost(tts_provider, len(closing))))
+        sessions[sid] = session
+        return {
+            "question": closing, "question_type": "greeting", "turn": 0,
+            "phase": "ended", "audio": audio, "difficulty": "basic",
+            "should_end": True, "resume": session.get("resume", {}),
+            "timing": {"tts_ms": tts_ms},
+        }
 
     # ── Face gate ──────────────────────────────────────────────────────────
     # Verify the live camera frame matches the registered reference BEFORE the

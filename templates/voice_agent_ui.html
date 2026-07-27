@@ -1613,6 +1613,17 @@
                 updateCandidateUI({ resume: data.resume });
             }
 
+            // Server ended the interview at the very start (e.g. domain mismatch) —
+            // speak the closing message, then end without waiting for an answer.
+            if (data.should_end || data.phase === 'ended') {
+                interviewEnded = true;
+                sessionOn = false;
+                document.getElementById('question-text').textContent = data.question;
+                await playAudioOnly(data.question, data.audio);
+                endSessionWithMessage(data.question);
+                return;
+            }
+
             displayQuestion(data);
             await playAudio(data.question, data.audio, data.phase);
         } catch (e) {
