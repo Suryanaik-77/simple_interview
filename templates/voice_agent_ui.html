@@ -1920,7 +1920,12 @@
                 silenceStart = null;
                 _pauseStartedAt = null;
                 _hadCommitInPause = false;
-                document.getElementById('sub-label').textContent = `speaking... (${avg.toFixed(0)})`;
+                // When using Silero VAD, don't show volume level (it's neural detection, volume is irrelevant)
+                if (vadMode === 'silero') {
+                    document.getElementById('sub-label').textContent = 'speaking...';
+                } else {
+                    document.getElementById('sub-label').textContent = `speaking... (${avg.toFixed(0)})`;
+                }
             } else if (speechDetected) {
                 // Silence after speech in THIS recorder
                 if (silenceStart === null) silenceStart = now;
@@ -1974,7 +1979,13 @@
         isRecording = false;
         speechDetected = false;
         silenceStart = null;
-        stopVadAudioStream();
+
+        // Only stop VAD if we're NOT entering post-commit monitor mode
+        // (post-commit monitor NEEDS VAD active to detect speech resumption)
+        const enteringPostCommit = mediaRecorder && mediaRecorder._pauseCommit;
+        if (!enteringPostCommit) {
+            stopVadAudioStream();
+        }
 
         // Only stop the recorder — keep mic stream alive for next turn
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -2171,16 +2182,32 @@
         _postCommitMonitorActive = true;
         setOrb('idle');
         document.getElementById('status-txt').textContent = 'waiting';
+        document.getElementById('sub-label').textContent = 'ready to continue...';
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
         const tick = () => {
-            if (interviewEnded) { _postCommitMonitorActive = false; return; }
-            if (interviewPaused) { _postCommitMonitorActive = false; return; }
+            if (interviewEnded) {
+                _postCommitMonitorActive = false;
+                stopVadAudioStream();
+                return;
+            }
+            if (interviewPaused) {
+                _postCommitMonitorActive = false;
+                stopVadAudioStream();
+                return;
+            }
             // If something else started a recorder (e.g. the LLM finished and called startRecording),
-            // the monitor's job is done.
-            if (isRecording) { _postCommitMonitorActive = false; return; }
+            // the monitor's job is done. VAD will be restarted by startRecording().
+            if (isRecording) {
+                _postCommitMonitorActive = false;
+                return;
+            }
             // Pause flags cleared elsewhere → state is no longer "post-commit"; bail.
-            if (!_hadCommitInPause) { _postCommitMonitorActive = false; return; }
+            if (!_hadCommitInPause) {
+                _postCommitMonitorActive = false;
+                stopVadAudioStream();
+                return;
+            }
 
             analyser.getByteFrequencyData(dataArray);
             const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
@@ -2190,19 +2217,31 @@
 
             if (!isSilent) {
                 // Speech resumed — start a fresh recorder for the next segment.
+                console.log('[PostCommit] Speech detected, resuming recording');
+                // Clear pause tracking immediately so new recorder doesn't inherit stale state
                 _hadCommitInPause = false;
                 _pauseStartedAt = null;
                 _postCommitMonitorActive = false;
+                // Don't stop VAD here - startRecording will restart it with a fresh stream
                 document.getElementById('sub-label').textContent = 'resuming...';
-                startRecording();
+                // Start fresh recorder immediately - no delay needed, VAD already confirmed speech
+                if (!isRecording && !interviewEnded && !interviewPaused) {
+                    startRecording();
+                }
                 return;
             }
 
-            document.getElementById('sub-label').textContent = `pause ${(totalPause/1000).toFixed(1)}s (waiting)...`;
+            // Show volume level in pause state to help debug "not detecting speech" issues
+            if (vadMode === 'silero') {
+                document.getElementById('sub-label').textContent = `pause ${(totalPause/1000).toFixed(1)}s (vol ${avg.toFixed(0)})...`;
+            } else {
+                document.getElementById('sub-label').textContent = `pause ${(totalPause/1000).toFixed(1)}s (waiting)...`;
+            }
 
             if (totalPause >= SILENCE_TIMEOUT) {
                 // 2.0s total silence and no resumed speech — finalize.
                 _postCommitMonitorActive = false;
+                stopVadAudioStream();  // Stop VAD when finalizing turn
                 document.getElementById('sub-label').textContent = 'finalizing...';
                 finalizeAfterPauseCommit();
                 return;
