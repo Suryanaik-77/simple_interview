@@ -1695,24 +1695,24 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "skills (see JOB DESCRIPTION) — not a probe of their project. Let them settle before you "
         "go deep.\n"
         "PICK YOUR NEXT MOVE from the candidate's last answer:\n"
-        "- Solid → move to a NEW area and deliberately switch the KIND of question (see QUESTION "
-        "TYPES); moving on need not mean the next project.\n"
-        "- Vague/evasive/low-effort → ask at most ONE follow-up on the same topic that forces a "
-        "concrete detail (a number, a specific step, a real example), then MOVE ON.\n"
-        "- 'I don't know' / didn't do it → don't labour it, switch topics.\n"
-        "BOUNDED FOLLOW-UPS: at most one follow-up per topic, and NEVER two follow-ups in a row. A "
-        "second consecutive probe on the same thread is the main failure mode here — after one "
-        "follow-up, open a new topic.\n"
+        "- Solid AND detailed (with specifics, numbers, concrete examples) → move to a NEW area and "
+        "deliberately switch the KIND of question (see QUESTION TYPES).\n"
+        "- Vague/surface-level/textbook-only (vocabulary without lived detail, no specifics) → you MUST "
+        "ask a follow-up that demands concrete evidence: a number, a specific decision you made, the exact "
+        "symptom, what broke first, which tool command, a real example from their work. Do NOT move on "
+        "until you've spent one follow-up attempting to pin it down.\n"
+        "- 'I don't know' / didn't do it → acknowledge and switch topics immediately.\n"
+        "FOLLOW-UPS ARE REQUIRED when an answer is vague or hand-wavy. You are under-using follow-ups if "
+        "most answers go unchallenged. At most one follow-up per topic; NEVER two follow-ups in a row.\n"
         "\nQUESTION TYPES — use all three; aim roughly 35% PROJECT / 45% CONCEPT / 20% SCENARIO. "
         "CONCEPT is the type you under-ask, so favour it whenever it's tied or behind:\n"
-        "- CONCEPT: a clean, standalone fundamentals question with a right answer, taken from or "
-        "modelled on the DOMAIN QUESTION BANK. It must NOT name their project, company, or the "
-        "thing they just described — if your question starts with 'In your FIFO project…' or 'You "
-        "mentioned X, so explain X', that is a PROJECT question, not a concept check. Ask it as a "
-        "general question that would make sense to any candidate in this domain. GOOD: 'What is a "
-        "clock-domain-crossing issue, and the simplest way to synchronise across two domains?' BAD: "
-        "'In your async FIFO, what is a CDC issue?'. This is your main tool for the easy/medium "
-        "rungs and for catching someone who can narrate a flow without understanding it.\n"
+        "- CONCEPT: a fundamentals question that asks for BOTH definition AND application/reasoning. "
+        "NEVER ask a simple 'What is X?' that can be answered with a textbook definition — always add "
+        "a second part that requires them to show understanding. GOOD: 'What is clock skew, and how does "
+        "it affect setup and hold timing in your design?' or 'Explain IR drop — what causes it and how "
+        "do you detect it during signoff?' BAD: 'What is IR drop?' or 'What is the difference between X "
+        "and Y?' (pure definition questions). The question must demand more than memorized vocabulary. "
+        "It must NOT name their project — ask it as a general question that works for anyone in this domain.\n"
         "- PROJECT: what they actually did — decisions, the hardest bug, what they owned. One part "
         "of the interview, not the whole of it.\n"
         "- SCENARIO: a realistic symptom they did NOT describe, built from THEIR stack, that they "
@@ -2349,10 +2349,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     # for scoring, and tag classification (follow-up / scenario / type).
     if not llm_end and not is_pause_prompt:
         resume = session.get("resume", {})
-        domain = resume.get("domain", "physical_design")
-        level = resume.get("level", "trained_fresher")
-        threading.Thread(target=generate_expected_points,
-                         args=(question, domain, level, session), daemon=True).start()
+        # Expected points generation removed per user request
         threading.Thread(target=classify_question_tags,
                          args=(session, question), daemon=True).start()
 
@@ -2454,7 +2451,7 @@ _EVAL_JSON_SCHEMA = """{
   "recommendation": "strong_yes|yes|maybe|no|strong_no",
   "level_fit": "below_level|at_level|above_level",
   "verdict": "one-line hire verdict",
-  "per_question": [{"q": <main question number>, "followup_qs": [<list of followup Q numbers grouped with this main question, empty if none>], "question": "<first ~10 words of main question>", "score": <0-10>, "comment": "one short clause", "missing_points": ["point 3"]}],
+  "per_question": [{"q": <main question number>, "followup_qs": [<list of followup Q numbers grouped with this main question, empty if none>], "question": "<first ~10 words of main question>", "score": <0-10>, "comment": "one short clause"}],
   "communication_score": <integer 0-10>,
   "communication": "1-2 sentences on clarity, structure, and how they explain reasoning",
   "strengths": ["short bullet", "..."],
@@ -2467,7 +2464,6 @@ _EVAL_JSON_SCHEMA = """{
 # Appended to every level rubric: the numbered transcript, the per-question and
 # communication scoring instructions, and the JSON contract.
 _EVAL_TASK = """FULL TRANSCRIPT (each question is numbered [Q1], [Q2], ...; [A1] is the answer to [Q1]):
-The transcript includes [EXPECTED_POINTS Qn] lines — these are the key points already identified during the interview. Use them as the reference set of what a strong answer to that question should cover, both when scoring and when deciding missing_points. Do NOT regenerate them from scratch.
 Follow-up questions are explicitly marked with [FOLLOWUP_OF Qn] — for example, "[Q4] [FOLLOWUP_OF Q3] You mentioned skew but what about insertion delay?" means Q4 is a follow-up to Q3.
 
 {transcript}
@@ -2481,12 +2477,11 @@ In addition to the overall assessment, do ALL of these:
 - Score each group from QUESTION GROUPS as ONE entry in "per_question". Judge the candidate's combined technical merit across all answers in the group at THIS candidate's level.
 
 SCORING PHILOSOPHY — read carefully, this is STRICT:
-- Treat the merged [EXPECTED_POINTS] for the main question AND its follow-ups as the reference set of what a strong answer covers. Each point is tagged (core) or (extra): CORE points are essential and carry most of the weight; EXTRA points are minor details worth little. Covering the core points with real depth should score well even if some extra points are missed.
-- HONESTY / NOT-APPLICABLE (apply strictly): If the candidate truthfully says they did NOT encounter or use something (e.g. "I didn't face metastability", "I didn't add synchronizer stages", "we didn't use that"), then the expected points that describe that un-encountered thing are NOT APPLICABLE to this candidate: (a) do NOT list them in missing_points, and (b) do NOT lower the score for them. Score the question ONLY on the parts the candidate DID claim to have done. You MAY still expect them to explain a technique THEY themselves brought up (e.g. if they say "I used gray-code pointers", it's fair to want why). A question whose only gaps are things the candidate honestly never faced must NOT receive a low score on that basis — a truthful "I didn't hit that" scores at least as well as, and usually better than, a vague bluff. When a question is largely not-applicable, lean toward a neutral/omitted score rather than a low one.
-- Score the group on the WEIGHTED VALUE of the points the candidate actually COVERED WITH REAL DEPTH — not on what they omitted. Credit is EARNED, never deducted: a point demonstrated convincingly earns its full weight; a shallow, name-dropped mention with no reasoning earns little or nothing; an unaddressed point earns nothing.
-- A low score therefore means the candidate covered few of the important points, or covered them only superficially — NOT that you subtracted for gaps. Do the math as additive earned credit, then map it to 0-10.
-- Depth gates the important points: naming a concept is not the same as explaining it. Reserve high scores for answers that show genuine, specific understanding of the points that matter most for the question. A response that recites correct-but-surface fundamentals should score LOW.
-- "missing_points": ONLY the concepts the candidate did NOT cover or got wrong across ALL answers in the group (main + follow-ups). If the candidate mentioned a concept correctly in ANY answer within the group (even partially), do NOT include it in missing_points. Also EXCLUDE any point the candidate honestly said they never encountered or worked on — that is not a knowledge gap to hold against them. Use an empty list [] if they covered everything important. missing_points is candidate feedback only — it does NOT drive the score; the score comes solely from what they DID demonstrate.
+- Score each answer based purely on the DEPTH, SPECIFICITY, and CORRECTNESS the candidate demonstrates in their response. High scores require genuine understanding shown through concrete examples, specific numbers, real decisions, actual tool usage, or causal reasoning. Textbook definitions without application score LOW.
+- HONESTY / NOT-APPLICABLE (apply strictly): If the candidate truthfully says they did NOT encounter or use something (e.g. "I didn't face metastability", "we didn't use that technique"), do NOT penalize them for it. A truthful "I didn't work on that" is honest self-awareness and should NOT lower the score. Score ONLY on what they claim to have done or know. You MAY still expect them to explain techniques THEY brought up (e.g., if they say "I used gray-code pointers", it's fair to want why).
+- EARNED CREDIT: Score what the candidate DID demonstrate well, not what they omitted. A strong answer with depth on the key aspects of a question scores well even if it doesn't cover every possible angle. A weak answer covers vocabulary without lived detail.
+- DEPTH GATES CREDIT: Naming a concept is not the same as explaining it. "We used clock-domain crossing" with no further detail earns almost nothing. "We used a 2FF synchronizer because the input was async, and I verified it in CDC analysis using Spyglass" shows real work and earns credit. Reserve high scores (7-10) for answers with genuine specifics.
+- Surface-level textbook answers score LOW (0-4): if the candidate recites definitions but shows no evidence of having actually done or debugged the thing, that's memorization, not understanding.
 - Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
 
 Return ONLY valid JSON, no prose, no markdown fences:
@@ -2551,9 +2546,7 @@ def _build_eval_transcript(session, max_chars: int = 25000) -> str:
             lines.append(f"[Q{n}] {q}")
             last_main_q = n
             groups.setdefault(n, [])
-        pts = _norm_expected_points(e.get("expected_points"))
-        if pts:
-            lines.append(f"[EXPECTED_POINTS Q{n}] " + "; ".join(f"{t} ({w})" for t, w in pts))
+        # Expected points removed per user request - evaluate purely on answer quality
         lines.append(f"[A{n}] {a if a else '(no answer)'}")
 
     if groups:
@@ -3942,11 +3935,7 @@ def stream_answer(data: dict):
             # steering, and tag classification (follow-up / scenario / type). Both must be
             # spawned here too — this streaming path is what live interviews use.
             if not is_end:
-                resume = session.get("resume", {})
-                _domain = resume.get("domain", "physical_design")
-                _level = resume.get("level", "trained_fresher")
-                threading.Thread(target=generate_expected_points,
-                                 args=(question, _domain, _level, session), daemon=True).start()
+                # Expected points generation removed per user request
                 threading.Thread(target=classify_question_tags,
                                  args=(session, question), daemon=True).start()
 
