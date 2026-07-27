@@ -2499,6 +2499,7 @@ def _load_eval_prompt(level: str) -> str:
     return rubric + _EVAL_TASK
 
 EVAL_PROMPTS = {
+    "trained_fresher": _load_eval_prompt("trained_fresher"),
     "experienced_junior": _load_eval_prompt("experienced_junior"),
     "experienced_senior": _load_eval_prompt("experienced_senior"),
 }
@@ -2507,11 +2508,11 @@ _DEFAULT_EVAL_PROMPTS = dict(EVAL_PROMPTS)
 
 
 def get_eval_prompt(level: str) -> str:
-    """Pick the eval prompt for a level. fresh_graduate and trained_fresher both
-    use the experienced_junior rubric, matching how _load_prompt maps them."""
-    if level in ("fresh_graduate", "trained_fresher"):
-        level = "experienced_junior"
-    return EVAL_PROMPTS.get(level, EVAL_PROMPTS["experienced_junior"])
+    """Pick the eval prompt for a level. fresh_graduate maps to trained_fresher
+    (both are course-completion level), experienced levels use their own rubrics."""
+    if level == "fresh_graduate":
+        level = "trained_fresher"  # Same rubric - both are course-completion students
+    return EVAL_PROMPTS.get(level, EVAL_PROMPTS["trained_fresher"])
 
 
 def _fill_eval_prompt(template: str, **kw) -> str:
