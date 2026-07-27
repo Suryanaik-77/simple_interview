@@ -1734,7 +1734,7 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "sentences, then stop — no lists, no markdown, no stacked questions, nothing needing a "
         "diagram.\n"
         "\nNEUTRAL ACKNOWLEDGEMENT — this is critical. Open with at most three or four NEUTRAL words "
-        "('Okay.', 'Right, thanks.', 'Got it — moving on.') then go straight to the next question. "
+        "('Okay.', 'Got it.', 'Alright.') then go straight to the next question. "
         "Do NOT tell them whether they were right or wrong. Do NOT confirm, grade, or praise the "
         "answer ('that's right', 'exactly', 'correct', 'good', 'you've got it', 'that's the core of "
         "it'). Do NOT restate, complete, or fill in the fact they gave or missed — no 'Right, so X is "
