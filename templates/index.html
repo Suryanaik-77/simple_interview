@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VLSI.AI - Interview Lobby</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<!-- MediaPipe Face Mesh for face presence detection -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
 <script>
@@ -768,6 +770,47 @@ function lobbyCameraOff() {
   return t.readyState === 'ended' || t.enabled === false || t.muted === true;
 }
 
+// ── MediaPipe Face Detection (lobby) ──
+let lobbyFaceMesh = null;
+let lobbyMediaPipeReady = false;
+let lobbyLatestFaceDetection = { present: false };
+
+async function initLobbyFaceDetection() {
+  if (lobbyMediaPipeReady || typeof FaceMesh === 'undefined') return;
+  try {
+    lobbyFaceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`
+    });
+    lobbyFaceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    lobbyFaceMesh.onResults((results) => {
+      lobbyLatestFaceDetection = {
+        present: !!(results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0)
+      };
+    });
+    lobbyMediaPipeReady = true;
+    console.log('[Lobby] MediaPipe face detection ready');
+  } catch(e) {
+    console.warn('[Lobby] MediaPipe init failed:', e);
+  }
+}
+
+async function checkLobbyFacePresence() {
+  if (!lobbyMediaPipeReady || !lobbyFaceMesh) return true; // default to true if not loaded
+  const video = document.getElementById('cam-preview');
+  if (!video || video.readyState < 2) return true;
+  try {
+    await lobbyFaceMesh.send({ image: video });
+    return lobbyLatestFaceDetection.present;
+  } catch(e) {
+    return true; // fail open
+  }
+}
+
 // True when the camera is streaming but the frame is near-black (physically covered).
 // Samples a 32×24 thumbnail for speed; luma threshold <12/255 ≈ covered.
 function isLobbyFrameDark() {
@@ -786,9 +829,9 @@ function isLobbyFrameDark() {
   } catch(e) { return false; }
 }
 
-// Camera was turned off after being enabled — revoke the "passed" state so the
-// interview can't start until it's re-enabled.
-function markCameraOff(covered) {
+// Camera issue detected after being enabled — revoke the "passed" state.
+// issueType: 'off' | 'covered' | 'no_face'
+function markCameraIssue(issueType) {
   if (!S.camPassed) return;
   S.camPassed = false;
   const btn = document.getElementById('cam-btn');
@@ -796,26 +839,52 @@ function markCameraOff(covered) {
   const dot = document.getElementById('dot-cam');
   const video = document.getElementById('cam-preview');
   const placeholder = document.getElementById('cam-placeholder');
-  video.classList.add('hidden');
-  placeholder.classList.remove('hidden');
-  chip.textContent = covered ? 'Camera covered' : 'Camera off';
-  chip.className = 'text-[10px] font-semibold text-danger';
-  dot.className = 'w-2 h-2 rounded-full bg-danger';
-  btn.disabled = false;
-  btn.textContent = covered ? 'Uncover & Re-enable' : 'Re-enable';
-  btn.className = 'px-4 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors';
+
+  if (issueType === 'no_face') {
+    // Camera stream is on, but no face detected — keep video visible
+    chip.textContent = 'No face detected';
+    chip.className = 'text-[10px] font-semibold text-danger';
+    dot.className = 'w-2 h-2 rounded-full bg-danger';
+    btn.disabled = false;
+    btn.textContent = 'Position yourself';
+    btn.className = 'px-4 py-1.5 rounded-lg bg-warn text-white text-xs font-semibold hover:bg-warn/90 transition-colors';
+  } else {
+    // Camera off or covered — hide video, show placeholder
+    video.classList.add('hidden');
+    placeholder.classList.remove('hidden');
+    chip.textContent = issueType === 'covered' ? 'Camera covered' : 'Camera off';
+    chip.className = 'text-[10px] font-semibold text-danger';
+    dot.className = 'w-2 h-2 rounded-full bg-danger';
+    btn.disabled = false;
+    btn.textContent = issueType === 'covered' ? 'Uncover & Re-enable' : 'Re-enable';
+    btn.className = 'px-4 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors';
+  }
   updateChecks();
+}
+
+// Backward compat wrapper
+function markCameraOff(covered) {
+  markCameraIssue(covered ? 'covered' : 'off');
 }
 
 let _camMonitor = null;
 function startCameraMonitor() {
   if (_camMonitor) return;
   // Track events aren't fired reliably across every "turn off" path, so poll too.
-  // Also check for covered camera (dark frame) every cycle.
-  _camMonitor = setInterval(() => {
-    if (S.camPassed && lobbyCameraOff()) { markCameraOff(false); return; }
-    if (S.camPassed && isLobbyFrameDark()) { markCameraOff(true); }
-  }, 1000);
+  // Check for: camera off, camera covered (dark frame), and no face detected.
+  _camMonitor = setInterval(async () => {
+    if (!S.camPassed) return;
+
+    // Check physical camera issues first
+    if (lobbyCameraOff()) { markCameraIssue('off'); return; }
+    if (isLobbyFrameDark()) { markCameraIssue('covered'); return; }
+
+    // Check face presence (if MediaPipe loaded)
+    if (lobbyMediaPipeReady) {
+      const facePresent = await checkLobbyFacePresence();
+      if (!facePresent) { markCameraIssue('no_face'); }
+    }
+  }, 1500); // Slightly slower than interview (less frequent checks)
 }
 
 async function enableCamera() {
@@ -841,6 +910,8 @@ async function enableCamera() {
       track.onended = () => markCameraOff(false);
       track.onmute = () => markCameraOff(false);
     }
+    // Initialize MediaPipe face detection for presence checking
+    initLobbyFaceDetection();
     startCameraMonitor();
     updateChecks();
   } catch(e) {
