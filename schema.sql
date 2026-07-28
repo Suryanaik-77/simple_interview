@@ -305,7 +305,7 @@ SELECT
     s.updated_at                                    AS completed_at,
 
     -- Per-question detail (JSON array — parse on LMS side if needed)
-    s.session_data->'evaluation'->'per_question_scores' AS per_question_scores,
+    s.session_data->'evaluation'->'per_question' AS per_question,
     s.session_data->'conversation'                  AS conversation
 
 FROM active_sessions s
