@@ -4284,6 +4284,82 @@ async def sim_ai_done(data: dict):
     return {"ok": True}
 
 
+# ── LMS Integration API ────────────────────────────────────────────────────
+
+@app.get("/api/lms/interview-results")
+def get_lms_interview_results(
+    email: str = None,
+    session_id: str = None,
+    domain: str = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """
+    GET endpoint for lms_interview_results view.
+
+    Query parameters:
+    - email: Filter by candidate email
+    - session_id: Get specific session
+    - domain: Filter by domain (Physical Design, Design Verification, Analog Layout)
+    - limit: Max results (default 100, max 1000)
+    - offset: Pagination offset
+
+    Returns JSON array of interview results with evaluation, anti-cheat, and conversation data.
+    """
+    # Validate limit
+    if limit < 1 or limit > 1000:
+        raise HTTPException(400, "limit must be between 1 and 1000")
+
+    # Build query
+    query = "SELECT * FROM lms_interview_results WHERE 1=1"
+    params = []
+
+    if session_id:
+        query += f" AND session_id = ${len(params) + 1}"
+        params.append(session_id)
+
+    if email:
+        query += f" AND email = ${len(params) + 1}"
+        params.append(email)
+
+    if domain:
+        query += f" AND domain = ${len(params) + 1}"
+        params.append(domain)
+
+    # Order by most recent first
+    query += " ORDER BY completed_at DESC"
+
+    # Pagination
+    query += f" LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}"
+    params.extend([limit, offset])
+
+    try:
+        rows = database.fetch_all(query, *params)
+
+        # Convert to JSON-serializable format
+        results = []
+        for row in rows:
+            result = dict(row)
+            # Convert datetime to ISO string
+            if result.get("started_at"):
+                result["started_at"] = result["started_at"].isoformat()
+            if result.get("completed_at"):
+                result["completed_at"] = result["completed_at"].isoformat()
+            results.append(result)
+
+        return {
+            "ok": True,
+            "count": len(results),
+            "limit": limit,
+            "offset": offset,
+            "results": results
+        }
+
+    except Exception as e:
+        log.error(f"Error fetching LMS interview results: {e}")
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+
 # ── Face Comparison (AWS Rekognition) ─────────────────────────────────────
 FACE_COMPARE_THRESHOLD = 90.0   # minimum similarity % for CompareFaces
 
