@@ -4334,12 +4334,16 @@ def get_lms_interview_results(
     params.extend([limit, offset])
 
     try:
-        rows = database.fetch_all(query, *params)
+        with database.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                rows = cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
 
         # Convert to JSON-serializable format
         results = []
         for row in rows:
-            result = dict(row)
+            result = dict(zip(columns, row))
             # Convert datetime to ISO string
             if result.get("started_at"):
                 result["started_at"] = result["started_at"].isoformat()
