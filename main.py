@@ -4315,22 +4315,22 @@ def get_lms_interview_results(
     params = []
 
     if session_id:
-        query += f" AND session_id = ${len(params) + 1}"
+        query += " AND session_id = %s"
         params.append(session_id)
 
     if email:
-        query += f" AND email = ${len(params) + 1}"
+        query += " AND email = %s"
         params.append(email)
 
     if domain:
-        query += f" AND domain = ${len(params) + 1}"
+        query += " AND domain = %s"
         params.append(domain)
 
     # Order by most recent first
     query += " ORDER BY completed_at DESC"
 
     # Pagination
-    query += f" LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}"
+    query += " LIMIT %s OFFSET %s"
     params.extend([limit, offset])
 
     try:
