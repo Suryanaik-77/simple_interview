@@ -2478,10 +2478,25 @@ In addition to the overall assessment, do ALL of these:
 
 SCORING PHILOSOPHY — read carefully, this is STRICT:
 - Score each answer based purely on the DEPTH, SPECIFICITY, and CORRECTNESS the candidate demonstrates in their response. High scores require genuine understanding shown through concrete examples, specific numbers, real decisions, actual tool usage, or causal reasoning. Textbook definitions without application score LOW.
+
+PER-QUESTION SCORING SCALE (enforce these thresholds):
+- 9-10: Deep understanding with specifics (numbers, decisions, debugging steps, tool commands, causal reasoning). Goes beyond textbook.
+- 7-8: Solid correct answer with reasoning. Explains WHY, not just WHAT. May be textbook-based but shows clear comprehension.
+- 5-6: Correct concept but basic/verbose explanation. Textbook level with some reasoning. Acceptable for trained freshers.
+- 3-4: Partially correct OR very surface-level. Major gaps but shows SOME understanding of the topic.
+- 1-2: WRONG answer, confused explanation, contradictory statements, or major conceptual errors.
+- 0: No answer, completely off-topic, or nonsensical response.
+
+CRITICAL — Apply these rules strictly:
+- WRONG/REVERSED concepts (e.g., "immediate assertions take delay, concurrent don't" when it's the opposite) → score 1-2, NOT 3-4
+- CONFUSED/CONTRADICTORY explanations → score 1-2, NOT 3-4
+- OFF-TOPIC or blank answers → score 0-1, NOT 3-4
+- SUPERFICIAL without wrong information (names concept but no depth) → score 3-4
+- CORRECT but basic/textbook → score 5-6
+
 - HONESTY / NOT-APPLICABLE (apply strictly): If the candidate truthfully says they did NOT encounter or use something (e.g. "I didn't face metastability", "we didn't use that technique"), do NOT penalize them for it. A truthful "I didn't work on that" is honest self-awareness and should NOT lower the score. Score ONLY on what they claim to have done or know. You MAY still expect them to explain techniques THEY brought up (e.g., if they say "I used gray-code pointers", it's fair to want why).
 - EARNED CREDIT: Score what the candidate DID demonstrate well, not what they omitted. A strong answer with depth on the key aspects of a question scores well even if it doesn't cover every possible angle. A weak answer covers vocabulary without lived detail.
 - DEPTH GATES CREDIT: Naming a concept is not the same as explaining it. "We used clock-domain crossing" with no further detail earns almost nothing. "We used a 2FF synchronizer because the input was async, and I verified it in CDC analysis using Spyglass" shows real work and earns credit. Reserve high scores (7-10) for answers with genuine specifics.
-- Surface-level textbook answers score LOW (0-4): if the candidate recites definitions but shows no evidence of having actually done or debugged the thing, that's memorization, not understanding.
 - Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
 
 Return ONLY valid JSON, no prose, no markdown fences:
