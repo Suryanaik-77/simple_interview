@@ -268,7 +268,8 @@ CREATE TABLE IF NOT EXISTS cognition_state (
 -- The lms_reader user (created once via lms_db_setup.sql) has SELECT on this
 -- view only — nothing else in the database is visible to it.
 -- ═══════════════════════════════════════════
-CREATE OR REPLACE VIEW lms_interview_results AS
+DROP VIEW IF EXISTS lms_interview_results;
+CREATE VIEW lms_interview_results AS
 SELECT
     s.session_id,
     s.session_data->'resume'->>'email'              AS email,
