@@ -290,7 +290,7 @@ SELECT
     s.session_data->'evaluation'->>'summary'        AS summary,
     s.session_data->'evaluation'->'strengths'       AS strengths,
     s.session_data->'evaluation'->'weaknesses'      AS weaknesses,
-    s.session_data->'evaluation'->'topic_scores'    AS topic_scores,
+    s.session_data->'evaluation'->'topic_breakdown' AS topic_breakdown,
     (s.session_data->'evaluation'->>'answered')::int AS questions_answered,
 
     -- Integrity / anti-cheat
@@ -304,8 +304,8 @@ SELECT
     to_timestamp((s.session_data->>'started_at')::double precision) AS started_at,
     s.updated_at                                    AS completed_at,
 
-    -- Per-question detail (JSON array — parse on LMS side if needed)
-    s.session_data->'evaluation'->'per_question' AS per_question,
+    -- Per-question detail with covered/missed points (JSON array)
+    s.session_data->'evaluation'->'per_question'    AS per_question,
     s.session_data->'conversation'                  AS conversation
 
 FROM active_sessions s

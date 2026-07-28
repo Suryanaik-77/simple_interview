@@ -2625,7 +2625,8 @@ function renderAcDetail(d) {
       const fups = pq.followup_qs || [];
       const qsc = pq.score || 0;
       const qcol = qsc >= 8 ? 'var(--green)' : qsc >= 5 ? 'var(--amber)' : 'var(--red)';
-      const mis = pq.missing_points || [];
+      const covered = pq.covered || [];
+      const missed = pq.missed || [];
       const comment = pq.comment || '';
       const label = fups.length ? `Q${mainQ} + ${fups.length} follow-up${fups.length>1?'s':''}` : `Q${mainQ}`;
 
@@ -2650,15 +2651,29 @@ function renderAcDetail(d) {
         qaFlow += `<div style="font-size:11px;color:var(--t2);background:var(--sf);padding:10px 12px;border-radius:6px;border-left:3px solid var(--blue);line-height:1.6;margin-bottom:12px">${escH(fTurn.answer||'(no answer)')}</div>`;
       });
 
-      // Score + reasoning + missing points at the bottom
+      // Score + reasoning + covered/missed points at the bottom
       let footer = `<div style="border-top:1px solid var(--b);padding-top:12px;margin-top:4px">`;
       footer += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">`;
       footer += `<div style="font-family:var(--mono);font-size:20px;font-weight:600;color:${qcol}">${qsc}<span style="font-size:12px;color:var(--t4)">/10</span></div>`;
       footer += `<div style="flex:1;height:6px;background:var(--sf);border-radius:3px;overflow:hidden"><div style="height:100%;width:${qsc*10}%;background:${qcol};border-radius:3px"></div></div>`;
       footer += `</div>`;
       if (comment) footer += `<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:8px">${escH(comment)}</div>`;
-      if (mis.length) footer += `<div style="font-size:10px"><span style="color:var(--red);font-weight:600">Missing: </span><span style="color:var(--red);opacity:.8">${mis.map(escH).join(' · ')}</span></div>`;
-      else footer += `<div style="font-size:10px;color:var(--green)">All key points covered</div>`;
+
+      // Show covered points
+      if (covered.length) {
+        footer += `<div style="font-size:10px;margin-bottom:6px"><span style="color:var(--green);font-weight:600">✓ Covered: </span><span style="color:var(--t2)">${covered.map(escH).join(' · ')}</span></div>`;
+      }
+
+      // Show missed points
+      if (missed.length) {
+        footer += `<div style="font-size:10px"><span style="color:var(--red);font-weight:600">✗ Missed: </span><span style="color:var(--red);opacity:.8">${missed.map(escH).join(' · ')}</span></div>`;
+      }
+
+      // If neither covered nor missed, show completion message
+      if (!covered.length && !missed.length) {
+        footer += `<div style="font-size:10px;color:var(--t4);font-style:italic">No coverage tracking for this question</div>`;
+      }
+
       footer += `</div>`;
 
       return `<div style="padding:16px;border:1px solid var(--b);border-radius:10px;margin-bottom:12px;background:var(--w)">
