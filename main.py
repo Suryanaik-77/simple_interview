@@ -4334,9 +4334,11 @@ def get_lms_interview_results(
     params.extend([limit, offset])
 
     try:
+        log.info(f"[LMS] Query: {query}")
+        log.info(f"[LMS] Params: {params}")
         with database.get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, params)
+                cur.execute(query, tuple(params))
                 rows = cur.fetchall()
                 columns = [desc[0] for desc in cur.description]
 
