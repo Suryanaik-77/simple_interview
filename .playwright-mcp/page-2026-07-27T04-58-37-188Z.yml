@@ -1,0 +1,36 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e12]:
+      - list [ref=e13]:
+        - listitem
+        - listitem
+        - listitem
+      - list [ref=e14]:
+        - listitem [ref=e15]:
+          - button "Filter" [ref=e16]
+      - list [ref=e24]:
+        - listitem [ref=e25]:
+          - button "Embed" [ref=e26]
+    - generic [ref=e33]:
+      - searchbox "Search in this sheet" [ref=e40]
+      - img "Information" [ref=e41] [cursor=pointer]
+  - generic [ref=e44]:
+    - article [ref=e46]:
+      - generic "Function" [ref=e49] [cursor=pointer]
+      - generic [ref=e54]: Loading...
+    - generic [ref=e55]: a
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic "List All Sheets"
+        - generic:
+          - generic:
+            - list:
+              - listitem:
+                - generic: Project Status
+              - listitem:
+                - generic: API Endpoints
+              - listitem:
+                - generic: Database Schema

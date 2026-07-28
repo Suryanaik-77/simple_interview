@@ -2451,7 +2451,7 @@ _EVAL_JSON_SCHEMA = """{
   "recommendation": "strong_yes|yes|maybe|no|strong_no",
   "level_fit": "below_level|at_level|above_level",
   "verdict": "one-line hire verdict",
-  "per_question": [{"q": <main question number>, "followup_qs": [<list of followup Q numbers grouped with this main question, empty if none>], "question": "<first ~10 words of main question>", "score": <0-10>, "comment": "one short clause"}],
+  "per_question": [{"q": <main question number>, "followup_qs": [<list of followup Q numbers grouped with this main question, empty if none>], "question": "<first ~10 words of main question>", "score": <0-10>, "comment": "one short clause", "covered": ["point user covered", "..."], "missed": ["point user missed", "..."]}],
   "communication_score": <integer 0-10>,
   "communication": "1-2 sentences on clarity, structure, and how they explain reasoning",
   "strengths": ["short bullet", "..."],
@@ -2498,6 +2498,12 @@ CRITICAL — Apply these rules strictly:
 - EARNED CREDIT: Score what the candidate DID demonstrate well, not what they omitted. A strong answer with depth on the key aspects of a question scores well even if it doesn't cover every possible angle. A weak answer covers vocabulary without lived detail.
 - DEPTH GATES CREDIT: Naming a concept is not the same as explaining it. "We used clock-domain crossing" with no further detail earns almost nothing. "We used a 2FF synchronizer because the input was async, and I verified it in CDC analysis using Spyglass" shows real work and earns credit. Reserve high scores (7-10) for answers with genuine specifics.
 - Score the candidate's COMMUNICATION skills 0-10 in "communication_score": clarity, structure, conciseness, and how well they explain their reasoning. Judge HOW they communicate, independent of technical correctness.
+
+PER-QUESTION COVERAGE TRACKING (does NOT affect the score, purely informational):
+For each question in "per_question", populate two arrays:
+- "covered": List the key points/concepts the candidate successfully explained or demonstrated understanding of in their answer
+- "missed": List the key points/concepts that would be expected for a complete answer but the candidate did not mention or address
+These arrays help the user understand what was covered vs what was missed, independent of the score. Keep each point concise (3-8 words).
 
 Return ONLY valid JSON, no prose, no markdown fences:
 """ + _EVAL_JSON_SCHEMA

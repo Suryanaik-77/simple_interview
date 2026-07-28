@@ -98,3 +98,11 @@ FINAL CALIBRATION CHECK BEFORE YOU SUBMIT YOUR EVALUATION:
 - Am I comparing this candidate to industry hires instead of course graduates? (If YES → recalibrate to trained_fresher bar)
 
 If the candidate can explain 60-70% of concepts with reasoning and describe their training projects at a basic level, the score should be 5-6 (PASS), NOT 4 or below.
+
+OUTPUT FORMAT — Include these two sections in your evaluation (informational only, does NOT affect the score):
+
+**Topics Covered:**
+List the main topics/concepts the candidate demonstrated understanding of (e.g., "setup/hold timing", "floorplanning basics", "DRC concepts", "testbench structure", etc.)
+
+**Topics Missing/Weak:**
+List topics where the candidate showed gaps, confusion, or lack of retention (e.g., "clock domain crossing", "IR drop mitigation", "assertion syntax", etc.)

@@ -1,0 +1,159 @@
+- generic [ref=e3]:
+  - navigation [ref=e4]:
+    - generic [ref=e6]:
+      - link [ref=e8] [cursor=pointer]:
+        - /url: /
+        - img "SIT Logo" [ref=e9]
+      - generic [ref=e10]:
+        - link "Home" [ref=e11] [cursor=pointer]:
+          - /url: /
+        - button "Programs" [ref=e13] [cursor=pointer]
+        - button "Domain" [ref=e18] [cursor=pointer]
+        - link "Placements" [ref=e22] [cursor=pointer]:
+          - /url: /placement
+        - link "Blogs" [ref=e23] [cursor=pointer]:
+          - /url: /blogs
+        - link "FAQs" [ref=e24] [cursor=pointer]:
+          - /url: /faqs
+        - link "Contact" [ref=e25] [cursor=pointer]:
+          - /url: /contact
+  - generic [ref=e26]:
+    - generic [ref=e31]:
+      - generic [ref=e32]: BACK-END | 16 Weeks
+      - heading "Analog Layout" [level=1] [ref=e33]
+      - paragraph [ref=e34]: The art of placing perfection on silicon
+      - button "View Brochure" [ref=e36] [cursor=pointer]
+    - generic [ref=e38]:
+      - heading "What is Analog Layout?" [level=2] [ref=e39]
+      - generic [ref=e40]:
+        - paragraph [ref=e41]: As a VLSI Analog Layout Engineer, you implement physical designs for analog/mixed-signal circuits on silicon chips. This involves translating schematics to layouts while optimizing for performance and area.
+        - paragraph [ref=e42]: You precisely place and route transistors, capacitors, and resistors according to foundry-specific design rules. Key tasks include maintaining device matching, minimizing parasitics, and implementing noise-reduction techniques.
+        - paragraph [ref=e43]: Design key analog blocks like amplifiers, comparators, and bias circuits with proper symmetry and shielding. This position bridges circuit design and fabrication, demanding technical precision and tool mastery.
+    - generic [ref=e45]:
+      - heading "Comprehensive Learning Path" [level=2] [ref=e46]
+      - generic [ref=e47]:
+        - generic [ref=e48]:
+          - heading "12 Modules" [level=3] [ref=e49]
+          - paragraph [ref=e50]: From Fabrication basics to FinFET and Memory design
+        - generic [ref=e51]:
+          - heading "Core Topics" [level=3] [ref=e52]
+          - paragraph [ref=e53]: DRC, LVS, Device Matching, Parasitics, ESD, DFM, Latchup
+        - generic [ref=e54]:
+          - heading "Industry Tools" [level=3] [ref=e55]
+          - paragraph [ref=e56]: Cadence Virtuoso and other industry-standard layout tools
+    - generic [ref=e58]:
+      - heading "Why Choose Analog Layout?" [level=2] [ref=e59]
+      - generic [ref=e60]:
+        - generic [ref=e61]:
+          - heading "Unlock Real-World Proficiency" [level=3] [ref=e62]
+          - paragraph [ref=e63]: Develop mastery through structured, industry-relevant testcases that mirror real semiconductor design challenges.
+        - generic [ref=e64]:
+          - heading "60+ Industry Grade Hands-on Labs" [level=3] [ref=e65]
+          - paragraph [ref=e66]: Reinforce concepts with meticulously curated testcases covering fundamental and advanced design concepts.
+        - generic [ref=e67]:
+          - heading "Master Layout Techniques" [level=3] [ref=e68]
+          - paragraph [ref=e69]: Learn device matching, symmetry, shielding, and advanced techniques like WPE, STI, LOD, and CMP effects.
+    - iframe [ref=e75]:
+      - form [ref=f1e6]:
+        - generic [ref=f1e12]:
+          - heading "Start Learning From SIT" [level=2] [ref=f1e16]
+          - generic [ref=f1e17]:
+            - generic [ref=f1e18]:
+              - generic [ref=f1e20]:
+                - generic [ref=f1e22]:
+                  - text: Full Name
+                  - emphasis [ref=f1e23]: "*"
+                  - generic [ref=f1e24]: Required
+                - textbox "Full Name Required" [ref=f1e28]:
+                  - /placeholder: ""
+              - generic [ref=f1e30]:
+                - generic [ref=f1e32]:
+                  - text: Phone
+                  - emphasis [ref=f1e33]: "*"
+                  - generic [ref=f1e34]: Required
+                - textbox "Phone Required" [ref=f1e39]:
+                  - /placeholder: ""
+              - generic [ref=f1e41]:
+                - generic [ref=f1e43]:
+                  - text: Email
+                  - emphasis [ref=f1e44]: "*"
+                  - generic [ref=f1e45]: Required
+                - textbox "Email Required" [ref=f1e49]:
+                  - /placeholder: ""
+              - generic [ref=f1e51]:
+                - generic [ref=f1e53]:
+                  - text: Qualification
+                  - emphasis [ref=f1e54]: "*"
+                  - generic [ref=f1e55]: Required
+                - generic [ref=f1e57]:
+                  - combobox [ref=f1e58]
+                  - combobox [ref=f1e61] [cursor=pointer]
+              - generic [ref=f1e63]:
+                - generic [ref=f1e65]:
+                  - text: Year Of Passing
+                  - emphasis [ref=f1e66]: "*"
+                  - generic [ref=f1e67]: Required
+                - generic [ref=f1e69]:
+                  - combobox [ref=f1e70]
+                  - combobox [ref=f1e73] [cursor=pointer]
+              - generic [ref=f1e76]:
+                - generic [ref=f1e78]:
+                  - text: Verification Code
+                  - emphasis [ref=f1e79]: "*"
+                  - generic [ref=f1e80]: Required
+                - generic [ref=f1e82]:
+                  - generic [ref=f1e83]:
+                    - generic [ref=f1e84]: Enter the text in the box below
+                    - generic [ref=f1e85]:
+                      - textbox "Verification Code Required" [ref=f1e87]
+                      - button "Refresh"
+                  - img "Please wait" [ref=f1e91]
+            - button [ref=f1e96] [cursor=pointer]:
+              - emphasis [ref=f1e97]: Submit
+    - contentinfo [ref=e76]:
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - img "SIT Logo" [ref=e81]
+          - generic [ref=e82]:
+            - link "LinkedIn" [ref=e83] [cursor=pointer]:
+              - /url: https://www.linkedin.com/company/sumedhait/posts/?feedView=all
+            - link "Facebook" [ref=e88] [cursor=pointer]:
+              - /url: https://www.facebook.com/sumedhait
+            - link "Instagram" [ref=e91] [cursor=pointer]:
+              - /url: https://www.instagram.com/sumedha_it/
+            - link "YouTube" [ref=e95] [cursor=pointer]:
+              - /url: https://www.youtube.com/channel/UCRpkiykMKmxcpVTwezXu2bA
+        - generic [ref=e99]:
+          - heading "Hyderabad - JNTU Branch" [level=4] [ref=e101]
+          - generic [ref=e102]:
+            - link "Sumedha Institute of Technology, Hyderabad, Telangana" [ref=e107] [cursor=pointer]:
+              - /url: https://www.google.com/maps/place/SumedhaIT/@17.4979674,78.387988,17z/data=!3m1!4b1!4m5!3m4!1s0x3bcb915bec3bda1f:0x9e62daa511a9c408!8m2!3d17.4979674!4d78.3901767?coh=164777&entry=tt&shorturl=1
+              - text: Sumedha Institute of Technology,Hyderabad, Telangana
+            - link "info@sumedhait.com" [ref=e112] [cursor=pointer]:
+              - /url: mailto:info@sumedhait.com
+            - link "+91 91540 24371" [ref=e116] [cursor=pointer]:
+              - /url: tel:+919154024371
+            - button "Chat on WhatsApp" [ref=e118] [cursor=pointer]
+        - generic [ref=e122]:
+          - heading "Hyderabad - Hi-Tech City Branch" [level=4] [ref=e124]
+          - generic [ref=e125]:
+            - link "Sumedha Institute of Technology, Hyderabad, Telangana" [ref=e130] [cursor=pointer]:
+              - /url: https://www.google.com/maps/place/Sumedha+IT/@17.4384769,78.3745418,831m/data=!3m2!1e3!4b1!4m6!3m5!1s0x3bcb93d038368985:0xc6488f44989b0124!8m2!3d17.438477!4d78.3794127!16s%2Fg%2F11lywv38cd?entry=ttu&g_ep=EgoyMDI1MDgyNC4wIKXMDSoASAFQAw%3D%3D
+              - text: Sumedha Institute of Technology,Hyderabad, Telangana
+            - link "info@sumedhait.com" [ref=e135] [cursor=pointer]:
+              - /url: mailto:info@sumedhait.com
+            - link "+91 91540 24371" [ref=e139] [cursor=pointer]:
+              - /url: tel:+919154024371
+            - button "Chat on WhatsApp" [ref=e141] [cursor=pointer]
+        - generic [ref=e145]:
+          - heading "Useful Links" [level=4] [ref=e146]
+          - list [ref=e147]:
+            - listitem [ref=e148]:
+              - link "Terms and Conditions" [ref=e149] [cursor=pointer]:
+                - /url: /terms-and-conditions
+      - generic [ref=e151]:
+        - paragraph [ref=e153]: © 2026 Sumedha Design Systems Pvt Ltd. All rights reserved.
+        - button "Scroll to top" [ref=e154] [cursor=pointer]
+  - button "Chat on WhatsApp" [ref=e157] [cursor=pointer]
+  - button "Register for SIT" [ref=e160] [cursor=pointer]:
+    - generic [ref=e161]: Register

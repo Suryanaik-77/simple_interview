@@ -1,0 +1,18 @@
+[     450ms] [LOG] 🌐 [Global UTM Capture] No UTMs in URL and no stored UTMs @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     521ms] [LOG] 🌐 [Global UTM Capture] No UTMs in URL and no stored UTMs @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     541ms] [LOG] 🌐 [Global UTM Capture] No UTMs in URL and no stored UTMs @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG] 🔍 Checking sessionStorage for UTM parameters... @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG] 🔍 sessionStorage key: utm_session_params @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG] 🔍 sessionStorage value: null @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG] 🔍 Current URL: https://sumedhait.com/analog-layout @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG] 🔍 URL has UTM params: false @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG] ⚠️ No UTM parameters found in URL or session @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG] ⚠️ sessionStorage.getItem returned: null @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG] ⚠️ This might mean: @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG]    1. UTM parameters were never stored @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG]    2. sessionStorage was cleared @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG]    3. You're in a different session/tab @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG] ⚠️ To debug, check sessionStorage manually: @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [LOG]    sessionStorage.getItem("utm_session_params") @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [WARNING] ⚠️ WARNING: getUTMParams is returning empty object! @ https://sumedhait.com/static/js/main.847cbf31.js:1
+[     542ms] [WARNING] ⚠️ This means UTM parameters will NOT be included in the form @ https://sumedhait.com/static/js/main.847cbf31.js:1
