@@ -309,6 +309,6 @@ SELECT
     s.session_data->'conversation'                  AS conversation
 
 FROM active_sessions s
-WHERE s.session_data->>'phase' = 'done'
+WHERE LOWER(s.session_data->>'phase') = 'ended'
   AND s.session_data->'evaluation' IS NOT NULL
   AND s.session_data->'evaluation' != 'null'::jsonb;
