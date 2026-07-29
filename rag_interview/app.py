@@ -688,13 +688,13 @@ def _next_lab_route(question):
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     return templates.TemplateResponse(
-        "rag.html", {"request": request, "labs": engine.labs}
+        "rag.html", {"request": request, "labs": pd_engine.labs}
     )
 
 
 @app.get("/api/labs")
 def api_labs():
-    return {"labs": engine.labs, "chunks": len(engine.chunks)}
+    return {"labs": pd_engine.labs, "chunks": len(pd_engine.chunks)}
 
 
 @app.post("/api/ask")
