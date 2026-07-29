@@ -289,17 +289,93 @@ if not database.is_available():
     log.info(f"[History] Loaded {sum(len(v) for v in candidate_history.values())} sessions for {len(candidate_history)} candidates")
 
 
+def _extract_topic_from_question(question: str) -> str:
+    """Extract topic from question text using keyword matching."""
+    if not question:
+        return ""
+
+    q = question.lower()
+
+    # Design Verification topics
+    dv_topics = {
+        "covergroup": "Functional Coverage",
+        "coverage": "Functional Coverage",
+        "mailbox": "Communication",
+        "queue": "Data Structures",
+        "scoreboard": "Verification Components",
+        "interface": "Interfaces",
+        "constraint": "Constrained Random",
+        "random": "Constrained Random",
+        "sequence": "UVM Sequences",
+        "sequencer": "UVM Sequencer",
+        "uvm": "UVM Framework",
+        "assertion": "Assertions",
+        "sva": "SystemVerilog Assertions",
+        "clock domain": "Clock Domain Crossing",
+        "cdc": "Clock Domain Crossing",
+        "phase": "UVM Phases",
+        "testbench": "Testbench Architecture",
+        "fifo": "FIFO Design",
+        "alu": "ALU Design",
+    }
+
+    # Physical Design topics
+    pd_topics = {
+        "floorplan": "Floorplanning",
+        "placement": "Placement",
+        "cts": "Clock Tree Synthesis",
+        "clock tree": "Clock Tree Synthesis",
+        "routing": "Routing",
+        "sta": "Static Timing Analysis",
+        "timing": "Timing Analysis",
+        "setup": "Timing Constraints",
+        "hold": "Timing Constraints",
+        "power": "Power Optimization",
+        "ir drop": "IR Drop",
+        "lvs": "LVS Checking",
+        "drc": "DRC Rules",
+    }
+
+    # Analog topics
+    analog_topics = {
+        "opamp": "Opamp Design",
+        "comparator": "Comparator Design",
+        "bandgap": "Bandgap Reference",
+        "pll": "PLL Design",
+        "adc": "ADC Design",
+        "dac": "DAC Design",
+    }
+
+    # Combine all topics
+    all_topics = {**dv_topics, **pd_topics, **analog_topics}
+
+    # Find matching topic
+    for keyword, topic in all_topics.items():
+        if keyword in q:
+            return topic
+
+    return "General"
+
+
 def save_candidate_session(session):
     """Save completed session to candidate history and generate comparison if applicable."""
     email = session.get("resume", {}).get("email", "")
     if not email:
         return
+
+    # Extract topics from questions
+    topics_asked = []
+    for entry in session.get("conversation", []):
+        if entry.get("question"):
+            topic = _extract_topic_from_question(entry.get("question", ""))
+            topics_asked.append(topic)
+
     summary = {
         "session_id": session["id"],
         "date": datetime.now(tz=timezone.utc).isoformat(),
         "domain": session.get("resume", {}).get("domain", ""),
         "turns": session.get("turn", 0),
-        "topics_asked": [e.get("topic", "") for e in session.get("conversation", []) if e.get("question")],
+        "topics_asked": topics_asked,
         "questions_asked": [e.get("question", "") for e in session.get("conversation", []) if e.get("question")],
         "projects": session.get("resume", {}).get("key_projects", []),
         "skills": session.get("resume", {}).get("skills", []),
