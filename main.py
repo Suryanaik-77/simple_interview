@@ -127,6 +127,8 @@ database.init_db()
 import redis_cache
 redis_cache.init_cache()
 
+import comparison_analysis
+
 # Shared runtime config (LLM/TTS/STT). With multiple workers, an admin edit only
 # mutates one worker's RUNTIME_CONFIG dict. Postgres holds the durable, shared copy
 # (so changes survive restarts and reach every worker); Redis caches it for fast reads.
@@ -276,7 +278,7 @@ if not database.is_available():
 
 
 def save_candidate_session(session):
-    """Save completed session to candidate history."""
+    """Save completed session to candidate history and generate comparison if applicable."""
     email = session.get("resume", {}).get("email", "")
     if not email:
         return
@@ -306,6 +308,47 @@ def save_candidate_session(session):
         candidate_history.setdefault(email, []).append(summary)
         _save_history_to_disk()
     log.info(f"[History] Saved for {email}: {summary['turns']} turns, session {summary['session_id'][:8]}")
+
+    # Generate comparison analysis if this is not the first interview
+    _generate_comparison_async(session, email)
+
+
+def _generate_comparison_async(session, email):
+    """Generate comparison analysis in background thread (non-blocking)."""
+    def _worker():
+        try:
+            # Get previous sessions
+            previous_sessions = get_candidate_previous(email)
+            # Filter out current session
+            previous_sessions = [s for s in previous_sessions if s.get("session_id") != session["id"]]
+
+            if not previous_sessions:
+                log.info(f"[Comparison] Skipping for {email} - first interview")
+                return
+
+            # Generate comparison
+            comparison = comparison_analysis.compare_interviews(
+                current_session=session,
+                previous_sessions=previous_sessions,
+                openai_client=openai_client,
+                model=RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+            )
+
+            # Store comparison in session data
+            if database.is_available():
+                database.save_session_evaluation(session["id"], {
+                    **session.get("evaluation", {}),
+                    "comparison": comparison
+                })
+            else:
+                session.setdefault("evaluation", {})["comparison"] = comparison
+
+            log.info(f"[Comparison] Generated for session {session['id'][:8]}, candidate: {email}")
+
+        except Exception as e:
+            log.error(f"[Comparison] Failed to generate async comparison: {e}")
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 def get_candidate_previous(email: str) -> list[dict]:
@@ -4208,6 +4251,58 @@ def _load_gaze_bundle():
         log.error(f"[Gaze] Failed to load model from {GAZE_MODEL_PATH}: {e}")
         return None
 
+
+@app.post("/api/get-comparison")
+def get_comparison_public(data: dict):
+    """
+    Public endpoint for candidates to view their progress comparison.
+    Returns comparison between current and previous interview(s).
+    """
+    sid = data.get("session_id", "")
+    session = sessions.get(sid)
+    if not session and database.is_available():
+        session = database.get_active_session(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Check if evaluation has comparison already stored
+    evaluation = session.get("evaluation", {})
+    if evaluation and "comparison" in evaluation:
+        return evaluation["comparison"]
+
+    # Generate comparison on-the-fly if not stored
+    email = session.get("resume", {}).get("email")
+    if not email:
+        return {
+            "status": "no_email",
+            "message": "Session does not have candidate email"
+        }
+
+    previous_sessions = get_candidate_previous(email)
+    previous_sessions = [s for s in previous_sessions if s.get("session_id") != sid]
+
+    if not previous_sessions:
+        return {
+            "status": "no_history",
+            "message": "This is your first interview. Keep going!"
+        }
+
+    try:
+        comparison = comparison_analysis.compare_interviews(
+            current_session=session,
+            previous_sessions=previous_sessions,
+            openai_client=openai_client,
+            model=RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+        )
+        return comparison
+    except Exception as e:
+        log.error(f"[Comparison] Failed to generate public comparison: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to generate comparison: {str(e)}"
+        }
+
+
 @app.post("/api/anticheat-event")
 def anticheat_event(data: dict):
     event_type = data.get("event_type", "")
@@ -5332,6 +5427,165 @@ def list_reviews(limit: int = 100, _=Depends(require_admin)):
 @app.get("/api/admin/reviews/{session_id}")
 def get_session_reviews(session_id: str, _=Depends(require_admin)):
     return database.list_expert_reviews(session_id=session_id)
+
+
+# ── Comparison Analysis ──────────────────────────────────────────────────
+
+@app.get("/api/comparison/{session_id}")
+async def get_comparison_analysis(session_id: str, _=Depends(require_admin)):
+    """
+    Compare a session with the candidate's previous interview(s).
+    Returns detailed analysis of improvements and areas still lagging.
+    """
+    # Get current session
+    session = sessions.get(session_id)
+    if not session and database.is_available():
+        session = database.get_active_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Get candidate email
+    email = session.get("resume", {}).get("email")
+    if not email:
+        raise HTTPException(400, "Session does not have candidate email")
+
+    # Get previous sessions
+    previous_sessions = get_candidate_previous(email)
+
+    # Filter out the current session from history if it exists
+    previous_sessions = [s for s in previous_sessions if s.get("session_id") != session_id]
+
+    if not previous_sessions:
+        return {
+            "status": "no_history",
+            "message": "This is the candidate's first interview. No comparison available."
+        }
+
+    # Perform comparison
+    try:
+        comparison = comparison_analysis.compare_interviews(
+            current_session=session,
+            previous_sessions=previous_sessions,
+            openai_client=openai_client,
+            model=RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+        )
+        log.info(f"[Comparison] Generated analysis for session {session_id[:8]}, candidate: {email}")
+        return comparison
+    except Exception as e:
+        log.error(f"[Comparison] Failed to generate analysis: {e}")
+        raise HTTPException(500, f"Failed to generate comparison: {str(e)}")
+
+
+@app.get("/api/comparison/{session_id}/report")
+async def get_comparison_report(session_id: str, _=Depends(require_admin)):
+    """
+    Get a text-based comparison report for download or display.
+    """
+    # Get current session
+    session = sessions.get(session_id)
+    if not session and database.is_available():
+        session = database.get_active_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Get candidate email
+    email = session.get("resume", {}).get("email")
+    if not email:
+        raise HTTPException(400, "Session does not have candidate email")
+
+    # Get previous sessions
+    previous_sessions = get_candidate_previous(email)
+    previous_sessions = [s for s in previous_sessions if s.get("session_id") != session_id]
+
+    if not previous_sessions:
+        report_text = "This is the candidate's first interview. No comparison available."
+    else:
+        try:
+            comparison = comparison_analysis.compare_interviews(
+                current_session=session,
+                previous_sessions=previous_sessions,
+                openai_client=openai_client,
+                model=RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+            )
+            report_text = comparison_analysis.generate_comparison_report_text(comparison)
+        except Exception as e:
+            log.error(f"[Comparison] Failed to generate report: {e}")
+            report_text = f"Error generating comparison report: {str(e)}"
+
+    return Response(
+        content=report_text,
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f"attachment; filename=comparison_report_{session_id[:8]}.txt"
+        }
+    )
+
+
+@app.post("/api/comparison/by-email")
+async def get_comparison_by_email(data: dict, _=Depends(require_admin)):
+    """
+    Get comparison analysis for a candidate by email.
+    Returns the most recent interview comparison.
+
+    Request: {"email": "candidate@example.com"}
+    """
+    email = data.get("email", "").strip()
+    if not email:
+        raise HTTPException(400, "Email is required")
+
+    # Get all sessions for this candidate
+    previous_sessions = get_candidate_previous(email)
+
+    if not previous_sessions:
+        return {
+            "status": "no_history",
+            "message": f"No interview history found for {email}"
+        }
+
+    if len(previous_sessions) < 2:
+        return {
+            "status": "no_comparison",
+            "message": f"Only one interview found for {email}. Need at least 2 interviews for comparison.",
+            "interview_count": 1,
+            "latest_session": previous_sessions[0]
+        }
+
+    # Get the most recent (current) session
+    latest_summary = previous_sessions[-1]
+    latest_session_id = latest_summary.get("session_id")
+
+    # Try to load the full session data
+    current_session = sessions.get(latest_session_id)
+    if not current_session and database.is_available():
+        current_session = database.get_active_session(latest_session_id)
+
+    if not current_session:
+        # If session not in active_sessions, reconstruct from summary
+        return {
+            "status": "session_archived",
+            "message": f"Latest session {latest_session_id[:8]} is archived. Comparison not available.",
+            "latest_session": latest_summary,
+            "interview_count": len(previous_sessions)
+        }
+
+    # Get previous sessions (all except the latest)
+    prev_sessions = previous_sessions[:-1]
+
+    # Perform comparison
+    try:
+        comparison = comparison_analysis.compare_interviews(
+            current_session=current_session,
+            previous_sessions=prev_sessions,
+            openai_client=openai_client,
+            model=RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+        )
+        comparison["email"] = email
+        comparison["interview_count"] = len(previous_sessions)
+        log.info(f"[Comparison] Generated analysis by email for {email}, {len(previous_sessions)} total interviews")
+        return comparison
+    except Exception as e:
+        log.error(f"[Comparison] Failed to generate analysis for {email}: {e}")
+        raise HTTPException(500, f"Failed to generate comparison: {str(e)}")
 
 
 # ── Admin: Cognition AI (DISABLED) ─────────────────────────────────────
