@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analog Layout Design: Canonical Forms & Gate Realizations</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="interactive.js" defer></script>
+</head>
+<body>
+    <div class="header">
+        <h1>Canonical Forms in Digital Design</h1>
+        <p>SOP, POS, and Universal Gate Implementations for Efficient Circuit Design</p>
+    </div>
+
+     <!-- 🎯 Learning Objectives Section -->
+     <div class="section">
+        <h2 class="section-title">
+            <span class="section-icon">🎯</span>Learning Objectives
+        </h2>
+         <div class="subsection">
+            <ul>
+            <li><strong>Understand</strong> of Products (SOP) and Product of Sums (POS) representations.</li>
+            <li><strong>Apply</strong> boolean algebra to convert between different canonical forms.</li>
+            <li><strong>Implement</strong> logic gates using only NAND or NOR gates.</li>
+              </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">
+            
+            Canonical Forms
+        </h2>
+        
+        <div class="highlight-box info">
+            <p><strong>Why Canonical?</strong> Canonical forms provide standardized ways to represent Boolean functions, making them easier to analyze, simplify, and implement in hardware.</p>
+        </div>
+
+        <div class="comparison-grid">
+            <div class="comparison-item">
+                <h4>Sum of Products (SOP)</h4>
+                <p><strong>Definition:</strong> AND terms (minterms) ORed together</p>
+                <p><strong>Example:</strong> F = A'B + AB' + AB</p>
+                <p><strong>Implementation:</strong> AND gates followed by OR gate</p>
+                <p><strong>Use Case:</strong> When output is 1 for specific input combinations</p>
+            </div>
+            <div class="comparison-item">
+                <h4>Product of Sums (POS)</h4>
+                <p><strong>Definition:</strong> OR terms (maxterms) ANDed together</p>
+                <p><strong>Example:</strong> F = (A+B')(A'+B)(A+B)</p>
+                <p><strong>Implementation:</strong> OR gates followed by AND gate</p>
+                <p><strong>Use Case:</strong> When output is 0 for specific input combinations</p>
+            </div>
+        </div>
+
+        <div class="subsection">
+            <h3>Example: 2-Input Function Conversion</h3>
+            <p>Consider a function with truth table:</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>A</th>
+                        <th>B</th>
+                        <th>F</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>0</td>
+                        <td>0</td>
+                        <td>0</td>
+                    </tr>
+                    <tr>
+                        <td>0</td>
+                        <td>1</td>
+                        <td>1</td>
+                    </tr>
+                    <tr>
+                        <td>1</td>
+                        <td>0</td>
+                        <td>1</td>
+                    </tr>
+                    <tr>
+                        <td>1</td>
+                        <td>1</td>
+                        <td>0</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="highlight-box correct">
+                <p><strong>SOP Form:</strong> F = A'B + AB' (minterms where F=1)</p>
+                <p><strong>POS Form:</strong> F = (A+B)(A'+B') (maxterms where F=0)</p>
+            </div>
+        </div>
+
+        <div class="subsection">
+            <h3>3-Variable Example: Majority Function</h3>
+            <p>The majority function outputs 1 when majority of inputs are 1.</p>
+            <div class="code-container">
+                <div class="code-header">Boolean Function Analysis</div>
+                <div class="code">
+Inputs: A, B, C
+Truth Table:
+A B C | F
+0 0 0 | 0
+0 0 1 | 0
+0 1 0 | 0
+0 1 1 | 1  (minterm m3)
+1 0 0 | 0
+1 0 1 | 1  (minterm m5)
+1 1 0 | 1  (minterm m6)
+1 1 1 | 1  (minterm m7)
+
+SOP: F = A'BC + AB'C + ABC' + ABC
+     = Σm(3,5,6,7)
+
+POS: F = (A+B+C)(A+B+C')(A+B'+C)(A'+B+C)
+     = ΠM(0,1,2,4)
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2 class="section-title">
+            
+            Universal Gates: NAND and NOR Implementations
+        </h2>
+        
+        <div class="highlight-box warning">
+            <p><strong>Why Universal Gates?</strong> In VLSI design, using only one type of gate (NAND or NOR) simplifies manufacturing, reduces mask complexity, and improves yield.</p>
+        </div>
+
+        <div class="comparison-grid">
+            <div class="comparison-item">
+                <h4>NAND Gate as Universal Gate</h4>
+                <p><strong>NOT using NAND:</strong> Connect both inputs together</p>
+                <p><strong>AND using NAND:</strong> NAND followed by NOT (NAND)</p>
+                <p><strong>OR using NAND:</strong> Use De Morgan's: A+B = (A'B')'</p>
+                <p><strong>Advantage:</strong> Faster switching in CMOS technology</p>
+            </div>
+            <div class="comparison-item">
+                <h4>NOR Gate as Universal Gate</h4>
+                <p><strong>NOT using NOR:</strong> Connect both inputs together</p>
+                <p><strong>OR using NOR:</strong> NOR followed by NOT (NOR)</p>
+                <p><strong>AND using NOR:</strong> Use De Morgan's: AB = (A'+B')'</p>
+                <p><strong>Advantage:</strong> Better noise margins in some technologies</p>
+            </div>
+        </div>    
+
+        <div class="subsection">
+            <h3> Implementations Using Only NAND Gates</h3>
+           
+            <div class="code-container">
+                <div class="code-header">Step-by-Step NAND Implementation</div>
+                <div class="code">
+
+Step 1: Write the logic function in the Sum of Product (SOP) form 
+ 
+Step 2: Draw using basic gates
+
+Step 3: For AND gate add a bubble at the output side and for the OR gate add bubbles at the input side
+
+Step 4: To compensate for the added bubble add an inverter
+
+Step 5: Any two inverters are in series, remove both of them
+
+Step 6: Replace any remaining gates and inverters with the equivalent NAND implementation
+
+                </div>
+              
+            </div>
+        </div>
+    <p><strong>Implementation of All Gates Using NAND</strong></p>
+            <div style="text-align: center; padding: 10px; background: white; border-radius: 6px; margin-top: 15px; border: 1px dashed #ddd;">
+                <img src="Allgates_NAND.png" alt="Assignment Circuit Diagram Area" style="max-width: 70%; height: auto;">
+                <pstyle="font-size: 0.6em; color: #666; margin-top: 6px;"></p>
+              </div> 
+    <div class="subsection">
+            <h3> Implementations Using Only NOR Gates</h3>
+           
+            <div class="code-container">
+                <div class="code-header">Step-by-Step NAND Implementation</div>
+                <div class="code">
+
+Step 1: Write the logic function in the Product Of Sum(POS) form 
+ 
+Step 2: Draw using basic gates
+
+Step 3: For OR gate add a bubble at the output side and for the AND gate add bubbles at the input side
+
+Step 4: To compensate for the added bubble add an inverter
+
+Step 5: Any two inverters are in series, remove both of them
+
+Step 6: Replace any remaining gates and inverters with the equivalent NOR implementation
+
+                </div>
+            </div>
+        </div>
+
+        <p><strong>Implementation of All Gates Using NAND</strong></p>
+            <div style="text-align: center; padding: 10px; background: white; border-radius: 6px; margin-top: 15px; border: 1px dashed #ddd;">
+                <img src="Allgates_NOR.png" alt="Assignment Circuit Diagram Area" style="max-width: 70%; height: auto;">
+                <pstyle="font-size: 0.6em; color: #666; margin-top: 6px;"></p>
+              </div> 
+
+    </div>
+
+   
+   
+    <div class="section">
+        <h2 class="section-title">
+            <span class="section-icon">📝</span>
+            Check Your Understanding
+        </h2>
+        
+        <div class="quiz-container">
+            <div class="quiz-question">
+                <p><strong>1.Convert the function F = (A+B)(A'+C) to canonical SOP form.</strong> </p>
+                <ul class="quiz-options">
+                    <li data-correct="false">A'B + AC'</li>
+                    <li data-correct="true">ABC + AB'C + A'BC + A'BC'</li>
+                    <li data-correct="false">AB' + A'C'</li>
+                    <li data-correct="false">ABC + A'B'C'</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer" style="display: none;">
+                    <p><strong>Explanation:</strong></p>
+                    <p>F = (A+B)(A'+C)</p>
+                    <p>Expand using distributive law: = AA' + AC + A'B + BC</p>
+                    <p>AA' = 0, so: = AC + A'B + BC</p>
+                    <p>This is already in SOP form but not canonical. To make canonical:</p>
+                    <p>AC = ABC + AB'C</p>
+                    <p>A'B = A'BC + A'BC'</p>
+                    <p>BC = ABC + A'BC</p>
+                    <p>Combine: = ABC + AB'C + A'BC + A'BC'</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>2.How many NAND gates are needed to implement an XOR gate?</strong> </p>
+                <ul class="quiz-options">
+                    <li data-correct="false">2</li>
+                    <li data-correct="false">3</li>
+                    <li data-correct="true">4</li>
+                    <li data-correct="false">5</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer" style="display: none;">
+                    <p><strong>Explanation:</strong></p>
+                    <p>XOR function: A⊕B = AB' + A'B</p>
+                    <p>Using NAND gates only:</p>
+                    <p>1. NAND1: w1 = NAND(A,B) = (AB)'</p>
+                    <p>2. NAND2: w2 = NAND(A,w1) = A(AB)'' = AB'</p>
+                    <p>3. NAND3: w3 = NAND(B,w1) = B(AB)'' = A'B</p>
+                    <p>4. NAND4: F = NAND(w2,w3) = (AB' + A'B)' = A⊕B</p>
+                    <p>Total: 4 NAND gates minimum</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>3.Which canonical form would be most efficient for implementing a function that outputs 1 for only 1 out of 8 input combinations?</strong> </p>
+                <ul class="quiz-options">
+                    <li data-correct="true">SOP (1 minterm)</li>
+                    <li data-correct="false">POS (7 maxterms)</li>
+                    <li data-correct="false">Both are equally efficient</li>
+                    <li data-correct="false">Neither, use XOR implementation</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer" style="display: none;">
+                    <p><strong>Explanation:</strong></p>
+                    <p>For a function with single 1 output:</p>
+                    <p><strong>SOP:</strong> 1 minterm = 1 AND gate (with possibly inverted inputs) feeding OR gate</p>
+                    <p><strong>POS:</strong> 7 maxterms = 7 OR gates feeding AND gate</p>
+                    <p>SOP implementation requires fewer gates (1 AND vs 7 OR gates), making it more area-efficient.</p>
+                    <p>General rule: Use SOP when output is 1 for few combinations, POS when output is 0 for few combinations.</p>
+                </div>
+            </div>
+    <div class="quiz-question">
+        <p><strong>4. Which Boolean expression represents the canonical POS form of F = Σm(0,2,4,5)?</strong></p>
+        <ul class="quiz-options">
+            <li data-correct="false">ΠM(1,3,6)</li>
+            <li data-correct="true">ΠM(1,3,6,7)</li>
+            <li data-correct="false">ΠM(0,2,4,5)</li>
+            <li data-correct="false">ΠM(1,2,6,7)</li>
+        </ul>
+        <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+        <div class="feedback"></div>
+        <div class="answer" style="display: none;">
+            <p><strong>Explanation:</strong></p>
+            <p>For 3 variables, total minterms = 8 (0-7). If SOP includes minterms 0,2,4,5, then POS includes the remaining maxterms: 1,3,6,7? Wait—check carefully: 
+                F = Σm(0,2,4,5) means F=1 for those terms, so F=0 for m1,m3,m6,m7. Thus POS = ΠM(1,3,6,7).</p>
+        </div>
+   </div>
+
+    <div class="quiz-question">
+        <p><strong>5. How can an AND gate be implemented using only NOR gates?</strong></p>
+        <ul class="quiz-options">
+            <li data-correct="false">Connect inputs to a NOR and invert output</li>
+            <li data-correct="true">NOR followed by another NOR with inverted inputs</li>
+            <li data-correct="false">Two NORs in parallel</li>
+            <li data-correct="false">A single NOR gate with tied inputs</li>
+        </ul>
+        <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+        <div class="feedback"></div>
+        <div class="answer" style="display: none;">
+            <p><strong>Explanation:</strong></p>
+            <p>AND using NOR: AB = (A' + B')'. First NOR acts as inverter for each input (A' = NOR(A,A)), then NOR these inverted outputs to get (A' + B')', which is AND.</p>
+            <p>Implementation: NOR(A,A) → A', NOR(B,B) → B', then NOR(A',B') = (A' + B')' = AB.</p>
+        </div>
+    </div>
+
+    <div class="quiz-question">
+        <p><strong>6. Which is the canonical SOP for F = (A + B')(B + C)(A' + C')?</strong></p>
+        <ul class="quiz-options">
+            <li data-correct="false">Σm(0,1,3,5)</li>
+            <li data-correct="true">Σm(1,2,4,7)</li>
+            <li data-correct="false">Σm(0,2,5,6)</li>
+            <li data-correct="false">Σm(3,4,6,7)</li>
+        </ul>
+        <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+        <div class="feedback"></div>
+        <div class="answer" style="display: none;">
+            <p><strong>Explanation:</strong></p>
+            <p>First expand to SOP, then find minterms.</p>
+            <p>F = (A+B')(B+C)(A'+C') = (AB + AC + B'B + B'C)(A'+C') = (AB + AC + B'C)(A'+C') …</p>
+            <p>Better to use truth table: Evaluate for ABC from 000 to 111. F=1 for inputs: 001(m1), 010(m2), 100(m4), 111(m7). So Σm(1,2,4,7).</p>
+        </div>
+    </div>
+
+    <div class="quiz-question">
+        <p><strong>7. In CMOS technology, why is NAND generally preferred over NOR for implementing logic?</strong></p>
+        <ul class="quiz-options">
+            <li data-correct="false">NOR has fewer transistors</li>
+            <li data-correct="true">NAND has faster pull-up due to parallel PMOS</li>
+            <li data-correct="false">NOR consumes less power</li>
+            <li data-correct="false">NAND has better noise immunity</li>
+        </ul>
+        <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+        <div class="feedback"></div>
+        <div class="answer" style="display: none;">
+            <p><strong>Explanation:</strong></p>
+            <p>In CMOS NAND, PMOS transistors are in parallel, leading to faster low-to-high output transition. In NOR, PMOS are in series, increasing resistance and slowing pull-up. Speed advantage makes NAND preferred in standard cell libraries.</p>
+        </div>
+    </div>
+
+    <div class="quiz-question">
+        <p><strong>8. For the function F = A ⊕ B ⊕ C, how many minterms are in its canonical SOP?</strong></p>
+        <ul class="quiz-options">
+            <li data-correct="false">2</li>
+            <li data-correct="false">3</li>
+            <li data-correct="true">4</li>
+            <li data-correct="false">8</li>
+        </ul>
+        <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+        <div class="feedback"></div>
+        <div class="answer" style="display: none;">
+            <p><strong>Explanation:</strong></p>
+            <p>XOR of three variables is 1 when odd number of inputs are 1.</p>
+            <p>Truth table: 001,010,100,111 → four 1's. So 4 minterms: m1, m2, m4, m7.</p>
+        </div>
+    </div>
+
+    <div class="quiz-question">
+        <p><strong>9. What is the minimum number of 2-input NOR gates required to implement a 2-input XNOR gate?</strong></p>
+        <ul class="quiz-options">
+            <li data-correct="false">3</li>
+            <li data-correct="true">4</li>
+            <li data-correct="false">5</li>
+            <li data-correct="false">6</li>
+        </ul>
+        <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+        <div class="feedback"></div>
+        <div class="answer" style="display: none;">
+            <p><strong>Explanation:</strong></p>
+            <p>XNOR: A ⊙ B = AB + A'B'. Using NOR only: Implement AND and inverters via NOR.</p>
+            <p>One efficient implementation: 4 NOR gates: NOR(A,B) → (A+B)', NOR(A',B') with inverters from NOR(A,A) and NOR(B,B). Total gates: 4 NOR.</p>
+        </div>
+    </div>
+
+    <div class="quiz-question">
+        <p><strong>10. If a function's truth table has 3 ones and 5 zeros, which canonical form is likely more gate-efficient?</strong></p>
+        <ul class="quiz-options">
+            <li data-correct="true">SOP</li>
+            <li data-correct="false">POS</li>
+            <li data-correct="false">Both same</li>
+            <li data-correct="false">Cannot determine</li>
+        </ul>
+        <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+        <div class="feedback"></div>
+        <div class="answer" style="display: none;">
+            <p><strong>Explanation:</strong></p>
+            <p>SOP uses AND for each 1 → 3 AND terms. POS uses OR for each 0 → 5 OR terms. Fewer terms usually mean fewer gates, so SOP more efficient.</p>
+        </div>
+    </div>
+
+    <div class="quiz-question">
+        <p><strong>11. Which Boolean law is primarily used to convert between SOP and POS forms?</strong></p>
+        <ul class="quiz-options">
+            <li data-correct="false">Associative Law</li>
+            <li data-correct="true">De Morgan's Theorem</li>
+            <li data-correct="false">Distributive Law</li>
+            <li data-correct="false">Commutative Law</li>
+        </ul>
+        <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+        <div class="feedback"></div>
+        <div class="answer" style="display: none;">
+            <p><strong>Explanation:</strong></p>
+            <p>De Morgan's Theorem allows complementing a function to switch between AND/OR structures, facilitating SOP↔POS conversion.</p>
+            <p>Example: (AB)' = A' + B', (A+B)' = A'B'.</p>
+        </div>
+    </div>
+
+   
+</div>
+        </div>
+    </div>
+
+ <div class="section">
+        <h2 class="section-title">
+            <span class="section-icon">💭</span>
+            Thought-Provoking Questions
+        </h2>
+        
+        <div class="quiz-container">
+            <div class="quiz-question">
+                <p><strong>1:</strong> If NAND gates are universal, why do we still use AND, OR, and NOT gates in digital designs?</p>           
+                <p><strong>2:</strong> A manufacturing defect causes all NAND gates to behave as AND gates. How would this affect a circuit designed using only NAND gates?</p>
+                            </div>
+        </div>
+    </div>
+
+
+ <!-- ✍️ Assignment Section -->
+   <div class="section">
+        <h2 class="section-title">
+            <span class="section-icon">✍️</span>Assignment
+        </h2>
+        <div class="highlight-box warning">
+           
+            <ol>
+            <p>1.Impliment the following using NAND gates  i) F1=A(B+CD) + (BC)'    ii) F2=wx + x'y(z+w')</p>
+            <p>2.Obtain the Canonical SOP of A+BC'+ABD'+ABCD</p>
+            <p>3.Draw a two-level logic circuit using NOR gates for the POS:F=(A+B)(A'+C)(B+C)</p>
+            <p>4.Draw a two-level logic circuit using NAND gates for the SOP:F=AB+A'C+BC</p>
+            <p>5.For the function F=A'B'+AC</p>
+            <p>a) Convert to canonical SOP.</p>
+            <p>b) Convert to canonical POS.</p>	
+            <p>c) Minimize using Boolean algebra in both forms.</p>
+               </ol>
+                </div>     
+        </div>
+    </section>
+
+    <!-- 📝 Key Takeaways Section -->
+    <section class="section" id="key-takeaways">
+        <h2 class="section-title">
+           📝 Key Takeaways
+        </h2>
+        
+        
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h4>Canonical Forms</h4>
+                <p>SOP: AND-OR structure, minterms</p>
+                <p>POS: OR-AND structure, maxterms</p>
+            </div>
+            <div class="summary-card">
+                <h4>Universal Gates</h4>
+                <p>NAND: Fast in CMOS, parallel PMOS</p>
+                <p>NOR: Better noise margin</p>
+            </div>
+           
+        </div>
+
+        
+    </div>
+         
+    <script>
+        // Additional quiz initialization
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize all quiz options with proper attributes
+            document.querySelectorAll('.quiz-options li').forEach(option => {
+                option.classList.add('quiz-option');
+            });
+            
+            console.log('Analog Layout Design module loaded successfully!');
+        });
+    </script>
+</body>
+</html>

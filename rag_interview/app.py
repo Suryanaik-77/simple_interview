@@ -21,8 +21,11 @@ from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 from pydantic import BaseModel
 from openai import OpenAI
+from datetime import datetime
 
 from rag_engine import RAGEngine, sanitize_paths, parse_facets
+from dv_rag_engine import DVRAGEngine
+from analog_rag_engine import AnalogRAGEngine
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -31,17 +34,159 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 CHAT_MODEL = "deepseek-v4-flash"     # final answer
 VERIFY_MODEL = "deepseek-v4-flash"   # small verifier agent
-RETRIEVE_K = 8                       # retrieve wide, then verify + expand
+RETRIEVE_K = 6                       # retrieve 6 chunks, evaluate progressively (3+3)
+BATCH_SIZE = 3                       # evaluate 3 chunks at a time for token optimization
 # Only offer a clarify when retrieval is actually confident. Legit lab questions
 # score ~0.55-0.65 cosine; off-topic/nonsense scores <0.2. Below this we skip
 # clarify and let verify/answer say the content isn't present.
 MIN_CLARIFY_SCORE = 0.40
 
+# Token pricing (USD per 1M tokens)
+PRICING = {
+    "openai_embed": {"input": 0.13},  # text-embedding-3-large
+    "deepseek_v4_flash": {"input": 0.014, "output": 0.14, "cache_hit": 0.0014},  # reasoning model
+}
+
+# Token tracking storage (in-memory for now, can be moved to DB)
+_token_stats = []
+
+
+def _get_source_name(hit, domain):
+    """Get the appropriate source name field based on domain."""
+    if domain == "pd":
+        return hit.get("lab_name", "Unknown")
+    elif domain == "dv":
+        return hit.get("module_name", hit.get("lab_name", "Unknown"))
+    elif domain == "analog":
+        return hit.get("topic_name", hit.get("lab_name", "Unknown"))
+    return hit.get("lab_name", "Unknown")
+
+
+class TokenTracker:
+    """Track token usage and costs for a single query."""
+
+    def __init__(self, question: str):
+        self.question = question
+        self.started_at = datetime.utcnow()
+        self.embed_tokens = 0
+        self.verify_batches = []  # List of {input, output, cache_hit, batch_num}
+        self.answer_tokens = {"input": 0, "output": 0, "cache_hit": 0}
+        self.clarify_tokens = {"input": 0, "output": 0, "cache_hit": 0}
+
+    def track_embedding(self, usage):
+        """Track OpenAI embedding tokens."""
+        self.embed_tokens = usage.total_tokens if hasattr(usage, 'total_tokens') else usage.get('total_tokens', 0)
+
+    def track_verify(self, usage, batch_num):
+        """Track verifier batch tokens."""
+        self.verify_batches.append({
+            "batch_num": batch_num,
+            "input": usage.prompt_tokens,
+            "output": usage.completion_tokens,
+            "cache_hit": getattr(usage, 'prompt_tokens_details', {}).get('cached_tokens', 0) if hasattr(usage, 'prompt_tokens_details') else 0
+        })
+
+    def track_answer(self, usage):
+        """Track answer generation tokens."""
+        cache_hit = 0
+        if hasattr(usage, 'prompt_tokens_details') and usage.prompt_tokens_details:
+            cache_hit = getattr(usage.prompt_tokens_details, 'cached_tokens', 0)
+
+        self.answer_tokens = {
+            "input": usage.prompt_tokens,
+            "output": usage.completion_tokens,
+            "cache_hit": cache_hit
+        }
+
+    def track_clarify(self, usage):
+        """Track clarify decision tokens."""
+        cache_hit = 0
+        if hasattr(usage, 'prompt_tokens_details') and usage.prompt_tokens_details:
+            cache_hit = getattr(usage.prompt_tokens_details, 'cached_tokens', 0)
+
+        self.clarify_tokens = {
+            "input": usage.prompt_tokens,
+            "output": usage.completion_tokens,
+            "cache_hit": cache_hit
+        }
+
+    def calculate_cost(self):
+        """Calculate total cost in USD."""
+        cost = 0.0
+
+        # Embedding cost
+        cost += (self.embed_tokens / 1_000_000) * PRICING["openai_embed"]["input"]
+
+        # Verifier batches cost
+        for batch in self.verify_batches:
+            cost += (batch["input"] / 1_000_000) * PRICING["deepseek_v4_flash"]["input"]
+            cost += (batch["output"] / 1_000_000) * PRICING["deepseek_v4_flash"]["output"]
+            cost += (batch["cache_hit"] / 1_000_000) * PRICING["deepseek_v4_flash"]["cache_hit"]
+
+        # Answer cost
+        cost += (self.answer_tokens["input"] / 1_000_000) * PRICING["deepseek_v4_flash"]["input"]
+        cost += (self.answer_tokens["output"] / 1_000_000) * PRICING["deepseek_v4_flash"]["output"]
+        cost += (self.answer_tokens["cache_hit"] / 1_000_000) * PRICING["deepseek_v4_flash"]["cache_hit"]
+
+        # Clarify cost
+        cost += (self.clarify_tokens["input"] / 1_000_000) * PRICING["deepseek_v4_flash"]["input"]
+        cost += (self.clarify_tokens["output"] / 1_000_000) * PRICING["deepseek_v4_flash"]["output"]
+        cost += (self.clarify_tokens["cache_hit"] / 1_000_000) * PRICING["deepseek_v4_flash"]["cache_hit"]
+
+        return cost
+
+    def get_summary(self):
+        """Get token usage summary."""
+        total_verify_input = sum(b["input"] for b in self.verify_batches)
+        total_verify_output = sum(b["output"] for b in self.verify_batches)
+        total_verify_cache = sum(b["cache_hit"] for b in self.verify_batches)
+
+        total_input = total_verify_input + self.answer_tokens["input"] + self.clarify_tokens["input"]
+        total_output = total_verify_output + self.answer_tokens["output"] + self.clarify_tokens["output"]
+        total_cache = total_verify_cache + self.answer_tokens["cache_hit"] + self.clarify_tokens["cache_hit"]
+
+        return {
+            "question": self.question[:100],
+            "timestamp": self.started_at.isoformat(),
+            "tokens": {
+                "embedding": self.embed_tokens,
+                "verify_batches": len(self.verify_batches),
+                "verify_input": total_verify_input,
+                "verify_output": total_verify_output,
+                "verify_cache_hit": total_verify_cache,
+                "answer_input": self.answer_tokens["input"],
+                "answer_output": self.answer_tokens["output"],
+                "answer_cache_hit": self.answer_tokens["cache_hit"],
+                "clarify_input": self.clarify_tokens["input"],
+                "clarify_output": self.clarify_tokens["output"],
+                "total_input": total_input,
+                "total_output": total_output,
+                "total_cache_hit": total_cache,
+                "total": self.embed_tokens + total_input + total_output,
+            },
+            "cost_usd": self.calculate_cost(),
+            "batches_detail": self.verify_batches
+        }
+
+    def save(self):
+        """Save to global stats."""
+        _token_stats.append(self.get_summary())
+
 app = FastAPI(title="Lab RAG")
 templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
 
-# Build/load the index once at startup.
-engine = RAGEngine.load_or_build()
+# Build/load all three RAG engines at startup
+pd_engine = RAGEngine.load_or_build()          # Physical Design RAG
+dv_engine = DVRAGEngine.load_or_build()        # Design Verification RAG
+analog_engine = AnalogRAGEngine.load_or_build()  # Analog Layout RAG
+
+# Map for easy access
+RAG_ENGINES = {
+    "pd": pd_engine,
+    "dv": dv_engine,
+    "analog": analog_engine
+}
+
 _client = OpenAI(
     api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url=DEEPSEEK_BASE_URL,
@@ -127,7 +272,8 @@ VERIFY_PROMPT = (
     "You select which retrieved sections are actually relevant to the user's "
     "question AND judge whether they are enough to answer it. Consider the "
     "specific lab/testcase the user names. Return STRICT JSON: "
-    "{\"relevant\": [<indices>], \"sufficient\": <bool>}.\n"
+    "{\"relevant\": [<indices>], \"sufficient\": <bool>, \"needs_more\": <bool>, "
+    "\"navigate_hint\": <string>}.\n"
     "- relevant: include an index only if that section genuinely helps answer "
     "THIS question for the lab asked about. If the user names a lab and a "
     "section is from a different lab, exclude it. If nothing is relevant, "
@@ -136,32 +282,56 @@ VERIFY_PROMPT = (
     "everything needed to answer the question completely and specifically "
     "(exact command, value, file, or steps asked for). Set it false if they "
     "are only partially on-topic, look truncated, or hint at the answer "
-    "without stating it — those need the full section pulled in."
+    "without stating it — those need more chunks.\n"
+    "- needs_more: true if relevant sections provide partial info but need "
+    "more context from additional chunks. False if sufficient or no answer possible.\n"
+    "- navigate_hint: When needs_more=true (partial answer) OR no relevant sections "
+    "found, suggest specific labs/sections where complete info can be found. "
+    "Format: 'For complete details, check [Lab Name] > [Section Name] or see [TC-XXX-GD-001] Guided lab'. "
+    "Leave empty only if sufficient=true (complete answer found)."
 )
 
 
 class AskRequest(BaseModel):
     question: str
+    domain: str = "pd"           # "pd", "dv", or "analog" - domain selection
     lab_name: str | None = None
     k: int = 5
     allow_clarify: bool = True   # False once the user has picked an option
     facets: dict | None = None   # {"provider": "SNPS"} once a facet is picked
 
 
-def _verify_relevant(question, hits):
+def _verify_relevant(question, hits, batch_start=0, batch_size=BATCH_SIZE, tracker=None, batch_num=0, domain="pd"):
     """Small agent: pick indices of relevant hits and judge sufficiency.
 
-    Returns (relevant_indices, sufficient). `sufficient` is True when those
-    sub-chunks already contain enough to answer completely — the caller then
-    skips full-section expansion. When False, the caller expands the winning
-    chunks to their full sections before answering.
+    Progressive evaluation: checks chunks in batches (default 3 at a time).
+
+    Args:
+        question: User's question
+        hits: Retrieved chunks
+        batch_start: Starting index for this batch
+        batch_size: Number of chunks to evaluate in this batch
+        tracker: TokenTracker instance for tracking usage
+        batch_num: Batch number for tracking
+        domain: Domain type (pd/dv/analog) for correct field names
+
+    Returns:
+        (relevant_indices, sufficient, needs_more, navigate_hint)
+        - relevant_indices: list of indices that are relevant
+        - sufficient: True if these chunks fully answer the question
+        - needs_more: True if partial answer, need next batch
+        - navigate_hint: Suggestion where to look if no answer found
     """
+    # Evaluate only the current batch of chunks
+    batch_end = min(batch_start + batch_size, len(hits))
+    batch_hits = hits[batch_start:batch_end]
+
     # Give the verifier the full sub-chunk (not a 220-char preview) so its
     # sufficiency judgement is made on the actual retrieved text.
     listing = "\n".join(
-        f"{i}. [lab: {h['lab_name']} | section: {h['heading']}] "
+        f"{i}. [source: {_get_source_name(h, domain)} | section: {h['heading']}] "
         f"{_sanitize_paths(h['content'])}"
-        for i, h in enumerate(hits)
+        for i, h in enumerate(batch_hits)
     )
     try:
         resp = _client.chat.completions.create(
@@ -177,15 +347,23 @@ def _verify_relevant(question, hits):
                  "content": f"Question: {question}\n\nSections:\n{listing}"},
             ],
         )
+
+        # Track tokens
+        if tracker and hasattr(resp, 'usage'):
+            tracker.track_verify(resp.usage, batch_num)
+
         data = json.loads(resp.choices[0].message.content)
-        idxs = [int(i) for i in data.get("relevant", [])
-                if isinstance(i, (int, float)) and 0 <= int(i) < len(hits)]
+        # Map batch-local indices back to global indices
+        batch_idxs = [int(i) for i in data.get("relevant", [])
+                      if isinstance(i, (int, float)) and 0 <= int(i) < len(batch_hits)]
+        idxs = [batch_start + i for i in batch_idxs]
         sufficient = bool(data.get("sufficient", False))
-        return idxs, sufficient
+        needs_more = bool(data.get("needs_more", False))
+        navigate_hint = data.get("navigate_hint", "")
+        return idxs, sufficient, needs_more, navigate_hint
     except Exception:
-        # On any failure, fall back to the top-3 retrieved chunks and expand
-        # them (treat as insufficient) so the answer gets full context.
-        return list(range(min(3, len(hits)))), False
+        # On any failure, fall back to the current batch and mark as insufficient
+        return list(range(batch_start, batch_end)), False, True, ""
 
 
 # Facets whose value materially changes the answer. Each entry:
@@ -521,68 +699,136 @@ def api_labs():
 
 @app.post("/api/ask")
 def api_ask(req: AskRequest):
-    # 0a. "Which lab comes after X?" is a curriculum-order question — answer it
-    #     deterministically from the course sequence before any retrieval, so it
-    #     never gets hijacked by a testcase's internal "Next Step" section.
-    routed = _next_lab_route(req.question)
-    if routed:
-        return routed
+    # Initialize token tracker
+    tracker = TokenTracker(req.question)
 
-    # 0b. If the question already names a vendor-specific tool (e.g. ICC2 =
-    #    Synopsys, Innovus = Cadence), the tool is settled — resolve the provider
-    #    silently so retrieval restricts to that vendor and we skip a redundant
-    #    "Synopsys or Cadence?" clarify. Only when the user hasn't picked one.
-    if not (req.facets or {}).get("provider"):
-        implied = _provider_from_tool(req.question)
-        if implied:
-            req.facets = {**(req.facets or {}), "provider": implied}
+    # Select the appropriate RAG engine based on domain
+    domain = req.domain.lower()
+    if domain not in RAG_ENGINES:
+        return {
+            "error": f"Invalid domain '{domain}'. Choose 'pd' (Physical Design), 'dv' (Design Verification), or 'analog' (Analog Layout)",
+            "sources": []
+        }
 
-    # 1. Retrieve wide (precise sub-chunks). A picked facet hard-restricts.
-    hits = engine.search(req.question, k=max(req.k, RETRIEVE_K),
-                         lab_name=req.lab_name, facets=req.facets)
-    if not hits:
-        return {"answer": "No lab content is indexed.", "sources": []}
+    engine = RAG_ENGINES[domain]
 
-    # 2. Ambiguity check — a single LLM judgment call. The learning-path overview
-    #    page carries no facets; a question is "catalog-level" when that page is
-    #    the strongest hit OR it asks for one stage's ordered labs (routed by
-    #    _stage_catalog even if a specific lab ranks #1). Catalog questions are
-    #    answered from the whole overview page — which already covers every tool
-    #    and stage — so they never need disambiguation. Only lab-content questions
-    #    with confident retrieval go through the clarify judgment, which decides
-    #    (using the real facet spread of the hits) whether a tool/stage choice
-    #    genuinely changes the answer. The picked option comes back as a facet, so
-    #    it hard-restricts the corpus on the follow-up request.
-    top_is_overview = not (hits[0].get("facets") or {})
-    overview_in_hits = any(not (h.get("facets") or {}) for h in hits)
-    stage_catalog = _stage_catalog(req.question) \
-        if (req.allow_clarify and overview_in_hits) else None
-    overview_mode = top_is_overview or stage_catalog is not None
+    # DV and Analog domains don't have clarify/facets/next-lab routing - skip PD-specific logic
+    if domain in ("dv", "analog"):
+        # Simple flow: retrieve and answer
+        hits = engine.search(req.question, k=max(req.k, RETRIEVE_K))
+        if not hits:
+            domain_label = "DV" if domain == "dv" else "Analog Layout"
+            return {"answer": f"No {domain_label} content found for this question.", "sources": [], "domain": domain}
+    else:
+        # PD domain - full flow with clarify/facets/routing
+        # 0a. "Which lab comes after X?" is a curriculum-order question — answer it
+        #     deterministically from the course sequence before any retrieval, so it
+        #     never gets hijacked by a testcase's internal "Next Step" section.
+        routed = _next_lab_route(req.question)
+        if routed:
+            return routed
 
-    if req.allow_clarify and not overview_mode \
-            and hits[0]["score"] >= MIN_CLARIFY_SCORE:
-        clar = _clarify_decision(req.question, hits)
-        if clar:
-            return {
-                "clarify": True,
-                "question": clar["question"],
-                "options": clar["options"],
-                "facet": clar["facet"],
-                "option_values": clar["option_values"],
-                "sources": [],
-            }
+        # 0b. If the question already names a vendor-specific tool (e.g. ICC2 =
+        #    Synopsys, Innovus = Cadence), the tool is settled — resolve the provider
+        #    silently so retrieval restricts to that vendor and we skip a redundant
+        #    "Synopsys or Cadence?" clarify. Only when the user hasn't picked one.
+        if not (req.facets or {}).get("provider"):
+            implied = _provider_from_tool(req.question)
+            if implied:
+                req.facets = {**(req.facets or {}), "provider": implied}
+
+        # 1. Retrieve wide (precise sub-chunks). A picked facet hard-restricts.
+        hits = engine.search(req.question, k=max(req.k, RETRIEVE_K),
+                             lab_name=req.lab_name, facets=req.facets)
+        if not hits:
+            return {"answer": "No lab content is indexed.", "sources": [], "domain": "pd"}
+
+    # 2. Ambiguity check (PD only - DV doesn't have facets/tools)
+    overview_mode = False
+    if domain == "pd":
+        # Learning-path overview page carries no facets; a question is "catalog-level"
+        # when that page is the strongest hit OR it asks for one stage's ordered labs
+        # (routed by _stage_catalog even if a specific lab ranks #1). Catalog questions
+        # are answered from the whole overview page — which already covers every tool
+        # and stage — so they never need disambiguation. Only lab-content questions
+        # with confident retrieval go through the clarify judgment, which decides
+        # (using the real facet spread of the hits) whether a tool/stage choice
+        # genuinely changes the answer. The picked option comes back as a facet, so
+        # it hard-restricts the corpus on the follow-up request.
+        top_is_overview = not (hits[0].get("facets") or {})
+        overview_in_hits = any(not (h.get("facets") or {}) for h in hits)
+        stage_catalog = _stage_catalog(req.question) \
+            if (req.allow_clarify and overview_in_hits) else None
+        overview_mode = top_is_overview or stage_catalog is not None
+
+        if req.allow_clarify and not overview_mode \
+                and hits[0]["score"] >= MIN_CLARIFY_SCORE:
+            clar = _clarify_decision(req.question, hits)
+            if clar:
+                return {
+                    "clarify": True,
+                    "question": clar["question"],
+                    "options": clar["options"],
+                    "facet": clar["facet"],
+                    "option_values": clar["option_values"],
+                    "sources": [],
+                    "domain": "pd"
+                }
 
     # 3. Overview-led catalog question: ground on the WHOLE (tiny) learning-path
     #    page, in document order, so the answer is complete. Skips the top-k
     #    verifier/expander, which can split a section at the chunk boundary and
     #    drop half the stages (e.g. only 3 of the 5 stages surviving).
     fallback = False
+    navigate_hint = ""
+    partial_answer = False
     if overview_mode:
         sections = _overview_doc_sections()
     else:
-        # Verifier agent: keep the sub-chunks that truly match AND judge whether
-        # they already suffice to answer.
-        keep, sufficient = _verify_relevant(req.question, hits)
+        # Progressive evaluation: check 3 chunks at a time
+        # Batch 1: chunks 0-2, Batch 2: chunks 3-5
+        keep, sufficient, needs_more = [], False, True
+        for batch_num in range(2):  # Two batches of 3 chunks
+            batch_start = batch_num * BATCH_SIZE
+            if batch_start >= len(hits):
+                break
+
+            # Evaluate current batch
+            batch_keep, batch_sufficient, batch_needs_more, nav_hint = _verify_relevant(
+                req.question, hits, batch_start, BATCH_SIZE, tracker, batch_num, domain)
+
+            # Accumulate relevant chunks
+            keep.extend(batch_keep)
+
+            # Capture navigation hint if provided
+            if nav_hint:
+                navigate_hint = nav_hint
+
+            # If sufficient, stop here (token optimization!)
+            if batch_sufficient:
+                sufficient = True
+                needs_more = False
+                navigate_hint = ""  # Complete answer, no navigation needed
+                break
+
+            # If this batch has relevant chunks but needs more, continue to next batch
+            if batch_keep and batch_needs_more:
+                needs_more = True
+                partial_answer = True
+                # Continue to next batch for more context
+                if batch_num < 1:  # Still have next batch
+                    continue
+                # Last batch reached, use what we have + navigation hint
+                break
+
+            # If no relevant chunks found in this batch
+            if not batch_keep:
+                # If first batch found nothing, try second batch
+                if batch_num == 0:
+                    continue
+                # If second batch also found nothing, we're done
+                break
+
         # If nothing passes strict verification, don't dead-end. Fall back to the
         # closest retrieved sections (still ONLY lab content, already restricted
         # to the chosen lab/tool) so the answer can say what ISN'T there AND
@@ -596,21 +842,22 @@ def api_ask(req: AskRequest):
         # 4. Build the context sections. If the verified sub-chunks are already
         #    sufficient, use them as-is (cheaper, tighter). If NOT sufficient,
         #    expand each winning sub-chunk back to its FULL section (all sibling
-        #    chunks sharing the same lab+heading) for more context.
+        #    chunks sharing the same source+heading) for more context.
         sections, seen = [], set()
         for i in keep:
             h = hits[i]
+            source_name = _get_source_name(h, domain)
             # When expanding, all sub-chunks of one section resolve to the same
-            # full section, so de-dup by (lab, heading). When the sub-chunks are
+            # full section, so de-dup by (source, heading). When the sub-chunks are
             # used as-is, each is distinct content, so de-dup by chunk text.
-            key = (h["lab_name"], h["heading"]) if not sufficient else h["content"]
+            key = (source_name, h["heading"]) if not sufficient else h["content"]
             if key in seen:
                 continue
             seen.add(key)
             content = h["content"] if sufficient else engine.get_section(
-                h["lab_name"], h["heading"])
+                source_name, h["heading"])
             sections.append({
-                "lab_name": h["lab_name"],
+                "lab_name": source_name,  # Keep field name for compatibility
                 "heading": h["heading"],
                 "source": h["source"],
                 "score": round(h["score"], 3),
@@ -683,12 +930,140 @@ def api_ask(req: AskRequest):
                         f"Question: {req.question}{fallback_note}"},
         ],
     )
+
+    # Track answer tokens
+    if hasattr(resp, 'usage'):
+        tracker.track_answer(resp.usage)
+
     answer = _sanitize_paths(resp.choices[0].message.content)
 
     sources = [{"n": n + 1, **s} for n, s in enumerate(sections)]
-    return {"answer": answer, "sources": sources}
+    result = {
+        "answer": answer,
+        "sources": sources,
+        "domain": domain  # Include domain in response
+    }
+
+    # Add navigation hint for partial answers or when no relevant content found
+    # This helps guide users to complete information
+    if navigate_hint:
+        result["navigate_hint"] = navigate_hint
+        if partial_answer:
+            result["partial_answer"] = True
+            # Append navigation hint to the answer itself for better UX
+            result["answer"] = (
+                f"{answer}\n\n💡 **Need more details?** {navigate_hint}"
+            )
+
+    # Add token usage statistics
+    token_summary = tracker.get_summary()
+    result["token_usage"] = {
+        "embedding_tokens": token_summary["tokens"]["embedding"],
+        "verify_batches": token_summary["tokens"]["verify_batches"],
+        "verify_tokens": token_summary["tokens"]["verify_input"] + token_summary["tokens"]["verify_output"],
+        "answer_tokens": token_summary["tokens"]["answer_input"] + token_summary["tokens"]["answer_output"],
+        "total_tokens": token_summary["tokens"]["total"],
+        "cost_usd": round(token_summary["cost_usd"], 6),
+        "batches_detail": token_summary["batches_detail"]
+    }
+
+    # Save to stats
+    tracker.save()
+
+    return result
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "chunks": len(engine.chunks), "labs": len(engine.labs)}
+    return {
+        "status": "ok",
+        "domains": {
+            "pd": {
+                "chunks": len(pd_engine.chunks),
+                "labs": len(pd_engine.labs)
+            },
+            "dv": {
+                "chunks": len(dv_engine.chunks),
+                "modules": len(dv_engine.modules)
+            },
+            "analog": {
+                "chunks": len(analog_engine.chunks),
+                "topics": len(analog_engine.topics)
+            }
+        }
+    }
+
+
+@app.get("/api/query")
+def api_query_get(domain: str, question: str):
+    """GET endpoint for RAG query - accepts domain and question as query params.
+
+    Example: /api/query?domain=pd&question=How%20to%20do%20CTS%20in%20ICC2
+    """
+    # Create an AskRequest object from query params
+    req = AskRequest(
+        question=question,
+        domain=domain,
+        k=6,
+        allow_clarify=False  # Disable clarify for GET endpoint
+    )
+
+    # Use the existing api_ask logic
+    result = api_ask(req)
+
+    # Return simplified response with just answer, token usage, and cost
+    return {
+        "domain": result.get("domain"),
+        "question": question,
+        "answer": result.get("answer", ""),
+        "token_usage": result.get("token_usage", {}),
+        "cost_usd": result.get("token_usage", {}).get("cost_usd", 0),
+        "sources_count": len(result.get("sources", []))
+    }
+
+
+@app.get("/api/token-stats")
+def get_token_stats(limit: int = 100):
+    """Get token usage statistics for recent queries."""
+    recent = _token_stats[-limit:] if _token_stats else []
+
+    if not recent:
+        return {
+            "total_queries": 0,
+            "queries": [],
+            "summary": {}
+        }
+
+    # Calculate summary statistics
+    total_cost = sum(q["cost_usd"] for q in recent)
+    total_tokens = sum(q["tokens"]["total"] for q in recent)
+    avg_cost = total_cost / len(recent) if recent else 0
+    avg_tokens = total_tokens / len(recent) if recent else 0
+
+    # Count batches usage distribution
+    batch_counts = {}
+    for q in recent:
+        batches = q["tokens"]["verify_batches"]
+        batch_counts[batches] = batch_counts.get(batches, 0) + 1
+
+    return {
+        "total_queries": len(recent),
+        "summary": {
+            "total_cost_usd": round(total_cost, 6),
+            "avg_cost_per_query_usd": round(avg_cost, 6),
+            "total_tokens": total_tokens,
+            "avg_tokens_per_query": round(avg_tokens, 2),
+            "batch_distribution": batch_counts,
+            "optimization_rate": f"{batch_counts.get(1, 0) / len(recent) * 100:.1f}% queries answered in first batch"
+        },
+        "queries": recent
+    }
+
+
+@app.post("/api/token-stats/clear")
+def clear_token_stats():
+    """Clear token statistics."""
+    global _token_stats
+    count = len(_token_stats)
+    _token_stats = []
+    return {"message": f"Cleared {count} stat entries"}

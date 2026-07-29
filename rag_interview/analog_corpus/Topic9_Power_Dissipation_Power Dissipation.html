@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Power Dissipation</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="interactive.js" defer></script>
+</head>
+<body>
+    <div class="header">
+        <h1>Power Dissipation</h1>
+        <p>Understanding power consumption in digital circuits</p>
+    </div>
+
+    <section class="section">
+        <h2 class="section-title">🎯 Learning Objectives</h2>
+        <ul>
+            <li><strong>Understand</strong> the fundamental causes of power dissipation in design.</li>
+            <li>Dynamic and static power dissipation.</li>
+            <li>Switching power dissipation, including load capacitance charging and discharging.</li>
+            <li>Describe short-circuit power dissipation and the conditions under which it occurs.</li>
+            <li>Identify various leakage currents.</li>
+        </ul>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">🧠 Concept Overview</h2>
+        
+        <div class="highlight-box info">
+            <p><strong>CMOS technology is popular because it has very low power consumption compared to other logic families.</strong></p>
+            <p>Power dissipation in circuits is a crucial topic, because it directly affects the energy efficiency, heat generation and life of devices.</p>
+        </div>
+
+        <div class="subsection">
+            <h3>1. Power Dissipation</h3>
+            
+            <div class="highlight-box info">
+                <p><strong>Dynamic Power Dissipation:</strong> This occurs when the circuit is <strong>switching states</strong> (0 ↔ 1).</p>
+            </div>
+
+            <h4>Charging/Discharging Power (Switching Power)</h4>
+            <ul>
+                <li>Each time output changes, the <strong>load capacitance (CL)</strong> is charged or discharged.</li>
+                <li>Load capacitances including gate, wiring, and diffusion capacitances.</li>
+                <li><strong>Every charging event consumes energy approximately equal to</strong> $\frac{\mathbf{1}}{\mathbf{2}}\mathbf{C}_{\mathbf{L}}\mathbf{V}_{\mathbf{DD}}^{\mathbf{2}}$</li>
+                <li>The total switching power also depends on how often these switches happen (switching frequency).</li>
+                <li>Energy consumed per transition: $$E = C_{L} \cdot V_{DD}^{2}$$</li>
+                <li>Average <strong>switching power</strong>: $$P_{switching} = \alpha \cdot C_{L} \cdot V_{DD}^{2} \cdot f$$</li>
+            </ul>
+            <p>Where:</p>
+            <ul>
+                <li>CL = load capacitance, VDD= supply voltage, f = clock frequency</li>
+                <li>α = activity factor (probability of switching, 0 ≤ α ≤ 1)</li>
+            </ul>
+
+            <div style="text-align: center;">
+                <br><img src="MOS capacitance.png"
+                alt="MOS capacitance"
+                style="max-width: 60%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: MOS capacitance</i>
+                </strong>
+            </div><br>
+
+            <div style="text-align: center;">
+                <br><img src="VDD vs Delay and Energy.png"
+                alt="VDD vs Delay and Energy"
+                style="max-width: 80%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: VDD vs Delay and Energy</i>
+                </strong>
+            </div><br>
+
+            <div style="text-align: center;">
+                <br><img src="Power Dissipation with Technology Scaling.png"
+                alt="Power Dissipation with Technology Scaling"
+                style="max-width: 60%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: Power Dissipation with Technology Scaling</i>
+                </strong>
+            </div><br>
+
+            <h4>Short-Circuit Power:</h4>
+            <ul>
+                <li><strong>During the switching event, there is a short period when both the PMOS and NMOS transistors are partially ON.</strong></li>
+                <li><strong>Creating a direct current path between the supply voltage (VDD) and ground (GND).</strong></li>
+                <li>This simultaneously conducting state causes current flow known as short-circuit current, contributing to power loss.</li>
+                <li>Short-circuit power: $$Psc \approx Isc \cdot VDD \cdot f$$</li>
+            </ul>
+
+            <h4>Static Power Dissipation:</h4>
+            <p>when circuit is not switching, due to leakage currents.</p>
+            <ol>
+                <li><strong>Subthreshold leakage current (Isub):</strong>
+                    <ul>
+                        <li>Even when a transistor is off, a small current can flow between source and drain below the threshold voltage due to carrier diffusion.</li>
+                        <li>Flows when Vgs < Vth (MOSFET should be OFF, but a small current leaks).</li>
+                        <li>Becomes worse with <strong>smaller transistor sizes</strong> (deep submicron).</li>
+                    </ul>
+                </li>
+                <li><strong>Gate oxide tunnelling leakage (Igate):</strong>
+                    <ul>
+                        <li>As the oxide layers become extremely thin, electrons can tunnel through the gate oxide, leading to leakage current.</li>
+                    </ul>
+                </li>
+                <li><strong>Reverse-biased diode leakage (Irev):</strong>
+                    <ul>
+                        <li>Reverse-biased diode junctions inside the transistor structure also contribute to leakage currents.</li>
+                        <li>From source/drain junctions to substrate.</li>
+                    </ul>
+                </li>
+            </ol>
+            <p>Total static leakage power: $$Pstatic = Ileak \cdot VDD$$</p>
+        </div>
+
+        <div class="subsection">
+            <h3>2. Total Power Dissipation</h3>
+            <p>The total power consumption is the sum: $$Ptotal = Pswitching + Psc + Pstatic$$</p>
+
+            <div style="text-align: center;">
+                <br><img src="Power Analysis on CMOS Inverter.png"
+                alt="Power Analysis on CMOS Inverter"
+                style="max-width: 60%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: Power Analysis on CMOS Inverter</i>
+                </strong>
+            </div><br>
+        </div>
+
+        <div class="subsection">
+            <h3>3. Techniques to Reduce Power</h3>
+            <ul>
+                <li><strong>Reduce VDD</strong> → biggest impact (since power ∝ VDD²).</li>
+                <li><strong>Reduce CL</strong> → minimize interconnects, use smaller gates.</li>
+                <li><strong>Reduce frequency f</strong> → lower switching activity.</li>
+                <li><strong>Use clock gating</strong> → stop clock in idle circuits.</li>
+                <li><strong>Use power gating</strong> → cut off supply to unused blocks.</li>
+                <li><strong>Use multi-threshold transistors</strong> to reduce leakage.</li>
+            </ul>
+
+            <div class="highlight-box info">
+                <p><strong>Driving Factors:</strong> The increasing demand for mobile and wearable devices makes controlling power dissipation crucial for longer battery life and better performance.</p>
+            </div>
+
+            <div class="highlight-box warning">
+                <p><strong>Negative Consequences:</strong> High power consumption leads to excessive heat, reduced battery life, and potential device reliability problems.</p>
+            </div>
+
+            <div class="highlight-box correct">
+                <p><strong>Ultimate Goal:</strong> The main objective is to effectively balance dynamic switching losses and static leakage currents to create low-power, high-efficiency electronic devices.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">❓ Check Your Understanding</h2>
+        
+        <div class="quiz-container">
+            <div class="quiz-question">
+                <p><strong>1. What are the three main components of CMOS power dissipation?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Dynamic power, active power, and standby power</li>
+                    <li data-correct="false">Resistive power, capacitive power, and inductive power</li>
+                    <li data-correct="true">Switching power, short-circuit power, and static (leakage) power</li>
+                    <li data-correct="false">Thermal power, radiant power, and conductive power</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Switching power, short-circuit power, and static (leakage) power</p>
+                    <p>These are the three primary components of power dissipation in CMOS circuits, representing different mechanisms of energy loss.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>2. In the dynamic power formula, what does the symbol α represent?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Transistor gain factor</li>
+                    <li data-correct="false">A constant for the manufacturing process</li>
+                    <li data-correct="false">Absorption coefficient</li>
+                    <li data-correct="true">Activity factor (the probability of the output switching)</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Activity factor (the probability of the output switching)</p>
+                    <p>The activity factor (α) represents how often a circuit element switches, which directly impacts dynamic power consumption.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>3. What is the primary cause of switching power dissipation?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Simultaneous conduction of NMOS and PMOS transistors</li>
+                    <li data-correct="false">Leakage current through the transistor gate</li>
+                    <li data-correct="true">Charging and discharging of the load capacitance</li>
+                    <li data-correct="false">Current flowing through resistive elements in the circuit</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Charging and discharging of the load capacitance</p>
+                    <p>Switching power is primarily caused by the energy required to charge and discharge capacitive loads during logic transitions.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>4. What causes short-circuit power dissipation?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">The circuit being in a completely idle state</li>
+                    <li data-correct="false">A manufacturing defect causing a direct short to ground</li>
+                    <li data-correct="false">Charging and discharging of the load capacitance</li>
+                    <li data-correct="true">Both NMOS and PMOS transistors conducting simultaneously during an input transition</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Both NMOS and PMOS transistors conducting simultaneously during an input transition</p>
+                    <p>Short-circuit power occurs during the brief period when both transistors are partially on during switching, creating a direct path from VDD to GND.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>5. What is static power dissipation?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Power consumed during the switching of transistors</li>
+                    <li data-correct="true">Power dissipated due to leakage currents when the circuit is idle</li>
+                    <li data-correct="false">Power consumed only when the output is in a static '1' state</li>
+                    <li data-correct="false">Power lost due to the resistance of the interconnect wires</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Power dissipated due to leakage currents when the circuit is idle</p>
+                    <p>Static power is consumed even when the circuit is not switching, due to various leakage mechanisms in transistors.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>6. Which of the following are three major types of leakage currents in CMOS?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Eddy current, saturation current, drain current</li>
+                    <li data-correct="true">Subthreshold leakage, gate oxide leakage, junction leakage</li>
+                    <li data-correct="false">Conduction current, convection current, displacement current</li>
+                    <li data-correct="false">Short-circuit current, switching current, dynamic current</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Subthreshold leakage, gate oxide leakage, junction leakage</p>
+                    <p>These are the three primary leakage mechanisms in CMOS technology that contribute to static power consumption.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>7. In older CMOS technologies (e.g., above 180nm), which type of power dissipation was dominant?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Static (leakage) power</li>
+                    <li data-correct="false">Short-circuit power</li>
+                    <li data-correct="true">Dynamic power</li>
+                    <li data-correct="false">Thermal power</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Dynamic power</p>
+                    <p>In older CMOS technologies with larger feature sizes, dynamic power was the dominant component due to higher operating voltages and capacitances.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>8. In modern deep-submicron technologies, which type of power dissipation has become the dominant concern?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Dynamic power</li>
+                    <li data-correct="true">Static (leakage) power</li>
+                    <li data-correct="false">Short-circuit power</li>
+                    <li data-correct="false">Capacitive power</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Static (leakage) power</p>
+                    <p>As transistor sizes shrink in deep-submicron technologies, leakage currents increase significantly, making static power a major concern.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>9. How does the operating frequency affect power dissipation?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Higher frequency increases static power but decreases dynamic power</li>
+                    <li data-correct="false">Frequency has no significant impact on power dissipation</li>
+                    <li data-correct="true">Higher frequency leads to higher dynamic power dissipation</li>
+                    <li data-correct="false">Higher frequency leads to lower dynamic power dissipation</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Higher frequency leads to higher dynamic power dissipation</p>
+                    <p>Dynamic power is directly proportional to frequency, as more switching events occur per unit time at higher frequencies.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>10. Which of the following is an effective method for reducing dynamic power?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Using power gating and high-threshold voltage devices</li>
+                    <li data-correct="false">Increasing the supply voltage to improve performance</li>
+                    <li data-correct="true">Reducing the supply voltage, clock frequency, and switching activity</li>
+                    <li data-correct="false">Increasing the load capacitance to prevent signal noise</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Reducing the supply voltage, clock frequency, and switching activity</p>
+                    <p>These approaches directly reduce the factors that contribute to dynamic power consumption in the power equation.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>11. Which of the following is a technique specifically used to reduce static (leakage) power?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Reducing the clock frequency</li>
+                    <li data-correct="false">Using clock gating on idle circuit blocks</li>
+                    <li data-correct="true">Using power gating or high-threshold voltage transistors</li>
+                    <li data-correct="false">Minimizing the switching activity of the inputs</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Using power gating or high-threshold voltage transistors</p>
+                    <p>These techniques specifically target leakage currents, which are the source of static power consumption.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>12. What is the technique of "clock gating" primarily used for?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="true">Turning OFF the clock signal to unused blocks to save dynamic power</li>
+                    <li data-correct="false">Turning OFF the main power supply to unused blocks to save static power</li>
+                    <li data-correct="false">Increasing the clock speed to boost performance</li>
+                    <li data-correct="false">Creating a more stable clock signal for the circuit</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Turning OFF the clock signal to unused blocks to save dynamic power</p>
+                    <p>Clock gating prevents unnecessary switching activity in idle circuit blocks, thereby reducing dynamic power consumption.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">💼 Interview Questions</h2>
+        <div class="subsection">
+            <p><strong>1. What are the main sources of power dissipation?</strong></p>
+            <p><strong>2. What is dynamic power dissipation?</strong></p>
+            <p><strong>3. Give the formula for dynamic power.</strong></p>
+            <p><strong>4. What is short-circuit power?</strong></p>
+            <p><strong>5. What is static power dissipation?</strong></p>
+            <p><strong>6. What are the types of leakage currents in CMOS?</strong></p>
+            <p><strong>7. Why is static power low in CMOS compared to other logic families?</strong></p>
+            <p><strong>9. Which power dominates in deep-submicron technologies?</strong></p>
+            <p><strong>10. How does supply voltage (VDD) affect power?</strong></p>
+            <p><strong>11. How does frequency affect power?</strong></p>
+            <p><strong>12. How can CMOS power dissipation be reduced?</strong></p>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">📝 Key Takeaways</h2>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h4>Power Dissipation Mechanisms</h4>
+                <p>Power dissipation in CMOS circuits occurs mainly through dynamic and static mechanisms.</p>
+            </div>
+            <div class="summary-card">
+                <h4>Dynamic Power Sources</h4>
+                <p>Dynamic power dissipation is caused by capacitive charging and discharging during switching, short-circuit currents when both transistors conduct momentarily, and glitches due to signal timing.</p>
+            </div>
+            <div class="summary-card">
+                <h4>Static Power Sources</h4>
+                <p>Static power dissipation results from leakage currents flowing even when the circuit is idle, including subthreshold, gate oxide, and junction leakages.</p>
+            </div>
+            <div class="summary-card">
+                <h4>Dynamic Power Factors</h4>
+                <p>Dynamic power depends on switching frequency, load capacitance, supply voltage, and circuit activity.</p>
+            </div>
+            <div class="summary-card">
+                <h4>Technology Scaling Impact</h4>
+                <p>Static power grows with technology scaling due to thinner gate oxides and smaller transistor dimensions.</p>
+            </div>
+        </div>
+    </section>
+</body>
+</html>

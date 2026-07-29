@@ -348,6 +348,17 @@
 
   <footer>
     <div class="composer">
+      <div class="domain-selector" style="display:flex;gap:8px;margin-bottom:8px;padding:0 12px;">
+        <label style="color:var(--muted);font-size:13px;display:flex;align-items:center;gap:6px;">
+          <span>Domain:</span>
+          <select id="domain" style="background:var(--panel-solid);color:var(--text);border:1px solid var(--line-strong);border-radius:6px;padding:4px 8px;font-family:inherit;font-size:13px;">
+            <option value="pd">Physical Design (PD)</option>
+            <option value="dv">Design Verification (DV)</option>
+            <option value="analog">Analog Layout</option>
+          </select>
+        </label>
+        <div id="domain-info" style="color:var(--faint);font-size:12px;display:flex;align-items:center;"></div>
+      </div>
       <div class="field">
         <textarea id="q" placeholder="Ask about the labs..." rows="1"></textarea>
       </div>
@@ -362,10 +373,37 @@
     const send = document.getElementById("send");
     const labSel = document.getElementById("lab");
     const hint = document.getElementById("hint");
+    const domainSel = document.getElementById("domain");
+    const domainInfo = document.getElementById("domain-info");
+
+    // Update placeholder and info when domain changes
+    function updateDomainUI() {
+      const domain = domainSel.value;
+      if (domain === "pd") {
+        q.placeholder = "Ask about Physical Design labs...";
+      } else if (domain === "dv") {
+        q.placeholder = "Ask about Design Verification basics...";
+      } else if (domain === "analog") {
+        q.placeholder = "Ask about Analog Layout topics...";
+      }
+    }
+
+    domainSel.addEventListener("change", updateDomainUI);
+    updateDomainUI();
 
     fetch("/api/labs").then(r => r.json()).then(d => {
       document.getElementById("meta").innerHTML =
         `${d.chunks} sections &middot; ${d.labs.length} labs`;
+    });
+
+    // Fetch and display domain stats
+    fetch("/health").then(r => r.json()).then(d => {
+      if (d.domains) {
+        const pd = d.domains.pd;
+        const dv = d.domains.dv;
+        const analog = d.domains.analog;
+        domainInfo.innerHTML = `PD: ${pd.chunks} | DV: ${dv.chunks} | Analog: ${analog.chunks}`;
+      }
     });
 
     function esc(s) {
@@ -450,6 +488,11 @@
       hint && hint.remove();
       q.value = "";
       q.style.height = "auto";
+
+      // Get selected domain
+      const domainSel = document.getElementById("domain");
+      const selectedDomain = domainSel ? domainSel.value : "pd";
+
       if (showUser) addMsg("user", `<p>${esc(question)}</p>`);
       send.disabled = true;
 
@@ -458,7 +501,14 @@
         const res = await fetch("/api/ask", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: queryOverride || question, lab_name: labSel.value || null, k: 5, allow_clarify: allowClarify, facets: facets }),
+          body: JSON.stringify({
+            question: queryOverride || question,
+            domain: selectedDomain,
+            lab_name: labSel.value || null,
+            k: 5,
+            allow_clarify: allowClarify,
+            facets: facets
+          }),
         });
         const data = await res.json();
         if (data.clarify && Array.isArray(data.options) && data.options.length) {

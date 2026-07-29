@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transistors (MOSFET, BJT)</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="interactive.js" defer></script>
+</head>
+<body>
+    <div class="header">
+        <h1>Transistors (MOSFET, BJT)</h1>
+        <p>Understanding semiconductor devices for amplification and switching</p>
+    </div>
+
+    <section class="section">
+        <h2 class="section-title">🎯 Learning Objectives</h2>
+        <ul>
+            <li>Understand the <strong>basic concept</strong> and function of a transistor.</li>
+            <li>Understand the basic definition and function of a transistor as a semiconductor device.</li>
+            <li>Identify and classify different types of transistors, primarily Bipolar Junction Transistors (BJTs) and Field Effect Transistors (FETs).</li>
+            <li>Describe the construction and working principles of BJTs (NPN and PNP types) and FETs (JFET and MOSFET).</li>
+            <li>Differentiate between the terminals of various transistors: for BJTs and for FETs.</li>
+        </ul>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">🧠 Concept Overview</h2>
+        
+        <div class="subsection">
+            <h3>1. Classification of Transistor:</h3>
+            
+            <div style="text-align: center;">
+                <br><img src="Classification of Transistor.png"
+                alt="Classification of Transistor"
+                style="max-width: 80%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: Classification of Transistor</i>
+                </strong>
+            </div><br>
+
+            <div class="highlight-box info">
+                <p><strong>A transistor is a semiconductor device used to amplify or switch electrical signals and power.</strong></p>
+            </div>
+
+            <ul>
+                <li>It is a fundamental component in modern electronics, typically made of semiconductor material with at least three terminals.</li>
+                <li>By applying a voltage or current to one pair of terminals, the transistor controls the current flowing through another pair of terminals.</li>
+                <li>This controlled output power allows it to amplify signals. Transistors can act as switches, being either on or off, to regulate the flow of electronic signals in circuits.</li>
+            </ul>
+        </div>
+
+        <div class="subsection">
+            <h3>Main Types of Transistors</h3>
+            
+            <div class="highlight-box info">
+                <p><strong>1. Bipolar Junction Transistor (BJT):</strong></p>
+                <p>A BJT is a three-terminal semiconductor device used primarily for amplification and switching of electrical signals.</p>
+                <p>It works by using both electrons and holes as charge carriers, hence the term bipolar.</p>
+            </div>
+
+            <div style="text-align: center;">
+                <br><img src="Bipolar Junction Transistor BJT.png"
+                alt="Bipolar Junction Transistor BJT"
+                style="max-width: 60%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: Bipolar Junction Transistor BJT</i>
+                </strong>
+            </div><br>
+
+            <h4>Construction</h4>
+            <ul>
+                <li>The BJT is made by <strong>stacking three layers</strong> of doped semiconductor materials.</li>
+                <li>These layers form <strong>two p-n junctions</strong>: one between the emitter and base, and one between the base and collector.</li>
+                <li>There are two types of BJTs depending on the doping arrangement:
+                    <ul>
+                        <li><strong>NPN Transistor:</strong> Two n-type layers (emitter and collector) separated by a thin p-type layer (base).</li>
+                        <li><strong>PNP Transistor:</strong> Two p-type layers (emitter and collector) separated by a thin n-type layer (base).</li>
+                    </ul>
+                </li>
+                <li>The three terminals are:
+                    <ul>
+                        <li><strong>Emitter (E):</strong> Heavily doped to inject charge carriers (electrons for NPN, holes for PNP).</li>
+                        <li><strong>Base (B):</strong> Very thin and lightly doped; controls the flow of carriers.</li>
+                        <li><strong>Collector (C):</strong> Moderately doped; collects carriers from the emitter through the base.</li>
+                    </ul>
+                </li>
+            </ul>
+
+            <div style="text-align: center;">
+                <br><img src="Symbol of BJT.png"
+                alt="Symbol of BJT"
+                style="max-width: 50%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: Symbol of BJT</i>
+                </strong>
+            </div><br>
+
+            <h4>Working Principle</h4>
+            <ul>
+                <li>The BJT operates via <strong>current control</strong> where a small input current into the base controls a larger current flow between the emitter and collector.</li>
+                <li>For an <strong>NPN transistor</strong>:
+                    <ul>
+                        <li>The base-emitter junction is forward biased (allowing electrons to flow from emitter to base).</li>
+                        <li>The base-collector junction is reverse biased (allowing those electrons to be swept into the collector).</li>
+                        <li>A small base current controls a much larger collector current.</li>
+                    </ul>
+                </li>
+                <li>For a <strong>PNP transistor</strong>, the operation is similar but with reversed polarity (holes flow from emitter to collector).</li>
+            </ul>
+
+            <div style="text-align: center;">
+                <br><img src="Cross Section view of BJT.png"
+                alt="Cross Section view of BJT"
+                style="max-width: 45%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: Cross Section view of BJT</i>
+                </strong>
+            </div><br>
+
+            <h4>Modes of Operation</h4>
+            <ul>
+                <li><strong>Active Mode:</strong> Emitter-base junction is forward biased and base-collector junction is reverse biased. Used for amplification.</li>
+                <li><strong>Cutoff Mode:</strong> Both junctions are reverse biased; transistor is off.</li>
+                <li><strong>Saturation Mode:</strong> Both junctions are forward biased; transistor is fully on and acts as a closed switch.</li>
+            </ul>
+
+            <h4>Configurations:</h4>
+            <p>There are three common ways to connect BJTs:</p>
+            <ul>
+                <li><strong>Common Emitter (CE):</strong> Most widely used; provides voltage and current gain with a 180° phase shift.</li>
+                <li><strong>Common Base (CB):</strong> Provides voltage gain but no current gain; no phase shift.</li>
+                <li><strong>Common Collector (CC):</strong> Provides current gain but no voltage gain; no phase shift.</li>
+            </ul>
+
+            <h4>Applications</h4>
+            <ul>
+                <li>Signal amplification in audio, radio, and other analog circuits.</li>
+                <li>Switching in digital circuits.</li>
+                <li>Oscillators and signal modulators.</li>
+                <li>Used in integrated circuits and discrete electronic devices.</li>
+            </ul>
+        </div>
+
+        <div class="subsection">
+            <div class="highlight-box info">
+                <p><strong>2. Field Effect Transistor (FET)</strong></p>
+                <p>A Field Effect Transistor (FET) is a three-terminal semiconductor device where the current conduction is controlled by an electric field.</p>
+                <p>FETs are voltage-controlled devices. They use either electrons or holes as the charge carriers (unipolar conduction).</p>
+            </div>
+
+            <h4>Construction</h4>
+            <ul>
+                <li>A FET consists of a narrow semiconductor bar or channel made of either n-type or p-type material.</li>
+                <li>There are three terminals:
+                    <ul>
+                        <li><strong>Source (S):</strong> The terminal through which carriers enter the channel.</li>
+                        <li><strong>Drain (D):</strong> The terminal through which carriers leave the channel.</li>
+                        <li><strong>Gate (G):</strong> The terminal that controls the conductivity of the channel by applying a voltage.</li>
+                    </ul>
+                </li>
+                <li>The gate is separated from the channel by a thin insulating layer (in MOSFETs) or a reverse-biased p-n junction (in JFETs).</li>
+            </ul>
+
+            <h4>Working Principle</h4>
+            <ul>
+                <li>The gate voltage creates an <strong>electric field</strong> that affects the width of the conductive channel between the source and drain.</li>
+                <li>In an <strong>n-channel FET</strong>, a positive voltage on the gate attracts electrons, enhancing the channel and increasing current flow between source and drain.</li>
+                <li>In a <strong>p-channel FET</strong>, a negative gate voltage attracts holes to enhance conduction.</li>
+                <li>The electric field modulates the channel's conductivity by <strong>depleting</strong> or enhancing charge carriers.</li>
+                <li>By controlling the gate voltage, the FET regulates the current flowing from source to drain, making it act like a voltage-controlled resistor or switch.</li>
+            </ul>
+
+            <h4>Types of FETs</h4>
+            <ul>
+                <li><strong>JFET (Junction Field Effect Transistor):</strong> Gate forms a p-n junction with the channel. Operates mostly in depletion mode.</li>
+            </ul>
+
+            <div style="text-align: center;">
+                <br><img src="Cross Section view of JFET.png"
+                alt="Cross Section view of JFET"
+                style="max-width: 50%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: Cross Section view of JFET</i>
+                </strong>
+            </div><br>
+
+            <ul>
+                <li><strong>MOSFET:</strong> Gate separated from the channel by a thin oxide layer. Can operate in depletion or enhancement mode.</li>
+            </ul>
+
+            <div style="text-align: center;">
+                <br><img src="Cross Section view of MOSFET.png"
+                alt="Cross Section view of MOSFET"
+                style="max-width: 45%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: Cross Section view of MOSFET</i>
+                </strong>
+            </div><br>
+
+            <h4>Characteristics</h4>
+            <ul>
+                <li>High input impedance (because the gate is insulated).</li>
+                <li>Low noise compared to BJTs.</li>
+                <li>Voltage-controlled: small changes in gate voltage can control large output currents.</li>
+                <li>Ideal for switching and amplification applications, especially in RF and digital circuits.</li>
+            </ul>
+
+            <h4>Operating Regions</h4>
+            <ul>
+                <li><strong>Ohmic Region:</strong> FET acts like a voltage-controlled resistor; current increases linearly with drain-source voltage.</li>
+                <li><strong>Saturation Region:</strong> FET acts as a constant current source; drain current is mostly independent of drain-source voltage.</li>
+                <li><strong>Cutoff Region:</strong> Channel is "pinched off," and almost no current flows between source and drain.</li>
+            </ul>
+
+            <h4>Applications</h4>
+            <ul>
+                <li>Used in analog and digital circuits for amplification.</li>
+                <li>Used as electrically controlled switches.</li>
+                <li>Preferred in circuits requiring high input impedance and low noise.</li>
+                <li>Widely used in microprocessors and power electronics due to low power consumption.</li>
+            </ul>
+        </div>
+
+        <div class="subsection">
+            <h3>Difference between MOSFET and BJT:</h3>
+
+            <div style="text-align: center;">
+                <br><img src="Difference Between BJT and MOSFET.png"
+                alt="Difference Between BJT and MOSFET"
+                style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                <strong style="display: block; margin-top: 10px;">
+                <i>Image: Difference Between BJT and MOSFET</i>
+                </strong>
+            </div><br>
+
+            <p>The move from Bipolar Junction Transistors (BJTs) to Field Effect Transistors (FETs) happened due to several advantages that FETs offer over BJTs in many applications.</p>
+
+            <div class="highlight-box info">
+                <h4>Advantages of FETs over BJTs:</h4>
+                <ul>
+                    <li><strong>Voltage-Controlled Device:</strong> FETs are controlled by voltage applied to the gate, requiring almost no input current, leading to very low power consumption at the input. BJTs, on the other hand, are current-controlled devices requiring a continuous base current.</li>
+                    <li><strong>High Input Impedance:</strong> FETs have very high input impedance (several megaohms), which means they don't load the preceding circuit stage. BJTs have lower input impedance, which can affect signal levels.</li>
+                    <li><strong>Lower Noise:</strong> FETs generate less electrical noise, making them preferable for low-noise amplification and sensitive analog applications.</li>
+                    <li><strong>Better Thermal Stability:</strong> FETs have better thermal stability because they primarily rely on majority charge carriers and have less minority carrier leakage, which makes them more reliable under varying temperature conditions.</li>
+                    <li><strong>Less Sensitive to Radiation:</strong> FETs are less affected by radiation and other environmental factors, which enhances durability in harsh conditions.</li>
+                    <li><strong>Simpler Integration and Fabrication:</strong> FETs, especially MOSFETs, require less chip area in integrated circuits, allowing for higher packing density and more complex circuits on a single chip.</li>
+                    <li><strong>Lower Power Consumption:</strong> FETs consume less power during operation, which is crucial for battery-operated and portable devices.</li>
+                    <li><strong>Faster Switching in Many Digital Applications:</strong> Although older FETs switched slower, modern MOSFETs can switch very rapidly, making them crucial in high-speed digital electronics.</li>
+                </ul>
+            </div>
+
+            <div class="highlight-box warning">
+                <h4>Limitations of BJTs that led to the switch:</h4>
+                <ul>
+                    <li>BJT requires continuous base current for operation, causing higher power consumption.</li>
+                    <li>BJTs have lower input impedance, potentially loading the driving circuit.</li>
+                    <li>BJTs generate more noise compared to FETs.</li>
+                    <li>Thermal runaway is a risk in BJTs due to lower thermal stability.</li>
+                    <li>BJTs have more complex fabrication and larger chip area requirement.</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">❓ Check Your Understanding</h2>
+        
+        <div class="quiz-container">
+            <div class="quiz-question">
+                <p><strong>1. What is the main function of a transistor?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">To store energy in a magnetic field</li>
+                    <li data-correct="false">To resist the flow of current</li>
+                    <li data-correct="true">To amplify or switch electronic signals</li>
+                    <li data-correct="false">To convert AC to DC</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> To amplify or switch electronic signals</p>
+                    <p>Transistors are semiconductor devices primarily used for amplification of signals or as electronic switches in digital circuits.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>2. What are the three terminals of a Bipolar Junction Transistor (BJT)?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Source, Gate, Drain</li>
+                    <li data-correct="false">Anode, Cathode, Gate</li>
+                    <li data-correct="true">Emitter, Base, Collector</li>
+                    <li data-correct="false">Input, Output, Ground</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Emitter, Base, Collector</p>
+                    <p>BJTs have three terminals: Emitter (emits carriers), Base (controls current), and Collector (collects carriers).</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>3. What does the acronym FET stand for?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Forward Emission Transformer</li>
+                    <li data-correct="true">Field-Effect Transistor</li>
+                    <li data-correct="false">Fast Electron Transfer</li>
+                    <li data-correct="false">Frequency-Enhancing Triode</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Field-Effect Transistor</p>
+                    <p>FET stands for Field-Effect Transistor, which operates using an electric field to control current flow.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>4. How is the current between the collector and emitter in a BJT primarily controlled?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">By the voltage at the collector</li>
+                    <li data-correct="true">By the input current at the base</li>
+                    <li data-correct="false">By the temperature of the transistor</li>
+                    <li data-correct="false">By the voltage at the emitter</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> By the input current at the base</p>
+                    <p>BJTs are current-controlled devices where a small base current controls a larger collector-emitter current.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>5. How is the current between the source and drain in a FET primarily controlled?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="true">By the voltage applied at the gate</li>
+                    <li data-correct="false">By the current at the source</li>
+                    <li data-correct="false">By the overall resistance of the circuit</li>
+                    <li data-correct="false">By the input current at the drain</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> By the voltage applied at the gate</p>
+                    <p>FETs are voltage-controlled devices where the gate voltage creates an electric field that controls source-drain current.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>6. Which of the following are the two main types of BJTs?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">JFET and MOSFET</li>
+                    <li data-correct="false">N-Channel and P-Channel</li>
+                    <li data-correct="false">Depletion and Enhancement</li>
+                    <li data-correct="true">NPN and PNP</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> NPN and PNP</p>
+                    <p>BJTs are classified as NPN (two n-type layers with p-type base) and PNP (two p-type layers with n-type base).</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>7. Which transistor type is known for having a significantly higher input impedance?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">BJT</li>
+                    <li data-correct="true">FET</li>
+                    <li data-correct="false">Both have equally high impedance</li>
+                    <li data-correct="false">Both have equally low impedance</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> FET</p>
+                    <p>FETs have very high input impedance (megaohms range) due to insulated gate, while BJTs have much lower input impedance.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>8. In terms of power consumption in a static state, which transistor type is generally more efficient?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">BJT</li>
+                    <li data-correct="true">FET</li>
+                    <li data-correct="false">Both consume equal power</li>
+                    <li data-correct="false">Power consumption is determined only by the circuit, not the transistor type</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> FET</p>
+                    <p>FETs consume very little power in static state due to voltage control and high input impedance, making them more power-efficient.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>9. What is the key difference between enhancement-mode and depletion-mode MOSFETs?</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Enhancement-mode is normally ON; Depletion-mode is normally OFF</li>
+                    <li data-correct="false">Enhancement-mode uses three terminals; Depletion-mode uses four</li>
+                    <li data-correct="true">Enhancement-mode is normally OFF; Depletion-mode is normally ON</li>
+                    <li data-correct="false">Enhancement-mode is for high-frequency; Depletion-mode is for high-power</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Enhancement-mode is normally OFF; Depletion-mode is normally ON</p>
+                    <p>Enhancement-mode MOSFETs require gate voltage to turn on, while depletion-mode MOSFETs conduct with zero gate voltage.</p>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <p><strong>10. An FET is considered a "unipolar" device because it operates using:</strong></p>
+                <ul class="quiz-options">
+                    <li data-correct="false">Neither electrons nor holes</li>
+                    <li data-correct="false">Both electrons and holes</li>
+                    <li data-correct="true">Only one type of charge carrier (either electrons or holes)</li>
+                    <li data-correct="false">A single pole magnetic field</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Answer:</strong> Only one type of charge carrier (either electrons or holes)</p>
+                    <p>FETs are unipolar devices because they use only one type of charge carrier (electrons in n-channel, holes in p-channel), unlike BJTs which use both.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">💼 Interview Questions</h2>
+        <div class="subsection">
+            <p><strong>1. What is a Bipolar Junction Transistor (BJT)?</strong></p>
+            <p><strong>2. What is a Field Effect Transistor (FET)?</strong></p>
+            <p><strong>3. What is the main difference between BJT and FET?</strong></p>
+            <p><strong>4. Why is FET preferred over BJT in many applications?</strong></p>
+            <p><strong>5. What are the terminals of a BJT and their functions?</strong></p>
+            <p><strong>6. What are the terminals of a FET and their functions?</strong></p>
+            <p><strong>7. What are NPN and PNP transistors?</strong></p>
+            <p><strong>8. Explain the "active region" in BJT.</strong></p>
+            <p><strong>9. What is the pinch-off voltage in FET?</strong></p>
+            <p><strong>10. What is the advantage of high input impedance in FET?</strong></p>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">📝 Key Takeaways</h2>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h4>Transistor Fundamentals</h4>
+                <p>Transistors are fundamental semiconductor devices used for amplification and switching in electronic circuits.</p>
+            </div>
+            <div class="summary-card">
+                <h4>Two Main Types</h4>
+                <p>BJT (current-controlled, bipolar) and FET (voltage-controlled, unipolar) are the two main transistor families.</p>
+            </div>
+            <div class="summary-card">
+                <h4>BJT Types</h4>
+                <p>BJTs come in NPN and PNP types with different charge carrier flow directions and terminal configurations.</p>
+            </div>
+            <div class="summary-card">
+                <h4>FET Varieties</h4>
+                <p>FETs include JFET and MOSFET types, operating in depletion and enhancement modes with insulated gates.</p>
+            </div>
+            <div class="summary-card">
+                <h4>FET Advantages</h4>
+                <p>FETs offer higher input impedance, lower power consumption, less noise, better thermal stability than BJTs.</p>
+            </div>
+            <div class="summary-card">
+                <h4>Technology Evolution</h4>
+                <p>The switch from BJT to FET technology enabled energy-efficient, miniaturized, high-speed electronic devices.</p>
+            </div>
+        </div>
+    </section>
+</body>
+</html>

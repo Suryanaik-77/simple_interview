@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basic Gates in Digital System Design | VLSI Training Module</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="interactive.js" defer></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Header Section -->
+    <div class="header">
+        <h1>Basic Gates in Digital System Design</h1>
+        <p>Understanding the Fundamental Building Blocks of Digital Circuits</p>
+    </div>
+
+
+  <div class="section">
+        <h2 class="section-title">
+            <span class="section-icon">🎯</span>Learning Objectives
+        </h2>
+         <div class="subsection">
+            <ul>
+                 <li><strong>Identify & understand </strong> the seven logic gates and logic gate symbols.</li>
+                <li><strong>Interpret</strong> truth tables for each gate type.</li>
+                <li><strong>Understand</strong> logical expressions for each gate.</li>
+                <li><strong>Apply</strong>  basic to solve simple digital logic problems.</li>
+              
+               
+                </ul>
+        </div>
+    </div>
+
+
+
+    <!-- Detailed Explanation Section -->
+    <section class="section" id="detailed-explanation">
+        <h2 class="section-title">
+           </i> Logic Gates
+        </h2>
+        
+        <div class="highlight-box info">
+             <ul>
+                <li><strong>Key Concept:</strong> Logic gates are electronic circuits that take one or more binary inputs (0 or 1) and produce a single binary output based on a specific logical operation.</p>
+                <li><strong>AND:</strong> Any one of the input is low output is low</li> 
+                <li><strong>OR:</strong> Any one of the input is high output is high</li> 
+                <li><strong>NOT:</strong> Complemented input</li> 
+                <li><strong>NAND:</strong> Any one of the input is low output is high</li> 
+                <li><strong>NOR:</strong> Any one of the input is high output is low</li> 
+                <li><strong>XOR:</strong> Odd number of inputs are high output is high</li> 
+                <li><strong>XNOR:</strong> Even number of inputs are low output is high </li> 
+            </ul>
+        </div>
+
+        <!-- AND Gate -->
+        <div class="subsection">
+            <h3>1. AND Gate </h3>
+           
+            <div class="feature-grid">
+                <div class="feature-item">
+    <h4>Symbol</h4>
+    <div style="text-align: center; padding: 15px; background: white; border-radius: 8px;">
+        <img src="Andgate.png" alt="AND Gate Symbol" style="max-width: 280px; height: auto; border: 1px solid #ddd; padding: 5px;">
+        <p style="font-size: 0.9em; color: #666; margin-top: 8px;"></p>
+    </div>
+</div>
+                <div class="feature-item">
+                    <h4>Truth Table</h4>
+                    <table>
+                        <tr>
+                            <th>A</th>
+                            <th>B</th>
+                            <th>Output</th>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>1</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>1</td>
+                            <td>1</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div class="feature-item">
+    <h4>Boolean Expression</h4>
+    <div style="text-align: center;">
+        <p>Y = A • B (or A AND B)</p>
+        <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 6px; display: inline-block;">
+            <img src="AND_Wf.png" alt="AND Gate Boolean Expression" 
+                 style="max-width: 280px; height: auto; border: 1px solid #ddd; padding: 5px;">
+        </div>
+    </div>
+</div>
+                
+                    
+           
+        </div>
+
+        <!-- OR Gate -->
+        <div class="subsection">
+            <h3>2. OR Gate </h3>
+             <div class="feature-grid">
+                <div class="feature-item">
+    <h4>Symbol</h4>
+    <div style="text-align: center; padding: 15px; background: white; border-radius: 8px;">
+        <img src="Orgate.png" alt="AND Gate Symbol" style="max-width: 280px; height: auto; border: 1px solid #ddd; padding: 5px;">
+        <p style="font-size: 0.9em; color: #666; margin-top: 8px;"></p>
+    </div>
+</div>
+           
+                <div class="feature-item">
+                    <h4>Truth Table</h4>
+                    <table>
+                        <tr>
+                            <th>A</th>
+                            <th>B</th>
+                            <th>Output</th>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>1</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>0</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>1</td>
+                            <td>1</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="feature-item">
+                    <h4>Boolean Expression</h4>
+                    <p>Y = A + B (or A OR B)</p>
+                </div>
+               
+            </div>
+        </div>
+
+        <!-- NOT Gate -->
+        <div class="subsection">
+            <h3>3. NOT Gate - The "Inverter" Gate</h3>
+            <p>The NOT gate is an electronic circuit that produces an inverted version of the input at its output. It is also known as an inverter. If the input variable is A, the inverted output is known as NOT A. This is also shown as A', or A with a bar over the top.</p>
+            <div class="feature-grid">
+                <div class="feature-item">
+    <h4>Symbol</h4>
+    <div style="text-align: center; padding: 15px; background: white; border-radius: 8px;">
+        <img src="Notgate.png" alt="AND Gate Symbol" style="max-width: 280px; height: auto; border: 1px solid #ddd; padding: 5px;">
+        <p style="font-size: 0.9em; color: #666; margin-top: 8px;"></p>
+    </div>
+</div>
+                <div class="feature-item">
+                    <h4>Truth Table</h4>
+                    <table>
+                        <tr>
+                            <th>A</th>
+                            <th>Output</th>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>0</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="feature-item">
+                    <h4>Boolean Expression</h4>
+                    <p>Y = Ā (or NOT A)</p>
+                </div>
+                
+            </div>
+        </div>
+
+        <!-- NAND Gate -->
+        <div class="subsection">
+            <h3>4. NAND Gate - AND followed by NOT</h3>
+            <p>This is a NOT-AND gate which is equal to an AND gate followed by a NOT gate.The symbol is an AND gate with a small circle on the ouput.NAND is a <strong>universal gate</strong> - you can create ANY other gate using only NAND gate.</p>
+           
+           
+            <div class="feature-grid">
+                <div class="feature-item">
+    <h4>Symbol</h4>
+    <div style="text-align: center; padding: 15px; background: white; border-radius: 8px;">
+        <img src="NandGate.png" alt="AND Gate Symbol" style="max-width: 280px; height: auto; border: 1px solid #ddd; padding: 5px;">
+        <p style="font-size: 0.9em; color: #666; margin-top: 8px;"></p>
+    </div>
+</div>
+                <div class="feature-item">
+                    <h4>Truth Table</h4>
+                    <table>
+                        <tr>
+                            <th>A</th>
+                            <th>B</th>
+                            <th>Output</th>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>0</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>1</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>0</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>1</td>
+                            <td>0</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="feature-item">
+                    <h4>Boolean Expression</h4>
+                    <p>Y = (A • B)' (or NOT (A AND B))</p>
+                </div>
+                
+            </div>
+        </div>
+
+        <!-- NOR Gate -->
+        <div class="subsection">
+            <h3>5. NOR Gate - OR followed by NOT</h3>
+            <p>This is a NOT-OR gate which is equal to an OR gate followed by a NOT gate. 
+                NOR is also a <strong>universal gate</strong> like NAND.The symbol is an OR gate with a small circle on the output.</p>
+           
+                                
+             <div class="feature-grid">
+                <div class="feature-item">
+    <h4>Symbol</h4>
+    <div style="text-align: center; padding: 15px; background: white; border-radius: 8px;">
+        <img src="Norgate.png" alt="AND Gate Symbol" style="max-width: 280px; height: auto; border: 1px solid #ddd; padding: 5px;">
+        <p style="font-size: 0.9em; color: #666; margin-top: 8px;"></p>
+    </div>
+</div>
+                <div class="feature-item">
+                    <h4>Truth Table</h4>
+                    <table>
+                        <tr>
+                            <th>A</th>
+                            <th>B</th>
+                            <th>Output</th>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>0</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>1</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>1</td>
+                            <td>0</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="feature-item">
+                    <h4>Boolean Expression</h4>
+                    <p>Y = (A + B)' (or NOT (A OR B))</p>
+                </div>
+                
+            </div>
+        </div>
+
+        <!-- XOR Gate -->
+        <div class="subsection">
+            <h3>6. XOR Gate - The "Exclusive OR" Gate</h3>
+            <p>The 'Exclusive-OR' gate is a circuit which will give a high output if either, but not both, of its two inputs are high.It is used in binary addition circuits and parity generation.</p>
+          
+                
+           <div class="feature-grid">
+                <div class="feature-item">
+    <h4>Symbol</h4>
+    <div style="text-align: center; padding: 15px; background: white; border-radius: 8px;">
+        <img src="Xorgate.png" alt="AND Gate Symbol" style="max-width: 280px; height: auto; border: 1px solid #ddd; padding: 5px;">
+        <p style="font-size: 0.9em; color: #666; margin-top: 8px;"></p>
+    </div>
+</div>
+                <div class="feature-item">
+                    <h4>Truth Table</h4>
+                    <table>
+                        <tr>
+                            <th>A</th>
+                            <th>B</th>
+                            <th>Output</th>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>1</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>0</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>1</td>
+                            <td>0</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="feature-item">
+                    <h4>Boolean Expression</h4>
+                    <p>Y = A ⊕ B (or A XOR B)</p>
+                </div>
+               
+            </div>
+        </div>
+
+        <!-- XNOR Gate -->
+        <div class="subsection">
+            <h3>7. XNOR Gate - XOR followed by NOT</h3>
+            <p>It will give a low output if either, but not both, of its two inputs are high. The symbol is an EXOR gate with a small circle on the output.It is used in equality checking and parity checking circuits.</p>
+           
+             
+
+            <div class="feature-grid">
+                <div class="feature-item">
+    <h4>Symbol</h4>
+    <div style="text-align: center; padding: 15px; background: white; border-radius: 8px;">
+        <img src="Xnorgate.png" alt="AND Gate Symbol" style="max-width: 280px; height: auto; border: 1px solid #ddd; padding: 5px;">
+        <p style="font-size: 0.9em; color: #666; margin-top: 8px;"></p>
+    </div>
+</div>
+                <div class="feature-item">
+                    <h4>Truth Table</h4>
+                    <table>
+                        <tr>
+                            <th>A</th>
+                            <th>B</th>
+                            <th>Output</th>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>0</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td>0</td>
+                            <td>1</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>0</td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>1</td>
+                            <td>1</td>
+                            <td>1</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="feature-item">
+                    <h4>Boolean Expression</h4>
+                    <p>Y = A ⊙ B (or NOT (A XOR B))</p>
+                </div>
+               
+            </div>
+        </div>
+        </div>
+    </section>
+
+       <!-- 💭 Give a Thought Section -->
+    <section class="section" id="thought-section">
+       <h2 class="section-title">
+            <span class="section-icon">💭</span>Give a Thought
+        </h2>
+        
+        <div class="quiz-container">
+            <div class="quiz-question">
+               
+                <p>Imagine you're designing a digital lock for a safe. The lock should open only when:</p>
+                <ul>
+                    <li>The correct 4-digit code is entered</li>
+                    <li>The correct physical key is inserted</li>
+                    <li>The emergency override switch is NOT activated</li>
+                </ul>
+                <p><strong>Question:</strong> How would you combine basic logic gates to create this security system? Which gates would you use and how would you connect them?</p>
+            </div>
+        </div>
+    </section>
+    
+
+        <!-- Check Your Understanding Section -->
+    <section id="quiz-section" class="section">
+        <h2 class="section-title">
+            <span class="section-icon">❓</span>Check Your Understanding
+        </h2>
+        
+        <div class="quiz-container">
+            <!-- Quiz Question 1 -->
+            <div class="quiz-question">
+                <h3>1.Which logic gate would you use if you want the output to be HIGH only when EXACTLY ONE of two inputs is HIGH?</h3>
+                
+                <ul class="quiz-options">
+                    <li data-correct="false">AND Gate</li>
+                    <li data-correct="false">OR Gate</li>
+                    <li data-correct="true">XOR Gate</li>
+                    <li data-correct="false">XNOR Gate</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> XOR Gate</p>
+                    <p><strong>Explanation:</strong> The XOR (Exclusive OR) gate produces a HIGH output only when the inputs are DIFFERENT. If exactly one input is HIGH (and the other is LOW), the output will be HIGH.</p>
+                    <p><strong>Memory Tip:</strong> XOR = "eXactly One is tRue"</p>
+                </div>
+            </div>
+
+            <!-- Quiz Question 2 -->
+            <div class="quiz-question">
+                <h3>2.Complete the truth table for a NAND gate with inputs A and B:</h3>
+               
+                <table style="width: 200px; margin: 15px auto;">
+                    <tr><th>A</th><th>B</th><th>Output</th></tr>
+                    <tr><td>0</td><td>0</td><td>?</td></tr>
+                    <tr><td>0</td><td>1</td><td>?</td></tr>
+                    <tr><td>1</td><td>0</td><td>?</td></tr>
+                    <tr><td>1</td><td>1</td><td>?</td></tr>
+                </table>
+                <p>What is the output sequence (from top to bottom)?</p>
+                <ul class="quiz-options">
+                    <li data-correct="false">0, 0, 0, 1</li>
+                    <li data-correct="false">1, 0, 0, 0</li>
+                    <li data-correct="true">1, 1, 1, 0</li>
+                    <li data-correct="false">0, 1, 1, 1</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> 1, 1, 1, 0</p>
+                    <p><strong>Explanation:</strong> NAND = NOT AND. An AND gate outputs 1 only when both inputs are 1 (0,0→0; 0,1→0; 1,0→0; 1,1→1). The NOT inverts this, giving us (0,0→1; 0,1→1; 1,0→1; 1,1→0).</p>
+                    <p><strong>Key Insight:</strong> NAND outputs 0 ONLY when both inputs are 1.</p>
+                </div>
+            </div>
+
+            <!-- Quiz Question 3 -->
+            <div class="quiz-question">
+                <h3>3.Why are NAND and NOR gates called "universal gates"?</h3>
+               
+                <ul class="quiz-options">
+                    <li data-correct="false">Because they're used universally in all countries</li>
+                    <li data-correct="false">Because they have the simplest truth tables</li>
+                    <li data-correct="true">Because you can create ANY other logic gate using only NAND gates or only NOR gates</li>
+                    <li data-correct="false">Because they were the first gates invented</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> Because you can create ANY other logic gate using only NAND gates or only NOR gates</p>
+                    <p><strong>Explanation:</strong> Universal gates can implement all basic Boolean functions. For example:</p>
+                    <ul>
+                        <li>NOT gate using NAND: Connect both inputs together</li>
+                        <li>AND gate using NAND: NAND followed by NOT (made from NAND)</li>
+                        <li>OR gate using NAND: More complex combination possible</li>
+                    </ul>
+                    <p>This property makes them incredibly valuable in digital circuit design.</p>
+                </div>
+            </div>
+
+            <!-- Quiz Question 4 -->
+            <div class="quiz-question">
+                <h3>4.A washing machine should start ONLY when:</h3>
+               
+                <ol>
+                    <li>The door is closed</li>
+                    <li>Water is available</li>
+                    <li>Either the "Start" button is pressed OR the "Delay Start" timer has expired</li>
+                </ol>
+                <p>Which gate combination would implement this logic?</p>
+                <ul class="quiz-options">
+                    <li data-correct="false">(Door • Water) + (Start + Timer)</li>
+                    <li data-correct="true">(Door • Water) • (Start + Timer)</li>
+                    <li data-correct="false">(Door + Water) • (Start • Timer)</li>
+                    <li data-correct="false">(Door + Water) + (Start • Timer)</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> (Door • Water) • (Start + Timer)</p>
+                    <p><strong>Explanation:</strong> Let's break it down:</p>
+                    <ul>
+                        <li>"Door is closed AND Water is available" requires AND gate: (Door • Water)</li>
+                        <li>"Either Start button OR Timer" requires OR gate: (Start + Timer)</li>
+                        <li>Both conditions must be true, so we need AND between them: (Door • Water) • (Start + Timer)</li>
+                    </ul>
+                    <p>This ensures all safety and operational conditions are met before starting.</p>
+                </div>
+            </div>
+
+            <!-- NEW Quiz Question 5 -->
+            <div class="quiz-question">
+                <h3>5.Which logic gate implements the Boolean expression: Y = A' + B' (where ' indicates NOT)?</h3>
+               
+                <ul class="quiz-options">
+                    <li data-correct="false">AND Gate</li>
+                    <li data-correct="false">OR Gate</li>
+                    <li data-correct="true">NAND Gate</li>
+                    <li data-correct="false">NOR Gate</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> NAND Gate</p>
+                    <p><strong>Explanation:</strong> According to De Morgan's Theorem: A' + B' = (A • B)'. This is exactly the definition of a NAND gate. The NAND gate produces an output that is the inverse of the AND operation.</p>
+                    <p><strong>Key Insight:</strong> De Morgan's theorems help convert between AND/OR operations with inversions.</p>
+                </div>
+            </div>
+
+            <!-- NEW Quiz Question 6 -->
+            <div class="quiz-question">
+                <h3>6.You see a logic gate symbol with the following characteristics:</h3>
+               
+                <ul>
+                    <li>Has two inputs</li>
+                    <li>Has a small circle (bubble) at the output</li>
+                    <li>Has a curved shape (like OR gate) with the bubble</li>
+                </ul>
+                <p>What gate is this?</p>
+                <ul class="quiz-options">
+                    <li data-correct="false">OR Gate</li>
+                    <li data-correct="true">NOR Gate</li>
+                    <li data-correct="false">AND Gate</li>
+                    <li data-correct="false">NAND Gate</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> NOR Gate</p>
+                    <p><strong>Explanation:</strong> A NOR gate is essentially an OR gate followed by a NOT gate. The small circle (bubble) at the output represents the inversion (NOT operation). The curved shape indicates it's based on an OR gate.</p>
+                    <p><strong>Memory Tip:</strong> NOR = NOT OR = OR gate with bubble at output.</p>
+                </div>
+            </div>
+
+            <!-- NEW Quiz Question 7 -->
+            <div class="quiz-question">
+                <h3>7.For a three-input AND gate with inputs A, B, and C, when will the output be HIGH?</h3>
+                
+                <ul class="quiz-options">
+                    <li data-correct="false">When at least one input is HIGH</li>
+                    <li data-correct="false">When exactly one input is HIGH</li>
+                    <li data-correct="false">When two inputs are HIGH</li>
+                    <li data-correct="true">When all three inputs are HIGH</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> When all three inputs are HIGH</p>
+                    <p><strong>Explanation:</strong> The AND gate follows the principle of logical conjunction. For an AND gate with any number of inputs, the output is HIGH only when ALL inputs are HIGH. For a 3-input AND: Y = A • B • C.</p>
+                    <p><strong>Application:</strong> Three-input AND gates are common in systems requiring multiple conditions to be true simultaneously.</p>
+                </div>
+            </div>
+
+            <!-- NEW Quiz Question 8 -->
+            <div class="quiz-question">
+                <h3>8.What is the output of this gate combination: NOT gate → AND gate? The NOT gate takes input A and feeds into the AND gate along with input B.</h3>
+               
+                <ul class="quiz-options">
+                    <li data-correct="true">Y = A' • B</li>
+                    <li data-correct="false">Y = A • B</li>
+                    <li data-correct="false">Y = A' + B</li>
+                    <li data-correct="false">Y = A + B'</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> Y = A' • B</p>
+                    <p><strong>Explanation:</strong> The NOT gate inverts input A to produce A'. This inverted signal (A') is then fed into the AND gate along with input B. The AND gate performs the logical AND operation between A' and B, giving us Y = A' • B.</p>
+                    <p><strong>Circuit Understanding:</strong> This combination creates a specific logical function that can be used in various digital circuits like enable/disable controls.</p>
+                </div>
+            </div>
+           
+
+            <!-- NEW Quiz Question 10 -->
+            <div class="quiz-question">
+                <h3>9. Which gate would you use to check if two binary numbers are equal?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">AND Gate</li>
+                    <li data-correct="false">OR Gate</li>
+                    <li data-correct="false">XOR Gate</li>
+                    <li data-correct="true">XNOR Gate</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> XNOR Gate</p>
+                    <p><strong>Explanation:</strong> An XNOR gate outputs HIGH when both inputs are the same (both 0 or both 1). This makes it perfect for equality checking:
+                    <ul>
+                        <li>A=0, B=0 → Output=1 (equal)</li>
+                        <li>A=0, B=1 → Output=0 (not equal)</li>
+                        <li>A=1, B=0 → Output=0 (not equal)</li>
+                        <li>A=1, B=1 → Output=1 (equal)</li>
+                    </ul>
+                    <p><strong>Application:</strong> XNOR gates are used in parity checkers and equality comparators.</p>
+                </div>
+            </div>
+
+          
+
+            <!-- NEW Quiz Question 13 -->
+            <div class="quiz-question">
+                <h3>10. Which of these is NOT a correct Boolean expression?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">AND: Y = A • B</li>
+                    <li data-correct="false">OR: Y = A + B</li>
+                    <li data-correct="true">NAND: Y = A + B</li>
+                    <li data-correct="false">XOR: Y = A ⊕ B</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer:</strong> NAND: Y = A + B</p>
+                    <p><strong>Explanation:</strong> The correct Boolean expressions are:
+                    <ul>
+                        <li>AND: Y = A • B</li>
+                        <li>OR: Y = A + B</li>
+                        <li>NAND: Y = (A • B)' or A • B with a bar over it</li>
+                        <li>XOR: Y = A ⊕ B</li>
+                    </ul>
+                    <p><strong>Memory Tip:</strong> NAND = NOT AND, so it should have the AND expression with a NOT/inversion.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+ <section class="section" id="interview-questions">
+        <h2 class="section-title">
+            <span class="section-icon">💼</span>Interview Questions
+        </h2>
+        
+        <div class="interview-container">
+            <!-- Interview Question 1 -->
+            <div class="interview-question">
+                <p>1. Explain the concept of universal gates and why NAND and NOR are considered universal.</p>
+               
+            </div>
+
+           
+    </section>
+
+       <!-- ✍️ Assignment Section -->
+    <section class="section" id="assignment-section">
+        <h2 class="section-title">
+            </i>✍️ Assignment
+        </h2>
+        <p><strong>1.</strong>Complete the truth table for the below logic digram?</p>
+            <div style="text-align: center; padding: 10px; background: white; border-radius: 6px; margin-top: 15px; border: 1px dashed #ddd;">
+                <img src="Problem1.png" alt="Assignment Circuit Diagram Area" style="max-width: 70%; height: auto;">
+                <pstyle="font-size: 0.6em; color: #666; margin-top: 6px;"></p>
+              </div>   
+        <p><strong>2.</strong>What is the output of following circuit?</p>
+            <div style="text-align: center; padding: 10px; background: white; border-radius: 6px; margin-top: 15px; border: 1px dashed #ddd;">
+                <img src="Problem2.png" alt="Assignment Circuit Diagram Area" style="max-width: 70%; height: auto;">
+                <p style="font-size: 0.6em; color: #666; margin-top: 6px;"></p>
+            </div>
+       
+    </section>
+
+    <!-- 📝 Key Takeaways Section -->
+    <section class="section" id="key-takeaways">
+        <h2 class="section-title">
+            <span class="section-icon">📝</span>Key Takeaways
+        </h2>
+        
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h4>The Foundation</h4>
+                <p>All digital systems are built from just 7 logic gates: AND, OR, NOT, NAND, NOR, XOR, XNOR</p>
+            </div>
+            <div class="summary-card">
+                <h4>Universal Gates</h4>
+                <p>NAND and NOR gates are "universal" - any digital circuit can be built using only one type of these gates</p>
+            </div>
+           
+            <div class="summary-card">
+                <h4>Truth Tables</h4>
+                <p>Truth tables provide a complete description of a gate's behavior for all possible input combinations</p>
+            </div>
+        </div>
+        
+    </section>
+
+   </body>
+</html>

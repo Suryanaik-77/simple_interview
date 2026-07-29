@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signed Numbers in Digital System Design: How Do Computers Handle Negative Values?</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="interactive.js" defer></script>
+</head>
+<body>
+    <div class="header">
+        <h1>Signed Numbers</h1>
+        <p>Representing Negative Numbers in Binary Systems</p>
+    </div>
+
+    <section class="section">
+        <h2 class="section-title">🎯 Learning Objectives</h2>
+        <div class="subsection">
+            <ul>
+                <li><strong>Understand</strong> why computers need special representations for signed numbers.</li>
+                <li><strong>Explain</strong> and compare three main signed number representations.</li>
+                <li><strong>Convert</strong> between decimal and signed binary formats.</li>
+                <li><strong>Identify</strong> the range and limitations of each representation method.</li>
+                
+            </ul>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title"> Why Can't Computers Just Use Minus Signs?</h2>
+        <div class="subsection">
+            <div class="highlight-box info">
+                <p><strong>Fundamental Reality:</strong> Digital circuits only understand two voltage levels - HIGH (1) and LOW (0). There's no physical "minus" symbol in hardware!</p>
+            </div>
+            
+            <h3>The Problem We're Solving</h3>
+            <p>Think about how you represent -5 on paper. You write a minus sign. But in a computer's memory or register, everything is just 1s and 0s. How do we encode "negative" using only these two symbols?</p>
+            
+           
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title"> Methods for Representing Signed Numbers</h2>
+        
+        <div class="subsection">
+            <h3>1. Sign-Magnitude Representation</h3>
+            <p><strong>The most intuitive approach:</strong> Use one bit for sign, the rest for magnitude.</p>
+            
+            <div class="highlight-box white">
+                <p><strong>Format:</strong> [Sign bit][Magnitude bits]</p>
+                <ul>
+                    <li><strong>Sign bit:</strong> 0 = positive, 1 = negative</li>
+                    <li><strong>Magnitude bits:</strong> Regular binary representation of the absolute value</li>
+                </ul>
+            </div>
+            
+            <h4>Example (4-bit representation):</h4>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <h4>+5 in Sign-Magnitude</h4>
+                    <p><strong>Step 1:</strong> Sign is positive → Sign bit = 0</p>
+                    <p><strong>Step 2:</strong> Magnitude 5 in 3-bit binary = 101</p>
+                    <p><strong>Result:</strong> 0 101 = 0101</p>
+                </div>
+                <div class="feature-item">
+                    <h4>-5 in Sign-Magnitude</h4>
+                    <p><strong>Step 1:</strong> Sign is negative → Sign bit = 1</p>
+                    <p><strong>Step 2:</strong> Magnitude 5 in 3-bit binary = 101</p>
+                    <p><strong>Result:</strong> 1 101 = 1101</p>
+                </div>
+            </div>
+            
+            <div class="highlight-box warning">
+                <p><strong>Critical Limitation:</strong> Two representations of zero! +0 = 0000 and -0 = 1000. This causes problems in comparisons and arithmetic operations.</p>
+            </div>
+        </div>
+
+        <div class="subsection">
+            <h3>2. One's Complement Representation</h3>
+            <p><strong>Clever trick:</strong> Negative numbers are represented by flipping all bits of the positive equivalent.</p>
+            
+            <h4>How it works:</h4>
+            <ol>
+                <li>Take the positive number in binary</li>
+                <li>Flip every bit (1 becomes 0, 0 becomes 1)</li>
+                <li>That's your negative representation!</li>
+            </ol>
+            
+            <h4>Example (4-bit representation):</h4>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <h4>+5 in One's Complement</h4>
+                    <p>+5 in 4-bit binary = 0101</p>
+                    <p>(same as positive representation)</p>
+                </div>
+                <div class="feature-item">
+                    <h4>-5 in One's Complement</h4>
+                    <p><strong>Step 1:</strong> +5 = 0101</p>
+                    <p><strong>Step 2:</strong> Flip all bits: 0101 → 1010</p>
+                    <p><strong>Result:</strong> 1010 represents -5</p>
+                </div>
+            </div>
+            
+            <div class="highlight-box warning">
+                <p><strong>Still problematic:</strong> Still has two zeros! +0 = 0000 and -0 = 1111. Arithmetic requires "end-around carry" which complicates hardware design.</p>
+            </div>
+        </div>
+
+        <div class="subsection">
+            <h3>3. Two's Complement Representation (The Winner!)</h3>
+            <p><strong>Modern standard:</strong> Used by all modern computers for integer arithmetic.</p>
+            
+            <div class="highlight-box correct">
+                <p><strong>Why it's superior:</strong> Only one representation of zero, and arithmetic operations work without special cases!</p>
+            </div>
+            
+            <h4>How to convert to Two's Complement:</h4>
+            <ol>
+                <li>Write the positive number in binary</li>
+                <li>Flip all bits (One's Complement)</li>
+                <li>Add 1 to the result</li>
+            </ol>
+            
+            <h4>Example (4-bit representation):</h4>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <h4>+5 in Two's Complement</h4>
+                    <p>+5 in 4-bit binary = 0101</p>
+                    <p>(same as positive representation)</p>
+                </div>
+                <div class="feature-item">
+                    <h4>-5 in Two's Complement</h4>
+                    <p><strong>Step 1:</strong> +5 = 0101</p>
+                    <p><strong>Step 2:</strong> Flip bits: 0101 → 1010</p>
+                    <p><strong>Step 3:</strong> Add 1: 1010 + 1 = 1011</p>
+                    <p><strong>Result:</strong> 1011 represents -5</p>
+                </div>
+            </div>
+            
+            <h4>Quick Verification Trick:</h4>
+            <p>In Two's Complement, the leftmost bit always tells you if the number is negative:</p>
+            <ul>
+                <li>If leftmost bit = 0 → Positive or zero</li>
+                <li>If leftmost bit = 1 → Negative</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title"> Range of Integers Comparison</h2>
+        <div class="subsection">
+            <h3>Numerical Ranges for n-bit Representations</h3>
+            
+            <div class="highlight-box info">
+                <p><strong>Sign magnitude:</strong> -(2<sup>(n-1)</sup>-1) ... -0, +0 ... +(2<sup>(n-1)</sup>-1)</p>
+                <p><strong>1's complement:</strong> -(2<sup>(n-1)</sup>-1) ... -0, +0 ... +(2<sup>(n-1)</sup>-1)</p>
+                <p><strong>2's complement:</strong> -(2<sup>(n-1)</sup>) ... 0 ... 2<sup>(n-1)</sup> - 1</p>
+            </div>
+            
+            <h4>3-bit Representation Examples</h4>
+            <div class="table-container">
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Number</th>
+                            <th>Sign magnitude</th>
+                            <th>1's complement</th>
+                            <th>2's complement</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>+3</td>
+                            <td>011</td>
+                            <td>011</td>
+                            <td>011</td>
+                        </tr>
+                        <tr>
+                            <td>+2</td>
+                            <td>010</td>
+                            <td>010</td>
+                            <td>010</td>
+                        </tr>
+                        <tr>
+                            <td>+1</td>
+                            <td>001</td>
+                            <td>001</td>
+                            <td>001</td>
+                        </tr>
+                        <tr>
+                            <td>+0</td>
+                            <td>000</td>
+                            <td>000</td>
+                            <td>000</td>
+                        </tr>
+                        <tr>
+                            <td>-0</td>
+                            <td>100</td>
+                            <td>111</td>
+                            <td>000</td>
+                        </tr>
+                        <tr>
+                            <td>-1</td>
+                            <td>101</td>
+                            <td>110</td>
+                            <td>111</td>
+                        </tr>
+                        <tr>
+                            <td>-2</td>
+                            <td>110</td>
+                            <td>101</td>
+                            <td>110</td>
+                        </tr>
+                        <tr>
+                            <td>-3</td>
+                            <td>111</td>
+                            <td>100</td>
+                            <td>101</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="highlight-box warning">
+                <p><strong>Key Observations:</strong></p>
+                <ul>
+                    <li>Sign-magnitude and 1's complement both have two representations of zero (+0 and -0)</li>
+                    <li>2's complement has only one zero representation</li>
+                    <li>2's complement has an asymmetric range: one more negative number than positive numbers</li>
+                    <li>In 2's complement, -0 doesn't exist (it's represented as 000, same as +0)</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">💭 Give a Thought</h2>
+        <div class="subsection">
+            <div class="quiz-question">
+                <p><strong>Thought Experiment:</strong> You're designing a temperature sensor circuit that needs to measure temperatures from -40°C to +125°C. You have an 8-bit digital output.</p>
+                <ul>
+                    <li>Which signed number representation would you choose and why?</li>
+                    <li>What would be the temperature resolution (smallest change you can detect)?</li>
+                    <li>How would you handle the asymmetric range of Two's Complement?</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+   
+    <section id="quiz-section" class="section">
+        <h2 class="section-title">
+            <span class="section-icon">❓</span> Check Your Understanding
+        </h2>
+
+        <div class="quiz-container">
+            <div class="quiz-question">
+                <h3><strong> 1.</strong> What is the 8-bit Two's Complement representation of -42?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">00101010</li>
+                    <li data-correct="true">11010110</li>
+                    <li data-correct="false">11010101</li>
+                    <li data-correct="false">10101010</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer">
+                    <p><strong>Correct Answer: </strong>11010110</p>
+                    <p><strong>Step-by-step solution:</strong></p>
+                    <ol>
+                        <li>+42 in 8-bit binary: 00101010</li>
+                        <li>Flip all bits: 11010101 (One's Complement)</li>
+                        <li>Add 1: 11010101 + 1 = 11010110</li>
+                        <li>Verification: Leftmost bit is 1, so it's negative ✓</li>
+                    </ol>
+                </div>
+            </div>
+
+                                   
+            <div class="quiz-question">
+                <h3><strong> 2.</strong> Which of these is NOT an advantage of Two's Complement over Sign-Magnitude?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">Only one representation of zero</li>
+                    <li data-correct="false">Simpler addition/subtraction circuits</li>
+                    <li data-correct="true">More intuitive for humans to read</li>
+                    <li data-correct="false">Easier overflow detection</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer" style="display: none;">
+                    <p><strong>Correct Answer: More intuitive for humans to read</strong></p>
+                    <p><strong>Explanation:</strong></p>
+                    <ul>
+                        <li>Two's Complement is actually <em>less</em> intuitive for humans because the binary pattern for a negative number doesn't obviously relate to its positive counterpart.</li>
+                        <li>Sign-Magnitude is more intuitive because you can directly see the sign and magnitude separately.</li>
+                        <li>The other options are genuine advantages of Two's Complement that make it better for computer hardware.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="quiz-question">
+                <h3><strong> 3. </strong> What is the range of representable numbers in 16-bit Two's Complement?</h3>
+                <ul class="quiz-options">
+                    <li data-correct="false">-32,767 to +32,767</li>
+                    <li data-correct="true">-32,768 to +32,767</li>
+                    <li data-correct="false">-65,535 to +65,535</li>
+                    <li data-correct="false">0 to 65,535</li>
+                </ul>
+                <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+                <div class="feedback"></div>
+                <div class="answer" style="display: none;">
+                    <p><strong>Correct Answer: -32,768 to +32,767</strong></p>
+                    <p><strong>Explanation:</strong></p>
+                    <ul>
+                        <li>For n-bit Two's Complement: Range = -2<sup>(n-1)</sup> to +2<sup>(n-1)</sup>-1</li>
+                        <li>For 16 bits: -2<sup>15</sup> to +2<sup>15</sup>-1 = -32,768 to +32,767</li>
+                        <li>Note the asymmetry: There's one more negative number than positive numbers.</li>
+                        <li>Total unique values: 2<sup>16</sup> = 65,536 (including zero)</li>
+                    </ul>
+                </div>
+
+                <div class="quiz-question">
+    <h3><strong> 4.</strong> What decimal number does the 8-bit Two's Complement binary 10011010 represent?</h3>
+    <ul class="quiz-options">
+        <li data-correct="false">-100</li>
+        <li data-correct="false">-98</li>
+        <li data-correct="true">-102</li>
+        <li data-correct="false">154</li>
+    </ul>
+    <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+    <div class="feedback"></div>
+    <div class="answer" style="display: none;">
+        <p><strong>Correct Answer: -102</strong></p>
+        <p><strong>Step-by-step solution:</strong></p>
+        <ol>
+            <li>Leftmost bit is 1 → negative number</li>
+            <li>Invert bits: 10011010 → 01100101</li>
+            <li>Add 1: 01100101 + 1 = 01100110</li>
+            <li>01100110 in decimal = 102</li>
+            <li>Therefore, original binary = -102</li>
+        </ol>
+    </div>
+</div>
+
+<div class="quiz-question">
+    <h3><strong> 5.</strong> Which of the following is the correct 4-bit Sign-Magnitude representation of -6?</h3>
+    <ul class="quiz-options">
+        <li data-correct="false">0110</li>
+        <li data-correct="false">1010</li>
+        <li data-correct="true">1110</li>
+        <li data-correct="false">1111</li>
+    </ul>
+    <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+    <div class="feedback"></div>
+    <div class="answer" style="display: none;">
+        <p><strong>Correct Answer: 1110</strong></p>
+        <p><strong>Explanation:</strong></p>
+        <ul>
+            <li>In 4-bit Sign-Magnitude: 1 sign bit + 3 magnitude bits</li>
+            <li>Range is -7 to +7, so -6 is within range</li>
+            <li>Step 1: Magnitude 6 in 3-bit binary = 110</li>
+            <li>Step 2: Sign bit for negative = 1</li>
+            <li>Result: 1 110 = 1110</li>
+            <li>Verification: 1110 → sign bit 1 = negative, magnitude 110 = 6 → -6 ✓</li>
+           
+        </ul>
+    </div>
+</div>
+
+<div class="quiz-question">
+    <h3><strong> 6.</strong> In One's Complement, what is the 8-bit representation of -0?</h3>
+    <ul class="quiz-options">
+        <li data-correct="false">00000000</li>
+        <li data-correct="false">10000000</li>
+        <li data-correct="true">11111111</li>
+        <li data-correct="false">01111111</li>
+    </ul>
+    <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+    <div class="feedback"></div>
+    <div class="answer" style="display: none;">
+        <p><strong>Correct Answer: 11111111</strong></p>
+        <p><strong>Explanation:</strong></p>
+        <ul>
+            <li>In One's Complement, negative numbers are created by flipping all bits</li>
+            <li>+0 in 8-bit = 00000000</li>
+            <li>Flip all bits: 00000000 → 11111111</li>
+            <li>This is -0 in One's Complement</li>
+            <li>This illustrates one of the major drawbacks of One's Complement: two representations of zero!</li>
+        </ul>
+    </div>
+</div>
+
+<div class="quiz-question">
+    <h3><strong> 7.</strong> How many unique values can be represented using 10-bit Two's Complement?</h3>
+    <ul class="quiz-options">
+        <li data-correct="false">1023</li>
+        <li data-correct="false">1022</li>
+        <li data-correct="true">1024</li>
+        <li data-correct="false">1025</li>
+    </ul>
+    <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+    <div class="feedback"></div>
+    <div class="answer" style="display: none;">
+        <p><strong>Correct Answer: 1024</strong></p>
+        <p><strong>Explanation:</strong></p>
+        <ul>
+            <li>For n-bit Two's Complement, total unique values = 2<sup>n</sup></li>
+            <li>For 10 bits: 2<sup>10</sup> = 1024</li>
+            <li>Range would be: -512 to +511</li>
+            <li>Note: This includes zero and both positive and negative numbers</li>
+            <li>In contrast, Sign-Magnitude and One's Complement would have 1023 unique values (due to two zeros)</li>
+        </ul>
+    </div>
+</div>
+
+<div class="quiz-question">
+    <h3><strong> 8.</strong> What is the largest positive number that can be represented in 6-bit Two's Complement?</h3>
+    <ul class="quiz-options">
+        <li data-correct="false">63</li>
+        <li data-correct="false">32</li>
+        <li data-correct="false">33</li>
+        <li data-correct="true">31</li>
+    </ul>
+    <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+    <div class="feedback"></div>
+    <div class="answer" style="display: none;">
+        <p><strong>Correct Answer: 31</strong></p>
+        <p><strong>Explanation:</strong></p>
+        <ul>
+            <li>Formula for n-bit Two's Complement max positive: 2<sup>(n-1)</sup> - 1</li>
+            <li>For 6 bits: 2<sup>5</sup> - 1 = 32 - 1 = 31</li>
+            <li>In binary: 011111</li>
+            <li>Note that 32 (100000) would be negative in Two's Complement (it's actually -32)</li>
+            <li>The smallest negative number is -32, largest positive is 31</li>
+        </ul>
+    </div>
+</div>
+
+
+
+<div class="quiz-question">
+    <h3><strong> 9.</strong> What is the 8-bit One's Complement representation of -37?</h3>
+    <ul class="quiz-options">
+        <li data-correct="false">10100100</li>
+        <li data-correct="false">11011011</li>
+        <li data-correct="true">11011010</li>
+        <li data-correct="false">00100101</li>
+    </ul>
+    <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+    <div class="feedback"></div>
+    <div class="answer" style="display: none;">
+        <p><strong>Correct Answer: 11011010</strong></p>
+        <p><strong>Step-by-step solution:</strong></p>
+        <ol>
+            <li>+37 in 8-bit binary: 00100101</li>
+            <li>In One's Complement, flip all bits: 00100101 → 11011010</li>
+            <li>That's it! No need to add 1 like in Two's Complement</li>
+            <li>Verification: 11011010 represents -37 in One's Complement</li>
+        </ol>
+    </div>
+</div>
+
+
+<div class="quiz-question">
+    <h3><strong> 10.</strong> Which signed number representation would give the binary pattern 1010 for the decimal number -2 in a 4-bit system?</h3>
+    <ul class="quiz-options">
+        <li data-correct="true">Only Sign-Magnitude</li>
+        <li data-correct="false">Only One's Complement</li>
+        <li data-correct="false">Only Two's Complement</li>
+        <li data-correct="false">Both One's Complement and Two's Complement</li>
+    </ul>
+    <button class="check-answer-btn" onclick="checkAnswer(this)">Check Answer</button>
+    <div class="feedback"></div>
+    <div class="answer" style="display: none;">
+        <p><strong>Correct Answer: Only Sign-Magnitude</strong></p>
+        <p><strong>Verification:</strong></p>
+        <ul>
+            <li><strong>Sign-Magnitude:</strong> -2 = 1 (negative sign) + 010 (binary 2) = 1010 ✓</li>
+            <li><strong>One's Complement:</strong> +2 = 0010 → flip all bits → 1101 = -2 ✗</li>
+            <li><strong>Two's Complement:</strong> +2 = 0010 → flip → 1101 → add 1 → 1110 = -2 ✗</li>
+            <li>From your table in the Range section: -2 is represented as 110 in Sign-Magnitude (3-bit), which extended to 4-bit would be 1010</li>
+        </ul>
+    </div>
+
+</div>
+           
+        </div>
+</div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">💼 Interview Questions</h2>
+        <div class="subsection">
+            <div class="quiz-question">
+                <p><strong>1:</strong> "Explain why Two's Complement is used in virtually all modern processors instead of Sign-Magnitude or One's Complement."</p>
+                     
+                <p><strong> 2:</strong> "How would you convert a Two's Complement number back to decimal? Walk me through with an example like 11011010 (8-bit)."</p>
+                
+                </div>
+            </div>
+        </div>
+    </section>
+
+            <section class="section">
+        <h2 class="section-title">
+             <span class="section-icon">✍️</span>Assignment
+        </h2>
+        <div class="highlight-box warning">
+          
+            <ol>
+                <li>Convert -27<sub>10</sub> to 8-bit Two's Complement binary representation.</li>
+                <li>Convert 11001101<sub>2</sub> (Two's Complement) to decimal.</li>
+                <li>What is the 6-bit Sign-Magnitude representation of -13? Is it possible?</li>
+                <li>Convert -18<sub>10</sub> to 8-bit One's Complement binary representation.</li>
+                <li>What is the range of representable numbers in 12-bit Two's Complement?</li>
+               
+            </ol>
+            
+            </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">
+             <span class="section-icon">📝</span>Key Takeaways
+        </h2>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h4>Two's Complement is Standard</h4>
+                <p>Modern computers universally use Two's Complement for signed integers due to its single zero representation and simpler arithmetic circuits.</p>
+            </div>
+           
+            <div class="summary-card">
+                <h4>Sign Bit Matters</h4>
+                <p>The leftmost bit (MSB) indicates sign: 0 for positive/zero, 1 for negative in all signed representations.</p>
+            </div>
+            <div class="summary-card">
+                <h4>Range Asymmetry</h4>
+                <p>Two's Complement has an asymmetric range with one more negative number than positive numbers (e.g., -128 to +127 for 8-bit).</p>
+            </div>
+            <div class="summary-card">
+                <h4>No Negative Zero</h4>
+                <p>Two's Complement eliminates the problematic dual representation of zero that exists in Sign-Magnitude and One's Complement.</p>
+            </div>
+            
+        </div>
+    </section>
+       
+</body>
+</html>
