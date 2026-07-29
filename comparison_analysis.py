@@ -118,13 +118,67 @@ def compare_interviews(
     return comparison
 
 
+def _extract_topic_from_question(question: str) -> str:
+    """Extract topic from question using keyword matching."""
+    if not question:
+        return ""
+
+    q = question.lower()
+
+    # Design Verification topics
+    dv_topics = {
+        "covergroup": "Functional Coverage", "coverage": "Functional Coverage",
+        "mailbox": "Communication", "queue": "Data Structures",
+        "scoreboard": "Verification Components", "interface": "Interfaces",
+        "constraint": "Constrained Random", "random": "Constrained Random",
+        "sequence": "UVM Sequences", "sequencer": "UVM Sequencer",
+        "uvm": "UVM Framework", "assertion": "Assertions",
+        "sva": "SystemVerilog Assertions", "clock domain": "Clock Domain Crossing",
+        "cdc": "Clock Domain Crossing", "phase": "UVM Phases",
+        "testbench": "Testbench Architecture", "fifo": "FIFO Design",
+        "alu": "ALU Design",
+    }
+
+    # Physical Design topics
+    pd_topics = {
+        "floorplan": "Floorplanning", "placement": "Placement",
+        "cts": "Clock Tree Synthesis", "clock tree": "Clock Tree Synthesis",
+        "routing": "Routing", "sta": "Static Timing Analysis",
+        "timing": "Timing Analysis", "setup": "Timing Constraints",
+        "hold": "Timing Constraints", "power": "Power Optimization",
+        "ir drop": "IR Drop", "lvs": "LVS Checking", "drc": "DRC Rules",
+    }
+
+    # Analog topics
+    analog_topics = {
+        "opamp": "Opamp Design", "comparator": "Comparator Design",
+        "bandgap": "Bandgap Reference", "pll": "PLL Design",
+        "adc": "ADC Design", "dac": "DAC Design",
+    }
+
+    all_topics = {**dv_topics, **pd_topics, **analog_topics}
+
+    for keyword, topic in all_topics.items():
+        if keyword in q:
+            return topic
+
+    return "General"
+
+
 def _compare_topics(
     current_conversation: List[Dict],
     previous_topics: List[str],
     previous_questions: List[str]
 ) -> Dict[str, Any]:
     """Compare topics covered in current vs previous interview."""
-    current_topics = [turn.get("topic", "") for turn in current_conversation if turn.get("question")]
+    # Extract topics from current conversation
+    current_topics = []
+    for turn in current_conversation:
+        if turn.get("question"):
+            # Try to get topic from turn, otherwise extract it
+            topic = turn.get("topic") or _extract_topic_from_question(turn.get("question", ""))
+            if topic:
+                current_topics.append(topic)
 
     current_topics_set = set(filter(None, current_topics))
     previous_topics_set = set(filter(None, previous_topics))
