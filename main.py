@@ -5803,7 +5803,7 @@ async def get_comparison_by_email(data: dict, _=Depends(require_admin)):
             current_session=current_session,
             previous_sessions=prev_sessions,
             openai_client=openai_client,
-            model=RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+            model="gpt-4o-mini"  # Use OpenAI model for comparison
         )
         comparison["email"] = email
         comparison["interview_count"] = len(previous_sessions)
@@ -5883,7 +5883,7 @@ async def lms_get_comparison(request: Request, data: dict):
             current_session=current_session,
             previous_sessions=prev_sessions,
             openai_client=openai_client,
-            model=RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+            model="gpt-4o-mini"  # Use OpenAI model for comparison
         )
         comparison["email"] = email
         comparison["interview_count"] = len(previous_sessions)
