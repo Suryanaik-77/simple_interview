@@ -1810,10 +1810,12 @@ Test whether the candidate has genuinely improved or just memorized answers from
             "\n\nQUESTIONS ALREADY ASKED THIS SESSION — this is the COMPLETE list. Do NOT "
             "ask any of these again, and do NOT ask a reworded or rephrased version of the "
             "SAME topic (e.g. 'what is a guard ring' and 'what are guard rings' are the same "
-            "question — never both). You may drill deeper on the candidate's MOST RECENT "
-            "answer, but never re-open an earlier topic you already moved on from. Every new "
-            "top-level question MUST be about a topic, project, tool, or concept that does NOT "
-            f"appear anywhere in this list:\n{asked_lines}")
+            "question — never both). CRITICAL: If you already asked about scoreboard implementation, "
+            "do NOT ask it again even in a different context (ALU vs UVM vs general). If you asked "
+            "about interface usage, do NOT ask about interface advantages. One question per core concept. "
+            "You may drill deeper on the candidate's MOST RECENT answer, but never re-open an earlier "
+            "topic you already moved on from. Every new top-level question MUST be about a topic, "
+            "project, tool, or concept that does NOT appear anywhere in this list:\n{asked_lines}")
 
     # ── Resume-project rotation ───────────────────────────────────────────
     # Data-driven balance using the candidate's OWN project names (not a
@@ -1885,9 +1887,10 @@ Test whether the candidate has genuinely improved or just memorized answers from
         "like [FOLLOWUP], [SCENARIO], [CONCEPT] or [PROJECT]; the system classifies the "
         "question type for you.\n"
         "\nCALIBRATE DIFFICULTY. The candidate's level sets the starting rung; their answers set the "
-        "trajectory. Cruising → go harder (tighter scenarios, sharper trade-offs). Struggling → step "
-        "down to something concrete from their own work so they recover. The best question is one "
-        "they can *almost* fully answer.\n"
+        "trajectory. If struggling on difficult questions → step down to medium level. If struggling on "
+        "medium → stay at medium level and ask different topics. Do NOT keep escalating to harder and "
+        "deeper questions beyond what's appropriate for their level. The best question is one they can "
+        "*almost* fully answer.\n"
         "\nREAD THE ANSWER, NOT THE VOCABULARY. A strong answer is specific and causal — the symptom, "
         "the evidence, the fix, a number, what went wrong first. A weak answer is the textbook flow "
         "with the specifics filed off. When you hear vocabulary without lived detail, spend your one "
@@ -2039,21 +2042,13 @@ Test whether the candidate has genuinely improved or just memorized answers from
         followup_guard = ("\n\nYOU JUST ASKED A FOLLOW-UP — do NOT follow up again. Move to a "
                           "NEW topic now with an untagged question.")
     # ── Difficulty ramp ──────────────────────────────────────────────────
-    # After the candidate clears the easy warm-up concepts, stop asking bare
-    # "what is X" definitions and climb the ladder. Counted from the ledger, no
-    # content heuristics — just "how many questions in are we".
+    # DISABLED: Keep questions at consistent difficulty for the candidate's level
+    # Do NOT progressively make questions harder during the interview
     ramp_steer = ""
     n_asked = len(asked)
-    if 3 <= n_asked < 7:
-        ramp_steer = ("\n\nRAMP UP — the warm-up is over. Stop asking bare definition questions "
-                      "('what is X'). Ask APPLIED questions: how/why/when, a trade-off, a "
-                      "comparison, or a 'how would you decide' — something a textbook definition "
-                      "alone won't answer.")
-    elif n_asked >= 7:
-        ramp_steer = ("\n\nGO DEEPER — this candidate is well past the basics. Do NOT ask "
-                      "definition-level questions. Every question now should test real depth: a "
-                      "concrete trade-off, a debug/scenario in their stack, a design decision and "
-                      "its consequence, or why one approach beats another. No 'what is X'.")
+    # Removed adaptive difficulty ramping - questions should stay appropriate
+    # for the candidate's level throughout the interview, not get progressively deeper
+
     steering = (asked_block + project_block + mix_reminder + open_steer + followup_guard + ramp_steer).strip()
     if steering:
         messages.append({"role": "system", "content": steering})
