@@ -940,6 +940,39 @@ def safe_json(text: str):
     return None
 
 
+def _is_repeat_request(text: str) -> bool:
+    """True if the candidate is asking to repeat the question.
+    These should NOT be stored as answers — we should repeat the question."""
+    if not text:
+        return False
+    t = text.strip().lower().strip("\"'").rstrip(".!?,").strip()
+    if not t:
+        return False
+
+    # Common phrases asking to repeat
+    _REPEAT_PHRASES = {
+        "repeat", "repeat the question", "repeat question", "repeat that",
+        "say again", "say that again", "can you repeat", "could you repeat",
+        "please repeat", "pardon", "sorry", "what", "excuse me",
+        "didn't understand", "didnt understand", "didn't get that", "didnt get that",
+        "can you say that again", "could you say that again",
+        "i didn't understand", "i didnt understand",
+        "i didn't get that", "i didnt get that",
+        "what was the question", "what is the question",
+        "come again", "huh", "eh"
+    }
+
+    if t in _REPEAT_PHRASES:
+        return True
+
+    # Partial matches for flexibility
+    if any(phrase in t for phrase in ["repeat", "say again", "didn't understand", "didnt understand", "pardon"]):
+        if len(t) < 50:  # Short utterances only
+            return True
+
+    return False
+
+
 def _is_pause_prompt(text: str) -> bool:
     """True if the LLM output is a 'Take your time' / 'Go ahead' style pause prompt.
     These don't count as new questions — the candidate's next answer must attach
@@ -2297,6 +2330,21 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     """Send conversation + answer to LLM, get next question. LLM handles all intelligence.
     no_response=True means the candidate stayed silent past the time limit: the current
     question is recorded as unanswered (empty answer) and the LLM is told to move on."""
+
+    # Check if candidate is asking to repeat the question
+    is_repeat_request = _is_repeat_request(candidate_answer)
+
+    if is_repeat_request and session["conversation"]:
+        # Don't store "repeat" as an answer - just return the same question
+        last_question = session["conversation"][-1].get("question", "")
+        log.info(f"[RepeatRequest] Detected repeat request: \"{candidate_answer}\" - repeating question")
+        return {
+            "question": last_question,
+            "should_end": False,
+            "pause_prompt": False,
+            "llm_ms": 0,
+            "repeat_question": True
+        }
 
     # Add candidate's answer to history.
     # If the last LLM response was a pause prompt, append to existing answer.
@@ -3758,13 +3806,22 @@ def submit_answer(data: dict):
 
     t0_total = time.time()
     result = generate_question(session, answer, no_response=no_response)
-    audio, tts_ms = synthesize_speech(result["question"])
 
-    # Store TTS timing + cost
-    tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
-    session.setdefault("obs_log", []).append(
-        _obs_entry("TTS", tts_provider, tts_ms, "success" if audio else "failure",
-                   chars=len(result["question"]), cost_usd=_calc_tts_cost(tts_provider, len(result["question"]))))
+    # If it's a repeat request, use cached audio if available
+    is_repeat = result.get("repeat_question", False)
+    if is_repeat:
+        # Try to reuse audio from last question (if TTS is expensive)
+        audio, tts_ms = synthesize_speech(result["question"])
+        log.info(f"[RepeatRequest] Repeating question for session {sid[:8]}")
+    else:
+        audio, tts_ms = synthesize_speech(result["question"])
+
+    # Store TTS timing + cost (skip for repeat to avoid double-counting)
+    if not is_repeat:
+        tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
+        session.setdefault("obs_log", []).append(
+            _obs_entry("TTS", tts_provider, tts_ms, "success" if audio else "failure",
+                       chars=len(result["question"]), cost_usd=_calc_tts_cost(tts_provider, len(result["question"]))))
 
     if result["should_end"]:
         session["phase"] = "ended"
@@ -3786,6 +3843,7 @@ def submit_answer(data: dict):
         "audio": audio, "difficulty": "basic",
         "should_end": result["should_end"],
         "pause_prompt": result.get("pause_prompt", False),
+        "repeat_question": is_repeat,
         "timing": {"llm_ms": llm_ms, "tts_ms": tts_ms, "total_ms": total_ms},
     }
 
