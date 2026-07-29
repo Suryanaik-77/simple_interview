@@ -232,6 +232,23 @@ def _generate_comparison_insights(
     current_conversation_summary = _summarize_conversation(current_session.get("conversation", []))
     previous_questions = previous_session.get("questions_asked", []) or []
 
+    # Extract current topics
+    current_topics = []
+    for turn in current_session.get("conversation", []):
+        topic = turn.get("topic") or _extract_topic_from_question(turn.get("question", ""))
+        if topic:
+            current_topics.append(topic)
+    current_topics_unique = list(set(filter(None, current_topics)))
+
+    # Get previous topics
+    previous_topics = previous_session.get('topics_asked', []) or []
+
+    # Identify new topics and repeated topics
+    current_topics_set = set(current_topics_unique)
+    previous_topics_set = set(previous_topics)
+    new_topics = list(current_topics_set - previous_topics_set)
+    repeated_topics = list(current_topics_set & previous_topics_set)
+
     # Safely get scores
     prev_eval = previous_session.get('evaluation', {}) or {}
     prev_score = prev_eval.get('overall_score')
@@ -239,6 +256,15 @@ def _generate_comparison_insights(
 
     curr_score = current_eval.get('overall_score')
     curr_score_str = f"{curr_score}/100" if curr_score is not None else "N/A"
+
+    # Build topic comparison summary
+    topic_summary = f"""
+**Topic Coverage Analysis:**
+- Previous topics covered: {', '.join(previous_topics) if previous_topics else 'Not tracked'}
+- Current topics covered: {', '.join(current_topics_unique) if current_topics_unique else 'None'}
+- New topics explored: {', '.join(new_topics) if new_topics else 'None'}
+- Topics repeated from previous interview: {', '.join(repeated_topics) if repeated_topics else 'None'}
+"""
 
     prompt = f"""You are an expert technical interviewer analyzing a candidate's progress across multiple interviews.
 
@@ -248,7 +274,7 @@ def _generate_comparison_insights(
 - Overall Score: {prev_score_str}
 - Recommendation: {prev_eval.get('recommendation', 'N/A')}
 - Level Fit: {prev_eval.get('level_fit', 'N/A')}
-- Topics Covered: {', '.join(previous_session.get('topics_asked', [])[:10]) if previous_session.get('topics_asked') else 'N/A'}
+- Topics Covered: {', '.join(previous_topics[:10]) if previous_topics else 'Not tracked'}
 
 **Current Interview (Date: {current_session.get('started_at', 'Unknown')}):**
 - Domain: {current_session.get('resume', {}).get('domain', 'Unknown')}
@@ -258,19 +284,23 @@ def _generate_comparison_insights(
 - Level Fit: {current_eval.get('level_fit', 'N/A')}
 - Conversation Summary: {current_conversation_summary if current_conversation_summary else 'N/A'}
 
+{topic_summary}
+
 Based on this comparison, provide:
 
-1. **Improvements** (3-5 specific points where the candidate showed clear progress)
-2. **Still Lagging** (3-5 specific areas where the candidate still needs improvement)
+1. **Improvements** (3-5 specific points where the candidate showed clear progress, including topic-wise improvements if applicable)
+2. **Still Lagging** (3-5 specific areas where the candidate still needs improvement, mention specific topics if relevant)
 3. **New Strengths** (Areas that emerged as new strengths in this interview)
-4. **Consistency Check** (Did the candidate maintain their previous strengths?)
-5. **Actionable Recommendations** (Top 3 specific actions the candidate should take before the next interview)
+4. **Topic-wise Analysis** (How did the candidate perform on new topics vs repeated topics? Any topic-specific improvements?)
+5. **Consistency Check** (Did the candidate maintain their previous strengths?)
+6. **Actionable Recommendations** (Top 3 specific actions the candidate should take before the next interview, including topic areas to focus on)
 
 Format your response as JSON with the following structure:
 {{
     "improvements": ["point 1", "point 2", ...],
     "still_lagging": ["area 1", "area 2", ...],
     "new_strengths": ["strength 1", "strength 2", ...],
+    "topic_wise_analysis": "detailed analysis of performance across topics, comparing new vs repeated topics",
     "consistency": {{"maintained": ["strength 1", ...], "lost": ["weakness 1", ...]}},
     "recommendations": ["action 1", "action 2", "action 3"],
     "overall_progress": "brief summary of overall progress trajectory"
@@ -300,6 +330,7 @@ Format your response as JSON with the following structure:
             "improvements": [],
             "still_lagging": [],
             "new_strengths": [],
+            "topic_wise_analysis": "Analysis unavailable",
             "consistency": {"maintained": [], "lost": []},
             "recommendations": [],
             "overall_progress": "Analysis unavailable"
