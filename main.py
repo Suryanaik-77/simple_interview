@@ -401,48 +401,108 @@ def save_candidate_session(session):
     _generate_comparison_async(session, email)
 
 
-def _send_comparison_email(email: str, comparison: dict, candidate_name: str = ""):
-    """Send comparison analysis report via email."""
+def _generate_comparison_pdf(session_id: str, email: str, comparison: dict, candidate_name: str = ""):
+    """Generate PDF report for comparison analysis."""
     try:
-        if not SMTP_USER or not SMTP_PASS:
-            log.warning("[Email] SMTP credentials not configured, skipping email")
-            return
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+        from reportlab.lib.enums import TA_LEFT, TA_CENTER
+        from io import BytesIO
 
-        # Generate text report
-        report_text = comparison_analysis.generate_comparison_report_text(comparison)
+        # Create PDF in memory
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        story = []
+        styles = getSampleStyleSheet()
 
-        # Create email
-        msg = MIMEMultipart()
-        msg['From'] = SMTP_USER
-        msg['To'] = email
-        msg['Subject'] = f"Interview Progress Report - Interview #{comparison.get('interview_count', 'N/A')}"
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor='#1a1a1a',
+            alignment=TA_CENTER,
+            spaceAfter=30
+        )
 
-        # Email body
-        body = f"""Hello {candidate_name or 'Candidate'},
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor='#333333',
+            spaceAfter=12
+        )
 
-Thank you for completing your recent interview! Here is your progress analysis comparing your current performance with previous interviews.
+        # Title
+        story.append(Paragraph("Interview Comparison Analysis Report", title_style))
+        story.append(Spacer(1, 0.2*inch))
 
-{report_text}
+        # Candidate info
+        story.append(Paragraph(f"<b>Candidate:</b> {candidate_name or 'N/A'}", styles['Normal']))
+        story.append(Paragraph(f"<b>Email:</b> {email}", styles['Normal']))
+        story.append(Paragraph(f"<b>Interview Count:</b> {comparison.get('interview_count', 'N/A')}", styles['Normal']))
+        story.append(Spacer(1, 0.3*inch))
 
----
-This is an automated report. Keep practicing and improving!
+        # Score improvement
+        score_improvement = comparison.get("score_improvement", {})
+        current_score = comparison.get("current_session", {}).get("overall_score", 0)
+        previous_score = comparison.get("previous_session", {}).get("overall_score", 0)
 
-Best regards,
-Interview Team
-"""
+        story.append(Paragraph("Score Improvement", heading_style))
+        story.append(Paragraph(f"Current Score: <b>{current_score}/100</b>", styles['Normal']))
+        story.append(Paragraph(f"Previous Score: <b>{previous_score}/100</b>", styles['Normal']))
+        story.append(Paragraph(f"Change: <b>{score_improvement.get('delta', 0):+.2f} ({score_improvement.get('percentage_change', 0):+.2f}%)</b>", styles['Normal']))
+        story.append(Spacer(1, 0.3*inch))
 
-        msg.attach(MIMEText(body, 'plain'))
+        # Improvements
+        insights = comparison.get("insights", {})
+        story.append(Paragraph("Improvements", heading_style))
+        for i, imp in enumerate(insights.get("improvements", []), 1):
+            story.append(Paragraph(f"{i}. {imp}", styles['Normal']))
+        story.append(Spacer(1, 0.2*inch))
 
-        # Send email
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            server.send_message(msg)
+        # Still Lagging
+        story.append(Paragraph("Areas Still Needing Work", heading_style))
+        for i, lag in enumerate(insights.get("still_lagging", []), 1):
+            story.append(Paragraph(f"{i}. {lag}", styles['Normal']))
+        story.append(Spacer(1, 0.2*inch))
 
-        log.info(f"[Email] Comparison report sent to {email}")
+        # New Strengths
+        if insights.get("new_strengths"):
+            story.append(Paragraph("New Strengths", heading_style))
+            for i, strength in enumerate(insights.get("new_strengths", []), 1):
+                story.append(Paragraph(f"{i}. {strength}", styles['Normal']))
+            story.append(Spacer(1, 0.2*inch))
+
+        # Recommendations
+        story.append(Paragraph("Actionable Recommendations", heading_style))
+        for i, rec in enumerate(insights.get("recommendations", []), 1):
+            story.append(Paragraph(f"{i}. {rec}", styles['Normal']))
+        story.append(Spacer(1, 0.2*inch))
+
+        # Overall Progress
+        if insights.get("overall_progress"):
+            story.append(Paragraph("Overall Progress Summary", heading_style))
+            story.append(Paragraph(insights.get("overall_progress", "N/A"), styles['Normal']))
+
+        # Build PDF
+        doc.build(story)
+
+        # Save to file
+        pdf_filename = f"comparison_report_{session_id[:8]}.pdf"
+        pdf_path = os.path.join("/tmp", pdf_filename)
+
+        with open(pdf_path, "wb") as f:
+            f.write(buffer.getvalue())
+
+        log.info(f"[PDF] Comparison report generated: {pdf_path}")
+        return pdf_path
 
     except Exception as e:
-        log.error(f"[Email] Failed to send comparison report to {email}: {e}")
+        log.error(f"[PDF] Failed to generate comparison report: {e}")
+        return None
 
 
 def _generate_comparison_async(session, email):
@@ -477,9 +537,11 @@ def _generate_comparison_async(session, email):
 
             log.info(f"[Comparison] Generated for session {session['id'][:8]}, candidate: {email}")
 
-            # Send comparison report via email
+            # Generate PDF report
             candidate_name = session.get("resume", {}).get("name", "")
-            _send_comparison_email(email, comparison, candidate_name)
+            pdf_path = _generate_comparison_pdf(session["id"], email, comparison, candidate_name)
+            if pdf_path:
+                log.info(f"[Comparison] PDF report generated: {pdf_path}")
 
         except Exception as e:
             log.error(f"[Comparison] Failed to generate async comparison: {e}")
