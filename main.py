@@ -5588,6 +5588,86 @@ async def get_comparison_by_email(data: dict, _=Depends(require_admin)):
         raise HTTPException(500, f"Failed to generate comparison: {str(e)}")
 
 
+@app.post("/api/lms/comparison")
+async def lms_get_comparison(request: Request, data: dict):
+    """
+    LMS endpoint to get comparison analysis by email.
+    Uses X-API-Key header for authentication (same as /api/lms/start).
+
+    Request:
+    {
+      "email": "candidate@example.com"
+    }
+    """
+    # Validate LMS API key
+    api_key = request.headers.get("X-API-Key", "")
+    if not LMS_API_KEY or api_key != LMS_API_KEY:
+        raise HTTPException(401, "Invalid or missing API key")
+
+    email = data.get("email", "").strip()
+    if not email:
+        raise HTTPException(400, "Email is required")
+
+    # Get all sessions for this candidate
+    previous_sessions = get_candidate_previous(email)
+
+    if not previous_sessions:
+        return {
+            "status": "no_history",
+            "message": f"No interview history found for {email}",
+            "email": email,
+            "interview_count": 0
+        }
+
+    if len(previous_sessions) < 2:
+        return {
+            "status": "no_comparison",
+            "message": f"Only one interview found for {email}. Need at least 2 interviews for comparison.",
+            "email": email,
+            "interview_count": 1,
+            "latest_session": previous_sessions[0]
+        }
+
+    # Get the most recent (current) session
+    latest_summary = previous_sessions[-1]
+    latest_session_id = latest_summary.get("session_id")
+
+    # Try to load the full session data
+    current_session = sessions.get(latest_session_id)
+    if not current_session and database.is_available():
+        current_session = database.get_active_session(latest_session_id)
+
+    if not current_session:
+        # If session not in active_sessions, return basic info
+        return {
+            "status": "session_archived",
+            "message": f"Latest session {latest_session_id[:8]} is archived. Full comparison not available.",
+            "email": email,
+            "interview_count": len(previous_sessions),
+            "latest_session": latest_summary,
+            "score_history": [s.get("evaluation", {}).get("overall_score", 0) for s in previous_sessions]
+        }
+
+    # Get previous sessions (all except the latest)
+    prev_sessions = previous_sessions[:-1]
+
+    # Perform comparison
+    try:
+        comparison = comparison_analysis.compare_interviews(
+            current_session=current_session,
+            previous_sessions=prev_sessions,
+            openai_client=openai_client,
+            model=RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+        )
+        comparison["email"] = email
+        comparison["interview_count"] = len(previous_sessions)
+        log.info(f"[LMS-Comparison] Generated for {email}, {len(previous_sessions)} total interviews")
+        return comparison
+    except Exception as e:
+        log.error(f"[LMS-Comparison] Failed for {email}: {e}")
+        raise HTTPException(500, f"Failed to generate comparison: {str(e)}")
+
+
 # ── Admin: Cognition AI (DISABLED) ─────────────────────────────────────
 # cognition agent disabled — all endpoints commented out
 # @app.get("/api/admin/cognition/signals")
