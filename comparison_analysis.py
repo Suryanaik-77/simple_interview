@@ -229,7 +229,10 @@ def _generate_comparison_insights(
     """Use LLM to generate qualitative comparison insights."""
 
     # Build context for the LLM
-    current_conversation_summary = _summarize_conversation(current_session.get("conversation", []))
+    current_conversation_summary = _summarize_conversation(
+        current_session.get("conversation", []),
+        current_eval.get("per_question", [])
+    )
     previous_questions = previous_session.get("questions_asked", []) or []
 
     # Extract current topics
@@ -257,6 +260,21 @@ def _generate_comparison_insights(
     curr_score = current_eval.get('overall_score')
     curr_score_str = f"{curr_score}/100" if curr_score is not None else "N/A"
 
+    # Build topic-wise score breakdown
+    topic_scores = {}
+    if current_eval.get("per_question"):
+        for q_eval in current_eval["per_question"]:
+            topic = q_eval.get("topic", "General")
+            score = q_eval.get("score", 0)
+            if topic not in topic_scores:
+                topic_scores[topic] = []
+            topic_scores[topic].append(score)
+
+    topic_score_summary = "\n".join([
+        f"  - {topic}: Avg {sum(scores)/len(scores):.1f}/10 ({len(scores)} questions)"
+        for topic, scores in sorted(topic_scores.items())
+    ]) if topic_scores else "  Not available"
+
     # Build topic comparison summary
     topic_summary = f"""
 **Topic Coverage Analysis:**
@@ -264,6 +282,9 @@ def _generate_comparison_insights(
 - Current topics covered: {', '.join(current_topics_unique) if current_topics_unique else 'None'}
 - New topics explored: {', '.join(new_topics) if new_topics else 'None'}
 - Topics repeated from previous interview: {', '.join(repeated_topics) if repeated_topics else 'None'}
+
+**Current Interview - Topic-wise Scores:**
+{topic_score_summary}
 """
 
     prompt = f"""You are an expert technical interviewer analyzing a candidate's progress across multiple interviews.
@@ -337,15 +358,34 @@ Format your response as JSON with the following structure:
         }
 
 
-def _summarize_conversation(conversation: List[Dict]) -> str:
+def _summarize_conversation(conversation: List[Dict], per_question: List[Dict] = None) -> str:
     """Create a brief summary of the conversation for LLM context."""
     qa_pairs = []
-    for turn in conversation[:10]:  # First 10 turns
+
+    # Build a mapping from question index to evaluation data
+    eval_map = {}
+    if per_question:
+        for eval_item in per_question:
+            q_num = eval_item.get("q", 0)
+            if q_num > 0:
+                eval_map[q_num - 1] = eval_item  # q is 1-indexed, conversation is 0-indexed
+
+    for i, turn in enumerate(conversation[:10]):  # First 10 turns
         if turn.get("question"):
             q = turn.get("question", "")[:150]  # Truncate long questions
             a = turn.get("answer", "")[:150]
-            score = turn.get("score", "N/A")
-            qa_pairs.append(f"Q: {q}\nA: {a}\nScore: {score}")
+
+            # Get score and topic from evaluation data if available
+            if i in eval_map:
+                score = eval_map[i].get("score", "N/A")
+                topic = eval_map[i].get("topic", "N/A")
+                feedback = eval_map[i].get("comment", "")[:100]
+                qa_pairs.append(f"Q{i+1} (Topic: {topic}): {q}\nA: {a}\nScore: {score}/10\nFeedback: {feedback}")
+            else:
+                # Fallback to turn data
+                score = turn.get("score", "N/A")
+                topic = turn.get("topic", "N/A")
+                qa_pairs.append(f"Q{i+1} (Topic: {topic}): {q}\nA: {a}\nScore: {score}")
 
     return "\n\n".join(qa_pairs)
 
