@@ -401,110 +401,6 @@ def save_candidate_session(session):
     _generate_comparison_async(session, email)
 
 
-def _generate_comparison_pdf(session_id: str, email: str, comparison: dict, candidate_name: str = ""):
-    """Generate PDF report for comparison analysis."""
-    try:
-        from reportlab.lib.pagesizes import letter, A4
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import inch
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-        from reportlab.lib.enums import TA_LEFT, TA_CENTER
-        from io import BytesIO
-
-        # Create PDF in memory
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter)
-        story = []
-        styles = getSampleStyleSheet()
-
-        # Custom styles
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=18,
-            textColor='#1a1a1a',
-            alignment=TA_CENTER,
-            spaceAfter=30
-        )
-
-        heading_style = ParagraphStyle(
-            'CustomHeading',
-            parent=styles['Heading2'],
-            fontSize=14,
-            textColor='#333333',
-            spaceAfter=12
-        )
-
-        # Title
-        story.append(Paragraph("Interview Comparison Analysis Report", title_style))
-        story.append(Spacer(1, 0.2*inch))
-
-        # Candidate info
-        story.append(Paragraph(f"<b>Candidate:</b> {candidate_name or 'N/A'}", styles['Normal']))
-        story.append(Paragraph(f"<b>Email:</b> {email}", styles['Normal']))
-        story.append(Paragraph(f"<b>Interview Count:</b> {comparison.get('interview_count', 'N/A')}", styles['Normal']))
-        story.append(Spacer(1, 0.3*inch))
-
-        # Score improvement
-        score_improvement = comparison.get("score_improvement", {})
-        current_score = comparison.get("current_session", {}).get("overall_score", 0)
-        previous_score = comparison.get("previous_session", {}).get("overall_score", 0)
-
-        story.append(Paragraph("Score Improvement", heading_style))
-        story.append(Paragraph(f"Current Score: <b>{current_score}/100</b>", styles['Normal']))
-        story.append(Paragraph(f"Previous Score: <b>{previous_score}/100</b>", styles['Normal']))
-        story.append(Paragraph(f"Change: <b>{score_improvement.get('delta', 0):+.2f} ({score_improvement.get('percentage_change', 0):+.2f}%)</b>", styles['Normal']))
-        story.append(Spacer(1, 0.3*inch))
-
-        # Improvements
-        insights = comparison.get("insights", {})
-        story.append(Paragraph("Improvements", heading_style))
-        for i, imp in enumerate(insights.get("improvements", []), 1):
-            story.append(Paragraph(f"{i}. {imp}", styles['Normal']))
-        story.append(Spacer(1, 0.2*inch))
-
-        # Still Lagging
-        story.append(Paragraph("Areas Still Needing Work", heading_style))
-        for i, lag in enumerate(insights.get("still_lagging", []), 1):
-            story.append(Paragraph(f"{i}. {lag}", styles['Normal']))
-        story.append(Spacer(1, 0.2*inch))
-
-        # New Strengths
-        if insights.get("new_strengths"):
-            story.append(Paragraph("New Strengths", heading_style))
-            for i, strength in enumerate(insights.get("new_strengths", []), 1):
-                story.append(Paragraph(f"{i}. {strength}", styles['Normal']))
-            story.append(Spacer(1, 0.2*inch))
-
-        # Recommendations
-        story.append(Paragraph("Actionable Recommendations", heading_style))
-        for i, rec in enumerate(insights.get("recommendations", []), 1):
-            story.append(Paragraph(f"{i}. {rec}", styles['Normal']))
-        story.append(Spacer(1, 0.2*inch))
-
-        # Overall Progress
-        if insights.get("overall_progress"):
-            story.append(Paragraph("Overall Progress Summary", heading_style))
-            story.append(Paragraph(insights.get("overall_progress", "N/A"), styles['Normal']))
-
-        # Build PDF
-        doc.build(story)
-
-        # Save to file
-        pdf_filename = f"comparison_report_{session_id[:8]}.pdf"
-        pdf_path = os.path.join("/tmp", pdf_filename)
-
-        with open(pdf_path, "wb") as f:
-            f.write(buffer.getvalue())
-
-        log.info(f"[PDF] Comparison report generated: {pdf_path}")
-        return pdf_path
-
-    except Exception as e:
-        log.error(f"[PDF] Failed to generate comparison report: {e}")
-        return None
-
-
 def _generate_comparison_async(session, email):
     """Generate comparison analysis in background thread (non-blocking)."""
     def _worker():
@@ -536,12 +432,6 @@ def _generate_comparison_async(session, email):
                 session.setdefault("evaluation", {})["comparison"] = comparison
 
             log.info(f"[Comparison] Generated for session {session['id'][:8]}, candidate: {email}")
-
-            # Generate PDF report
-            candidate_name = session.get("resume", {}).get("name", "")
-            pdf_path = _generate_comparison_pdf(session["id"], email, comparison, candidate_name)
-            if pdf_path:
-                log.info(f"[Comparison] PDF report generated: {pdf_path}")
 
         except Exception as e:
             log.error(f"[Comparison] Failed to generate async comparison: {e}")
@@ -5855,61 +5745,6 @@ async def get_comparison_report(session_id: str, _=Depends(require_admin)):
             "Content-Disposition": f"attachment; filename=comparison_report_{session_id[:8]}.txt"
         }
     )
-
-
-@app.get("/api/comparison/{session_id}/pdf")
-async def get_comparison_pdf(session_id: str, _=Depends(require_admin)):
-    """
-    Generate and download comparison analysis as PDF.
-    """
-    from fastapi.responses import FileResponse
-
-    # Get current session
-    session = sessions.get(session_id)
-    if not session and database.is_available():
-        session = database.get_active_session(session_id)
-    if not session:
-        raise HTTPException(404, "Session not found")
-
-    # Get candidate email
-    email = session.get("resume", {}).get("email")
-    if not email:
-        raise HTTPException(400, "Session does not have candidate email")
-
-    # Get previous sessions
-    previous_sessions = get_candidate_previous(email)
-    previous_sessions = [s for s in previous_sessions if s.get("session_id") != session_id]
-
-    if not previous_sessions:
-        raise HTTPException(400, "This is the candidate's first interview. No comparison available.")
-
-    try:
-        # Generate comparison
-        comparison = comparison_analysis.compare_interviews(
-            current_session=session,
-            previous_sessions=previous_sessions,
-            openai_client=openai_client,
-            model="gpt-4o-mini"  # Use OpenAI model for comparison
-        )
-
-        # Generate PDF
-        candidate_name = session.get("resume", {}).get("name", "")
-        pdf_path = _generate_comparison_pdf(session_id, email, comparison, candidate_name)
-
-        if not pdf_path or not os.path.exists(pdf_path):
-            raise HTTPException(500, "Failed to generate PDF report")
-
-        return FileResponse(
-            path=pdf_path,
-            media_type="application/pdf",
-            filename=f"comparison_report_{session_id[:8]}.pdf"
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error(f"[Comparison] Failed to generate PDF: {e}")
-        raise HTTPException(500, f"Error generating PDF report: {str(e)}")
 
 
 @app.post("/api/comparison/by-email")
