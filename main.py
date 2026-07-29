@@ -5857,6 +5857,61 @@ async def get_comparison_report(session_id: str, _=Depends(require_admin)):
     )
 
 
+@app.get("/api/comparison/{session_id}/pdf")
+async def get_comparison_pdf(session_id: str, _=Depends(require_admin)):
+    """
+    Generate and download comparison analysis as PDF.
+    """
+    from fastapi.responses import FileResponse
+
+    # Get current session
+    session = sessions.get(session_id)
+    if not session and database.is_available():
+        session = database.get_active_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Get candidate email
+    email = session.get("resume", {}).get("email")
+    if not email:
+        raise HTTPException(400, "Session does not have candidate email")
+
+    # Get previous sessions
+    previous_sessions = get_candidate_previous(email)
+    previous_sessions = [s for s in previous_sessions if s.get("session_id") != session_id]
+
+    if not previous_sessions:
+        raise HTTPException(400, "This is the candidate's first interview. No comparison available.")
+
+    try:
+        # Generate comparison
+        comparison = comparison_analysis.compare_interviews(
+            current_session=session,
+            previous_sessions=previous_sessions,
+            openai_client=openai_client,
+            model="gpt-4o-mini"  # Use OpenAI model for comparison
+        )
+
+        # Generate PDF
+        candidate_name = session.get("resume", {}).get("name", "")
+        pdf_path = _generate_comparison_pdf(session_id, email, comparison, candidate_name)
+
+        if not pdf_path or not os.path.exists(pdf_path):
+            raise HTTPException(500, "Failed to generate PDF report")
+
+        return FileResponse(
+            path=pdf_path,
+            media_type="application/pdf",
+            filename=f"comparison_report_{session_id[:8]}.pdf"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"[Comparison] Failed to generate PDF: {e}")
+        raise HTTPException(500, f"Error generating PDF report: {str(e)}")
+
+
 @app.post("/api/comparison/by-email")
 async def get_comparison_by_email(data: dict, _=Depends(require_admin)):
     """
