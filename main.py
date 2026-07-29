@@ -401,6 +401,50 @@ def save_candidate_session(session):
     _generate_comparison_async(session, email)
 
 
+def _send_comparison_email(email: str, comparison: dict, candidate_name: str = ""):
+    """Send comparison analysis report via email."""
+    try:
+        if not SMTP_USER or not SMTP_PASS:
+            log.warning("[Email] SMTP credentials not configured, skipping email")
+            return
+
+        # Generate text report
+        report_text = comparison_analysis.generate_comparison_report_text(comparison)
+
+        # Create email
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_USER
+        msg['To'] = email
+        msg['Subject'] = f"Interview Progress Report - Interview #{comparison.get('interview_count', 'N/A')}"
+
+        # Email body
+        body = f"""Hello {candidate_name or 'Candidate'},
+
+Thank you for completing your recent interview! Here is your progress analysis comparing your current performance with previous interviews.
+
+{report_text}
+
+---
+This is an automated report. Keep practicing and improving!
+
+Best regards,
+Interview Team
+"""
+
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Send email
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+
+        log.info(f"[Email] Comparison report sent to {email}")
+
+    except Exception as e:
+        log.error(f"[Email] Failed to send comparison report to {email}: {e}")
+
+
 def _generate_comparison_async(session, email):
     """Generate comparison analysis in background thread (non-blocking)."""
     def _worker():
@@ -419,7 +463,7 @@ def _generate_comparison_async(session, email):
                 current_session=session,
                 previous_sessions=previous_sessions,
                 openai_client=openai_client,
-                model=RUNTIME_CONFIG.get("eval_model", "gpt-4o-mini")
+                model="gpt-4o-mini"  # Use OpenAI model for comparison
             )
 
             # Store comparison in session data
@@ -432,6 +476,10 @@ def _generate_comparison_async(session, email):
                 session.setdefault("evaluation", {})["comparison"] = comparison
 
             log.info(f"[Comparison] Generated for session {session['id'][:8]}, candidate: {email}")
+
+            # Send comparison report via email
+            candidate_name = session.get("resume", {}).get("name", "")
+            _send_comparison_email(email, comparison, candidate_name)
 
         except Exception as e:
             log.error(f"[Comparison] Failed to generate async comparison: {e}")
