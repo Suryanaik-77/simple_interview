@@ -1,0 +1,9 @@
+# Picovoice Eagle Speaker Recognition Dependencies
+
+# Core Eagle SDK
+pveagle==1.0.1
+
+# Audio processing dependencies
+soundfile>=0.12.1
+resampy>=0.4.2
+numpy>=1.21.0

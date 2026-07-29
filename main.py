@@ -129,6 +129,18 @@ redis_cache.init_cache()
 
 import comparison_analysis
 
+# Initialize Eagle Speaker Verification (Picovoice)
+try:
+    import eagle_speaker_verification
+    eagle_available = eagle_speaker_verification.init_eagle()
+    if eagle_available:
+        log.info("[Eagle] Picovoice Eagle speaker verification enabled")
+    else:
+        log.warning("[Eagle] Speaker verification disabled (check PICOVOICE_ACCESS_KEY)")
+except Exception as e:
+    log.error(f"[Eagle] Failed to initialize: {e}")
+    eagle_available = False
+
 # Shared runtime config (LLM/TTS/STT). With multiple workers, an admin edit only
 # mutates one worker's RUNTIME_CONFIG dict. Postgres holds the durable, shared copy
 # (so changes survive restarts and reach every worker); Redis caches it for fast reads.
@@ -2972,61 +2984,131 @@ def _compute_speaker_embedding(audio_bytes):
 
 
 def _verify_speaker_background(audio_bytes, session, turn):
-    """Background speaker verification using Resemblyzer (256-dim).
-    - Turn 1: Store reference embedding (if not provided by LMS)
-    - Random turns: Compare and flag mismatch
-    NOTE: voice bytes are base64-encoded, embeddings stored as lists for JSON/DB safety.
+    """Background speaker verification using Picovoice Eagle.
+    - Turn 1: Enroll reference profile (if not provided by LMS)
+    - Subsequent turns: Verify against enrolled profile
+    NOTE: Eagle profiles are base64-encoded for JSON/DB safety.
     """
-    import numpy as np, base64
+    import base64
     sid = session.get("id", "?")[:8]
 
     try:
         if session.get("phase") == "ended":
             return
 
-        # Compute embedding for current audio
+        # Check if Eagle is available
+        if not eagle_available or not eagle_speaker_verification.is_available():
+            # Fallback to Resemblyzer if Eagle not available
+            return _verify_speaker_resemblyzer_fallback(audio_bytes, session, turn)
+
+        # Turn 1: Enroll speaker profile
+        if "eagle_speaker_profile" not in session:
+            # Use LMS-provided voice if available
+            voice_ref = session.get("user_voice_ref")
+            if voice_ref:
+                # Decode base64 → bytes
+                if isinstance(voice_ref, str):
+                    voice_ref = base64.b64decode(voice_ref)
+
+                # Enroll with Eagle
+                success, profile_data, metadata = eagle_speaker_verification.enroll_reference_voice(
+                    voice_ref, session["id"]
+                )
+
+                if success:
+                    session["eagle_speaker_profile"] = profile_data
+                    session.pop("user_voice_ref", None)  # Remove raw audio
+                    sessions[session["id"]] = session
+                    log.info(f"[Eagle] {sid} — Enrolled from LMS voice ({metadata.get('profile_size_bytes')} bytes)")
+
+                    # Verify first answer against enrolled profile
+                    result = eagle_speaker_verification.verify_turn_audio(
+                        session["id"], profile_data, audio_bytes, turn
+                    )
+
+                    if not result["verified"]:
+                        count = session.get("speaker_mismatch_count", 0) + 1
+                        session["speaker_mismatch_count"] = count
+                        session.setdefault("speaker_mismatches", []).append(result)
+                        sessions[session["id"]] = session
+                        log.warning(f"[Eagle] {sid} — MISMATCH #{count} at turn {turn}")
+                    return
+                else:
+                    log.warning(f"[Eagle] {sid} — Enrollment failed: {profile_data}")
+                    return
+
+            # No LMS voice — enroll from first answer
+            success, profile_data, metadata = eagle_speaker_verification.enroll_reference_voice(
+                audio_bytes, session["id"]
+            )
+
+            if success:
+                session["eagle_speaker_profile"] = profile_data
+                sessions[session["id"]] = session
+                log.info(f"[Eagle] {sid} — Enrolled from turn 1 ({metadata.get('profile_size_bytes')} bytes)")
+            else:
+                log.warning(f"[Eagle] {sid} — Turn 1 enrollment failed: {profile_data}")
+            return
+
+        # Subsequent turns: verify against enrolled profile
+        profile_data = session.get("eagle_speaker_profile")
+        if not profile_data:
+            log.warning(f"[Eagle] {sid} — No profile found for verification")
+            return
+
+        result = eagle_speaker_verification.verify_turn_audio(
+            session["id"], profile_data, audio_bytes, turn
+        )
+
+        if not result["verified"]:
+            count = session.get("speaker_mismatch_count", 0) + 1
+            session["speaker_mismatch_count"] = count
+            session.setdefault("speaker_mismatches", []).append(result)
+            sessions[session["id"]] = session
+            log.warning(f"[Eagle] {sid} — MISMATCH #{count} at turn {turn} (score={result['score']})")
+
+    except Exception as e:
+        log.error(f"[Eagle] {sid} — Error: {e}")
+
+
+def _verify_speaker_resemblyzer_fallback(audio_bytes, session, turn):
+    """Fallback to Resemblyzer if Eagle is not available."""
+    import numpy as np, base64
+    sid = session.get("id", "?")[:8]
+
+    try:
         current_emb = _compute_speaker_embedding(audio_bytes)
         if current_emb is None:
             return
 
-        # Turn 1: Store reference embedding
         if "speaker_ref_embedding" not in session:
-            # Use LMS-provided voice if available (stored as base64 string)
             voice_ref = session.get("user_voice_ref")
             if voice_ref:
-                # Decode base64 → bytes for embedding computation
                 if isinstance(voice_ref, str):
                     voice_ref = base64.b64decode(voice_ref)
                 ref_emb = _compute_speaker_embedding(voice_ref)
                 if ref_emb is not None:
-                    session["speaker_ref_embedding"] = ref_emb.tolist()  # list for JSON
-                    # Remove raw voice bytes to save DB space (we have the embedding now)
+                    session["speaker_ref_embedding"] = ref_emb.tolist()
                     session.pop("user_voice_ref", None)
-                    sessions[session["id"]] = session  # persist embedding to DB
-                    log.info(f"[SpeakerVerify] {sid} — Reference from LMS voice (256-dim)")
-                    # Verify first answer against lobby voice — use two-strike system
+                    sessions[session["id"]] = session
+                    log.info(f"[Resemblyzer] {sid} — Reference from LMS voice")
                     score = float(np.dot(ref_emb, current_emb) /
                                   (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
-                    log.info(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
                     if score < SPEAKER_VERIFY_THRESHOLD:
                         count = session.get("speaker_mismatch_count", 0) + 1
                         session["speaker_mismatch_count"] = count
                         session.setdefault("speaker_mismatches", []).append(
                             {"turn": turn, "score": round(score, 4), "ts": time.time()})
                         sessions[session["id"]] = session
-                        log.info(f"[SpeakerVerify] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f})")
                     return
-            # No LMS voice — use first answer as reference
-            session["speaker_ref_embedding"] = current_emb.tolist()  # list for JSON
-            sessions[session["id"]] = session  # persist embedding to DB
-            log.info(f"[SpeakerVerify] {sid} — Reference from turn 1 (256-dim)")
+            session["speaker_ref_embedding"] = current_emb.tolist()
+            sessions[session["id"]] = session
+            log.info(f"[Resemblyzer] {sid} — Reference from turn 1")
             return
 
-        # Subsequent turns: compare against reference (stored as list)
         ref_emb = np.array(session["speaker_ref_embedding"])
         score = float(np.dot(ref_emb, current_emb) /
                       (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
-        log.info(f"[SpeakerVerify] {sid} — Turn {turn} score: {score:.4f}")
 
         if score < SPEAKER_VERIFY_THRESHOLD:
             count = session.get("speaker_mismatch_count", 0) + 1
@@ -3034,10 +3116,9 @@ def _verify_speaker_background(audio_bytes, session, turn):
             session.setdefault("speaker_mismatches", []).append(
                 {"turn": turn, "score": round(score, 4), "ts": time.time()})
             sessions[session["id"]] = session
-            log.info(f"[SpeakerVerify] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f})")
 
     except Exception as e:
-        log.error(f"[SpeakerVerify] {sid} — Error: {e}")
+        log.error(f"[Resemblyzer] {sid} — Error: {e}")
 
 
 def _should_run_speaker_check(session, turn):
@@ -4815,7 +4896,18 @@ async def stt_test(audio: UploadFile = File(...), provider: str = Form("openai")
 @app.get("/api/admin/voice-verification")
 async def get_voice_verification_config(_=Depends(require_admin)):
     _sync_runtime_config()
-    return {"enabled": RUNTIME_CONFIG.get("voice_verification_enabled", True)}
+
+    # Get Eagle system info
+    eagle_info = {}
+    if eagle_available:
+        eagle_info = eagle_speaker_verification.get_system_info()
+
+    return {
+        "enabled": RUNTIME_CONFIG.get("voice_verification_enabled", True),
+        "engine": "eagle" if eagle_available else "resemblyzer",
+        "eagle_available": eagle_available,
+        "eagle_info": eagle_info
+    }
 
 @app.post("/api/admin/voice-verification")
 async def set_voice_verification_config(data: dict, _=Depends(require_admin)):

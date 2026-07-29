@@ -39,8 +39,18 @@ def compare_interviews(
     most_recent_previous = previous_sessions[-1]
 
     # Extract current interview data
-    current_eval = current_session.get("evaluation", {})
+    current_eval = current_session.get("evaluation", {}) or {}
     current_conversation = current_session.get("conversation", [])
+
+    # Safely get scores (handle None values)
+    current_score = current_eval.get("overall_score")
+    if current_score is None:
+        current_score = 0
+
+    previous_eval = most_recent_previous.get("evaluation", {}) or {}
+    previous_score = previous_eval.get("overall_score")
+    if previous_score is None:
+        previous_score = 0
 
     # Build comparison data structure
     comparison = {
@@ -51,7 +61,7 @@ def compare_interviews(
             "domain": current_session.get("resume", {}).get("domain", ""),
             "level": current_session.get("level", ""),
             "turns": current_session.get("turn", 0),
-            "overall_score": current_eval.get("overall_score", 0),
+            "overall_score": current_score,
             "recommendation": current_eval.get("recommendation", ""),
             "level_fit": current_eval.get("level_fit", ""),
         },
@@ -60,17 +70,22 @@ def compare_interviews(
             "date": most_recent_previous.get("date"),
             "domain": most_recent_previous.get("domain", ""),
             "turns": most_recent_previous.get("turns", 0),
-            "overall_score": most_recent_previous.get("evaluation", {}).get("overall_score", 0),
-            "recommendation": most_recent_previous.get("evaluation", {}).get("recommendation", ""),
-            "level_fit": most_recent_previous.get("evaluation", {}).get("level_fit", ""),
+            "overall_score": previous_score,
+            "recommendation": previous_eval.get("recommendation", ""),
+            "level_fit": previous_eval.get("level_fit", ""),
         }
     }
 
-    # Calculate quantitative improvements
-    score_delta = comparison["current_session"]["overall_score"] - comparison["previous_session"]["overall_score"]
+    # Calculate quantitative improvements (safe division)
+    score_delta = current_score - previous_score
+    if previous_score > 0:
+        percentage_change = round((score_delta / previous_score) * 100, 2)
+    else:
+        percentage_change = 0.0
+
     comparison["score_improvement"] = {
         "delta": round(score_delta, 2),
-        "percentage_change": round((score_delta / max(comparison["previous_session"]["overall_score"], 1)) * 100, 2),
+        "percentage_change": percentage_change,
         "improved": score_delta > 0
     }
 
@@ -161,25 +176,33 @@ def _generate_comparison_insights(
 
     # Build context for the LLM
     current_conversation_summary = _summarize_conversation(current_session.get("conversation", []))
-    previous_questions = previous_session.get("questions_asked", [])
+    previous_questions = previous_session.get("questions_asked", []) or []
+
+    # Safely get scores
+    prev_eval = previous_session.get('evaluation', {}) or {}
+    prev_score = prev_eval.get('overall_score')
+    prev_score_str = f"{prev_score}/100" if prev_score is not None else "N/A"
+
+    curr_score = current_eval.get('overall_score')
+    curr_score_str = f"{curr_score}/100" if curr_score is not None else "N/A"
 
     prompt = f"""You are an expert technical interviewer analyzing a candidate's progress across multiple interviews.
 
 **Previous Interview (Date: {previous_session.get('date', 'Unknown')}):**
 - Domain: {previous_session.get('domain', 'Unknown')}
 - Questions Asked: {len(previous_questions)}
-- Overall Score: {previous_session.get('evaluation', {}).get('overall_score', 'N/A')}/100
-- Recommendation: {previous_session.get('evaluation', {}).get('recommendation', 'N/A')}
-- Level Fit: {previous_session.get('evaluation', {}).get('level_fit', 'N/A')}
-- Topics Covered: {', '.join(previous_session.get('topics_asked', [])[:10])}
+- Overall Score: {prev_score_str}
+- Recommendation: {prev_eval.get('recommendation', 'N/A')}
+- Level Fit: {prev_eval.get('level_fit', 'N/A')}
+- Topics Covered: {', '.join(previous_session.get('topics_asked', [])[:10]) if previous_session.get('topics_asked') else 'N/A'}
 
 **Current Interview (Date: {current_session.get('started_at', 'Unknown')}):**
 - Domain: {current_session.get('resume', {}).get('domain', 'Unknown')}
 - Questions Asked: {current_session.get('turn', 0)}
-- Overall Score: {current_eval.get('overall_score', 'N/A')}/100
+- Overall Score: {curr_score_str}
 - Recommendation: {current_eval.get('recommendation', 'N/A')}
 - Level Fit: {current_eval.get('level_fit', 'N/A')}
-- Conversation Summary: {current_conversation_summary}
+- Conversation Summary: {current_conversation_summary if current_conversation_summary else 'N/A'}
 
 Based on this comparison, provide:
 
