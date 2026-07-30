@@ -804,12 +804,16 @@ Platform FAQ Content:
 
 User Question: {req.question}
 
-Provide a clear, concise answer based on the FAQ content above."""
+Instructions:
+1. Provide a clear, complete answer based on the FAQ content above
+2. Include ALL relevant details from the FAQs (steps, locations, requirements, etc.)
+3. If the FAQ mentions WHERE to do something (e.g., Journey page, Profile section), include that in your answer
+4. Be comprehensive but concise - don't leave out important information"""
 
         response = _client.chat.completions.create(
             model=CHAT_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
+            temperature=0.1,
             max_tokens=500
         )
 
