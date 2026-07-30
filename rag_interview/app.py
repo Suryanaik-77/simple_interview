@@ -26,6 +26,7 @@ from datetime import datetime
 from rag_engine import RAGEngine, sanitize_paths, parse_facets
 from dv_rag_engine import DVRAGEngine
 from analog_rag_engine import AnalogRAGEngine
+from platform_rag_engine import PlatformRAGEngine
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -175,10 +176,11 @@ class TokenTracker:
 app = FastAPI(title="Lab RAG")
 templates = Jinja2Templates(directory=os.path.join(_HERE, "templates"))
 
-# Build/load all three RAG engines at startup
+# Build/load all four RAG engines at startup
 pd_engine = RAGEngine.load_or_build()          # Physical Design RAG
 dv_engine = DVRAGEngine.load_or_build()        # Design Verification RAG
 analog_engine = AnalogRAGEngine.load_or_build()  # Analog Layout RAG
+platform_engine = PlatformRAGEngine()          # Platform FAQ RAG
 
 # Map for easy access
 RAG_ENGINES = {
@@ -697,10 +699,147 @@ def api_labs():
     return {"labs": pd_engine.labs, "chunks": len(pd_engine.chunks)}
 
 
+def _classify_question(question: str) -> dict:
+    """
+    Classify if question is platform-related, domain-related, or both.
+
+    Returns:
+        {
+            "search_platform": bool,  # Search platform FAQ database
+            "search_domain": bool,     # Search domain-specific database
+            "reasoning": str           # Why this classification was chosen
+        }
+    """
+    prompt = f"""You are a question classifier for SemiconLabs platform.
+
+Classify this question into one of three categories:
+
+1. **PLATFORM** - Questions about the SemiconLabs platform itself:
+   - Dashboard, navigation, UI (Home, Skills, Journey, Profile)
+   - Plans & subscriptions (Basic vs Pro, upgrades, renewals)
+   - Account management (password reset, profile updates)
+   - Certificates (download, LinkedIn sharing)
+   - Labs platform features (provisioning, DCV login, data backup)
+   - Enrollment, competencies, quizzes
+
+2. **DOMAIN** - Technical questions about VLSI/semiconductor content:
+   - Physical Design (PD): synthesis, clock tree, placement, routing, STA, PV, LEC
+   - Design Verification (DV): binary numbers, gates, boolean logic, Karnaugh maps
+   - Analog Layout: MOSFET, transistors, wafer fabrication, power dissipation
+   - EDA tools usage: ICC2, Innovus, PrimeTime, Calibre commands and flows
+
+3. **BOTH** - Questions that could involve both platform AND domain knowledge
+
+Question: "{question}"
+
+Respond in JSON format:
+{{
+    "category": "PLATFORM" | "DOMAIN" | "BOTH",
+    "reasoning": "brief explanation"
+}}"""
+
+    try:
+        response = _client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=150
+        )
+
+        result_text = response.choices[0].message.content.strip()
+        # Parse JSON response
+        import json
+        result = json.loads(result_text)
+
+        category = result.get("category", "DOMAIN")
+        reasoning = result.get("reasoning", "")
+
+        return {
+            "search_platform": category in ("PLATFORM", "BOTH"),
+            "search_domain": category in ("DOMAIN", "BOTH"),
+            "reasoning": reasoning
+        }
+    except Exception as e:
+        # Default to searching domain only if classifier fails
+        return {
+            "search_platform": False,
+            "search_domain": True,
+            "reasoning": f"Classifier error: {e}, defaulting to domain search"
+        }
+
+
 @app.post("/api/ask")
 def api_ask(req: AskRequest):
     # Initialize token tracker
     tracker = TokenTracker(req.question)
+
+    # Classify question: platform vs domain vs both
+    classification = _classify_question(req.question)
+
+    # If platform-only question, search platform database
+    if classification["search_platform"] and not classification["search_domain"]:
+        platform_hits = platform_engine.search(req.question, k=3)
+        if not platform_hits:
+            return {
+                "answer": "No platform FAQ content found for this question.",
+                "sources": [],
+                "domain": "platform",
+                "classification": classification
+            }
+
+        # Build answer from platform FAQs
+        context_parts = []
+        for i, hit in enumerate(platform_hits, 1):
+            context_parts.append(
+                f"[{i}] Category: {hit['category']}\n"
+                f"Question: {hit['question']}\n"
+                f"Answer: {hit['answer']}\n"
+            )
+
+        context = "\n\n".join(context_parts)
+        prompt = f"""Answer the user's question based on the platform FAQ content below.
+
+Platform FAQ Content:
+{context}
+
+User Question: {req.question}
+
+Provide a clear, concise answer based on the FAQ content above."""
+
+        response = _client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=500
+        )
+
+        answer = response.choices[0].message.content.strip()
+        tracker.track_answer(response.usage)
+
+        # Format sources for consistency
+        sources = [{
+            "n": i,
+            "category": hit["category"],
+            "question": hit["question"],
+            "answer": hit["answer"],
+            "score": hit["score"]
+        } for i, hit in enumerate(platform_hits, 1)]
+
+        # Save token stats
+        _token_stats.append({
+            "timestamp": tracker.started_at.isoformat(),
+            "question": req.question[:100],
+            "domain": "platform",
+            **tracker.get_summary()
+        })
+
+        return {
+            "answer": answer,
+            "sources": sources,
+            "domain": "platform",
+            "token_usage": tracker.get_summary(),
+            "classification": classification
+        }
 
     # Select the appropriate RAG engine based on domain
     domain = req.domain.lower()
@@ -864,6 +1003,19 @@ def api_ask(req: AskRequest):
                 "facets": h.get("facets") or {},
                 "content": _sanitize_paths(content),
             })
+
+        # Add platform FAQ results if classification says BOTH
+        if classification.get("search_platform"):
+            platform_hits = platform_engine.search(req.question, k=2)
+            for hit in platform_hits:
+                sections.append({
+                    "lab_name": "Platform FAQ",
+                    "heading": hit["category"],
+                    "source": "platform",
+                    "score": round(hit["score"], 3),
+                    "facets": {},
+                    "content": f"Q: {hit['question']}\n\nA: {hit['answer']}",
+                })
 
         # Cross-tool probe: when nothing in-scope verified, the asked-about
         # command/term may simply belong to the OTHER vendor's flow (e.g.
