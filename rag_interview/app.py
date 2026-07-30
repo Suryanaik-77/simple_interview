@@ -999,17 +999,30 @@ def api_query_get(domain: str, question: str):
     """GET endpoint for RAG query - accepts domain and question as query params.
 
     Example: /api/query?domain=pd&question=How%20to%20do%20CTS%20in%20ICC2
+
+    If clarification is needed (PD domain only), returns:
+    {
+        "clarify": true,
+        "question": "Which tool do you mean?",
+        "options": ["Synopsys", "Cadence"],
+        "facet": "provider",
+        "option_values": ["SNPS", "CDN"]
+    }
     """
     # Create an AskRequest object from query params
     req = AskRequest(
         question=question,
         domain=domain,
         k=6,
-        allow_clarify=False  # Disable clarify for GET endpoint
+        allow_clarify=True  # Enable clarify for GET endpoint
     )
 
     # Use the existing api_ask logic
     result = api_ask(req)
+
+    # If clarification is needed, return full clarify response
+    if result.get("clarify"):
+        return result
 
     # Return simplified response with just answer, token usage, and cost
     return {
