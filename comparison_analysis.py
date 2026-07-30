@@ -181,7 +181,17 @@ def _compare_topics(
                 current_topics.append(topic)
 
     current_topics_set = set(filter(None, current_topics))
-    previous_topics_set = set(filter(None, previous_topics))
+
+    # If previous_topics is empty or contains only empty strings, extract from questions
+    previous_topics_filtered = [t for t in previous_topics if t and t.strip()]
+    if not previous_topics_filtered and previous_questions:
+        # Extract topics dynamically from previous questions
+        for question in previous_questions:
+            topic = _extract_topic_from_question(question)
+            if topic and topic != "General":
+                previous_topics_filtered.append(topic)
+
+    previous_topics_set = set(previous_topics_filtered)
 
     return {
         "current_topics": list(current_topics_set),
@@ -275,6 +285,29 @@ def _generate_comparison_insights(
         for topic, scores in sorted(topic_scores.items())
     ]) if topic_scores else "  Not available"
 
+    # Analyze question complexity/depth
+    complexity_indicators = []
+    if current_eval.get("per_question"):
+        for q_eval in current_eval["per_question"]:
+            question = q_eval.get("question", "").lower()
+            comment = q_eval.get("comment", "").lower()
+            missed = q_eval.get("missed", [])
+
+            # Check for deeper/complex question indicators
+            if any(word in question for word in ["how would you", "suppose", "debug", "troubleshoot", "design", "implement"]):
+                complexity_indicators.append("scenario-based")
+            if any(word in question for word in ["analyze", "optimize", "trade-off", "compare", "evaluate"]):
+                complexity_indicators.append("analytical")
+            if len(missed) >= 3:  # Many missed points suggest deeper question
+                complexity_indicators.append("multi-faceted")
+            if any(word in comment for word in ["depth", "advanced", "specific", "detailed", "systematic"]):
+                complexity_indicators.append("depth-required")
+
+    complexity_note = ""
+    if complexity_indicators:
+        unique_indicators = list(set(complexity_indicators))
+        complexity_note = f"\n**Question Complexity:** Current interview included more {', '.join(unique_indicators[:3])} questions requiring deeper understanding."
+
     # Build topic comparison summary
     topic_summary = f"""
 **Topic Coverage Analysis:**
@@ -282,6 +315,7 @@ def _generate_comparison_insights(
 - Current topics covered: {', '.join(current_topics_unique) if current_topics_unique else 'None'}
 - New topics explored: {', '.join(new_topics) if new_topics else 'None'}
 - Topics repeated from previous interview: {', '.join(repeated_topics) if repeated_topics else 'None'}
+{complexity_note}
 
 **Current Interview - Topic-wise Scores:**
 {topic_score_summary}
@@ -313,8 +347,11 @@ Based on this comparison, provide:
 2. **Still Lagging** (3-5 specific areas where the candidate still needs improvement, mention specific topics if relevant)
 3. **New Strengths** (Areas that emerged as new strengths in this interview)
 4. **Topic-wise Analysis** (How did the candidate perform on new topics vs repeated topics? Any topic-specific improvements?)
-5. **Consistency Check** (Did the candidate maintain their previous strengths?)
-6. **Actionable Recommendations** (Top 3 specific actions the candidate should take before the next interview, including topic areas to focus on)
+5. **Question Difficulty Assessment** (Were the current interview questions more complex/deeper than previous? How did this affect performance?)
+6. **Consistency Check** (Did the candidate maintain their previous strengths?)
+7. **Actionable Recommendations** (Top 3 specific actions the candidate should take before the next interview, including topic areas to focus on)
+
+**IMPORTANT**: If the current interview questions were more scenario-based, debugging-focused, or implementation-heavy (deeper questions), explicitly mention this in your analysis and acknowledge that maintaining similar scores despite harder questions indicates underlying progress.
 
 Format your response as JSON with the following structure:
 {{
@@ -322,6 +359,7 @@ Format your response as JSON with the following structure:
     "still_lagging": ["area 1", "area 2", ...],
     "new_strengths": ["strength 1", "strength 2", ...],
     "topic_wise_analysis": "detailed analysis of performance across topics, comparing new vs repeated topics",
+    "question_difficulty": "assessment of whether questions became deeper/more complex, and how this contextualizes the score",
     "consistency": {{"maintained": ["strength 1", ...], "lost": ["weakness 1", ...]}},
     "recommendations": ["action 1", "action 2", "action 3"],
     "overall_progress": "brief summary of overall progress trajectory"
@@ -352,6 +390,7 @@ Format your response as JSON with the following structure:
             "still_lagging": [],
             "new_strengths": [],
             "topic_wise_analysis": "Analysis unavailable",
+            "question_difficulty": "Analysis unavailable",
             "consistency": {"maintained": [], "lost": []},
             "recommendations": [],
             "overall_progress": "Analysis unavailable"
