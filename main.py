@@ -638,6 +638,26 @@ def _obs_entry(step: str, model: str, latency_ms: int, status: str = "success",
     return entry
 
 
+# ── Interview Duration Tracking ──────────────────────────────────────────
+
+def _end_interview(session, reason="manual"):
+    """Mark interview as ended and track duration with reason.
+
+    Args:
+        session: Interview session dict
+        reason: One of: time_limit, domain_mismatch, abusive_behavior, llm_decision,
+                stop_agent, hard_max, speaker_verification_failed, manual
+    """
+    session["phase"] = "ended"
+    session["ended_at"] = time.time()
+    session["end_reason"] = reason
+    started = session.get("started_at", session["ended_at"])
+    duration_minutes = round((session["ended_at"] - started) / 60, 2)
+    session["duration_minutes"] = duration_minutes
+    sid = session.get("id", "unknown")[:8]
+    log.info(f"[Interview] Session {sid} ended - Reason: {reason} | Duration: {duration_minutes} min ({session['turn']} turns)")
+
+
 # ── LLM Routing ──────────────────────────────────────────────────────────
 
 def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
@@ -2436,7 +2456,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     # Check auto-end
     should_end, end_msg = _should_end_interview(session)
     if should_end:
-        session["phase"] = "ended"
+        _end_interview(session, reason="time_limit")
         return {"question": end_msg, "should_end": True}
 
     # Build prompt with pacing + topic context
@@ -2486,7 +2506,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
 
     if "[ABUSIVE]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
         reply = question.replace("[ABUSIVE]", "").replace("[FOLLOWUP]", "").strip()
-        session["phase"] = "ended"
+        _end_interview(session, reason="abusive_behavior")
         session["conversation"].append({"question": reply, "answer": None, "turn": turn})
         session.setdefault("obs_log", []).append(obs)
         if ANTICHEAT_FEATURES.get("abuse_email_alert", {}).get("enabled", True):
@@ -2497,7 +2517,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     llm_end = "[END_INTERVIEW]" in question
     if llm_end:
         question = question.replace("[END_INTERVIEW]", "").strip()
-        session["phase"] = "ended"
+        _end_interview(session, reason="llm_decision")
 
     # Tag decisions (follow-up / scenario / type) are NOT made by the main prompt
     # anymore — a background classifier decides them by comparing this question with
@@ -3739,7 +3759,7 @@ def start_interview(data: dict):
     if mismatch:
         cand, role = mismatch
         closing = _domain_mismatch_closing(cand, role)
-        session["phase"] = "ended"
+        _end_interview(session, reason="domain_mismatch")
         session["domain_mismatch"] = {"candidate": cand, "role": role}
         log.info(f"[DomainGate] Session {sid[:8]}: ended at start — résumé={cand} vs role={role}")
         _record_mismatch_evaluation(session, cand, role)
@@ -3875,6 +3895,7 @@ def submit_answer(data: dict):
 
     # Check if speaker mismatch was detected in background
     if session.get("speaker_mismatch"):
+        _end_interview(session, reason="speaker_verification_failed")
         return {
             "question": "This interview has been ended due to a speaker verification failure.",
             "question_type": "end", "turn": session["turn"], "phase": "ended",
@@ -3902,7 +3923,9 @@ def submit_answer(data: dict):
                        chars=len(result["question"]), cost_usd=_calc_tts_cost(tts_provider, len(result["question"]))))
 
     if result["should_end"]:
-        session["phase"] = "ended"
+        # Reason already set in generate_question, don't override
+        if "end_reason" not in session:
+            _end_interview(session, reason="llm_decision")
         save_candidate_session(session)
 
     sessions[sid] = session
@@ -3957,6 +3980,7 @@ def stream_answer(data: dict):
     # Check if speaker mismatch was detected in background
     from starlette.responses import StreamingResponse
     if session.get("speaker_mismatch"):
+        _end_interview(session, reason="speaker_verification_failed")
         def mismatch_stream():
             msg = "This interview has been ended due to a speaker verification failure."
             yield f"data: {json.dumps({'type': 'text', 'content': msg, 'done': True, 'should_end': True, 'speaker_mismatch': True})}\n\n"
@@ -3980,7 +4004,7 @@ def stream_answer(data: dict):
         # Check auto-end
         should_end, end_msg = _should_end_interview(session)
         if should_end:
-            session["phase"] = "ended"
+            _end_interview(session, reason="time_limit")
             audio_bytes = tts_chunk(end_msg)
             sessions[sid] = session
             _evaluate_async(session)  # hard-limit end returns early — evaluate here too
@@ -3997,7 +4021,8 @@ def stream_answer(data: dict):
         _sd = session.get("_stop_decision") or {}
         _stop_now = (_answered >= STOP_AGENT_HARD_MAX) or (_answered >= STOP_AGENT_MIN_Q and _sd.get("stop"))
         if _stop_now:
-            session["phase"] = "ended"
+            end_reason = "hard_max" if _answered >= STOP_AGENT_HARD_MAX else "stop_agent"
+            _end_interview(session, reason=end_reason)
             reason = "hard_max" if _answered >= STOP_AGENT_HARD_MAX else _sd.get("reason", "")
             log.info(f"[StopAgent] Ending at {_answered} questions — {reason}")
             closing = _stop_agent_closing(session)
@@ -4193,13 +4218,13 @@ def stream_answer(data: dict):
             question = question.replace("[PERSONAL]", "").strip()
         elif "[ABUSIVE]" in question and ANTICHEAT_FEATURES.get("behavior_guard", {}).get("enabled", True):
             question = question.replace("[ABUSIVE]", "").strip()
-            session["phase"] = "ended"
+            _end_interview(session, reason="abusive_behavior")
             is_end = True
             if ANTICHEAT_FEATURES.get("abuse_email_alert", {}).get("enabled", True):
                 threading.Thread(target=send_abuse_email, args=(session, answer), daemon=True).start()
         elif "[END_INTERVIEW]" in question:
             question = question.replace("[END_INTERVIEW]", "").strip()
-            session["phase"] = "ended"
+            _end_interview(session, reason="llm_decision")
             is_end = True
 
         # Pause prompts (e.g. "Take your time", "Go ahead, finish that thought") are
@@ -4258,7 +4283,7 @@ def end_session(data: dict):
     sid = data.get("session_id")
     session = sessions.get(sid)
     if session:
-        session["phase"] = "ended"
+        _end_interview(session, reason="manual")
         # Evaluate synchronously, then KEEP the session row. The admin review reads
         # from active_sessions, so deleting here would make every completed interview
         # (and its evaluation) vanish from the review. The submit/stream end paths
