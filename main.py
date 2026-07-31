@@ -3763,9 +3763,16 @@ def start_interview(data: dict):
     # reference face exists for this candidate, and Rekognition is available.
     # Fails OPEN on unexpected AWS errors (the per-minute compare loop still
     # guards the session) but CLOSED on a genuine mismatch / missing frame.
+    # SKIP face gate for LMS sessions where face was already provided by LMS.
     if ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
         ref_b64 = session.get("face_ref_image")
-        if ref_b64 and rekognition_client:
+        is_lms_session = session.get("lms_source", False)
+
+        if is_lms_session and ref_b64:
+            log.info(f"[FaceGate] Session {sid[:8]}: skipped (LMS-provided face reference)")
+
+        # Skip live camera verification for LMS sessions (face already validated by LMS)
+        if ref_b64 and rekognition_client and not is_lms_session:
             live_b64 = data.get("face_image") or ""
             if not live_b64:
                 raise HTTPException(428, "Camera is off or no frame was captured. "
