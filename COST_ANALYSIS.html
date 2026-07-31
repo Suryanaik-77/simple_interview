@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Cost Analysis Report</title>
+    <style>
+        @media print {
+            @page { margin: 0.75in; size: letter; }
+            body { margin: 0; }
+        }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #1f2937;
+            max-width: 100%;
+            padding: 20px;
+            background: white;
+        }
+        h1 {
+            color: #1f2937;
+            font-size: 20pt;
+            text-align: center;
+            margin-bottom: 20pt;
+            border-bottom: 2px solid #2563eb;
+            padding-bottom: 10pt;
+        }
+        h2 {
+            color: #2563eb;
+            font-size: 16pt;
+            margin-top: 30pt;
+            margin-bottom: 10pt;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 5pt;
+        }
+        h3 {
+            color: #4b5563;
+            font-size: 14pt;
+            margin-top: 20pt;
+            margin-bottom: 8pt;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15pt 0;
+            font-size: 10pt;
+        }
+        th {
+            background-color: #f3f4f6;
+            border: 1px solid #d1d5db;
+            padding: 8px;
+            text-align: left;
+            font-weight: bold;
+        }
+        td {
+            border: 1px solid #e5e7eb;
+            padding: 6px 8px;
+        }
+        tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+        pre {
+            background-color: #f3f4f6;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 9pt;
+            overflow-x: auto;
+            margin: 15pt 0;
+            border: 1px solid #e5e7eb;
+        }
+        code {
+            background-color: #f3f4f6;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 9pt;
+        }
+        strong {
+            font-weight: bold;
+            color: #111827;
+        }
+        p {
+            margin: 8pt 0;
+        }
+        ul, ol {
+            margin: 10pt 0;
+            padding-left: 25px;
+        }
+        li {
+            margin: 5pt 0;
+        }
+        .box {
+            border: 1px solid #e5e7eb;
+            padding: 15px;
+            margin: 15pt 0;
+            border-radius: 5px;
+            background-color: #f9fafb;
+        }
+        .highlight {
+            background-color: #fef3c7;
+            padding: 3px 6px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Interview Application - Cost Analysis Report</h1>
+
+<p><strong>Generated:</strong> 2026-07-31<br>
+<strong>Environment:</strong> Production (EC2: 54.87.246.28)<br>
+<strong>Configuration:</strong> gpt-4.1-mini (questions) + Claude Haiku 4.5 (evaluation) + Inworld TTS + OpenAI Whisper STT</p>
+
+<hr>
+
+<h2>1. INFRASTRUCTURE COSTS (Fixed Monthly)</h2>
+
+<p>These costs are paid <strong>every month regardless of interview volume</strong>.</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Service</th>
+            <th>Specification</th>
+            <th>Monthly Cost</th>
+            <th>Notes</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>EC2 Instance</strong></td>
+            <td>t3.small (2 vCPU, 2GB RAM)</td>
+            <td>$15.18</td>
+            <td>Runs 24/7: interview app (8001), RAG (8100), realtime app</td>
+        </tr>
+        <tr>
+            <td><strong>EBS Storage</strong></td>
+            <td>20-30 GB SSD</td>
+            <td>$3-5</td>
+            <td>Application files, PostgreSQL database, logs</td>
+        </tr>
+        <tr>
+            <td><strong>Data Transfer (Bandwidth)</strong></td>
+            <td>First 100 GB free, then $0.09/GB</td>
+            <td>$0-20</td>
+            <td>Audio files to users (~2 MB per interview)</td>
+        </tr>
+        <tr>
+            <td><strong>PostgreSQL</strong></td>
+            <td>Self-hosted on EC2</td>
+            <td>$0</td>
+            <td>Session data, user history, obs_logs</td>
+        </tr>
+        <tr>
+            <td><strong>Redis</strong></td>
+            <td>Self-hosted on EC2</td>
+            <td>$0</td>
+            <td>Session cache for fast reads</td>
+        </tr>
+        <tr>
+            <td><strong>Domain + SSL</strong></td>
+            <td>eduspark.sumedhait.com</td>
+            <td>$2</td>
+            <td>Let's Encrypt SSL is free</td>
+        </tr>
+    </tbody>
+</table>
+
+<div class="box">
+    <strong>Total Infrastructure: $20-42/month</strong>
+</div>
+
+<h3>Bandwidth Cost Examples:</h3>
+<ul>
+    <li>100 interviews/month × 2 MB = 200 MB = <strong>FREE</strong> (under 100 GB)</li>
+    <li>1,000 interviews/month × 2 MB = 2 GB = <strong>FREE</strong></li>
+    <li>10,000 interviews/month × 2 MB = 20 GB = <strong>FREE</strong></li>
+    <li>50,000+ interviews/month × 2 MB = 100+ GB = <strong>$0-5</strong> (minimal)</li>
+</ul>
+
+<p><strong>What is bandwidth cost?</strong> AWS charges when data leaves their servers to the internet. Includes: Sending audio files (TTS) to users, API responses with base64 audio. First 100 GB/month is FREE from AWS. After that: $0.09 per GB.</p>
+
+<hr>
+
+<h2>2. VARIABLE COSTS (Per Interview)</h2>
+
+<p>These costs <strong>increase with each interview</strong>. Charged based on actual API usage.</p>
+
+<h3>Current Configuration:</h3>
+<ul>
+    <li>Question Generation: <strong>gpt-4.1-mini</strong> ($0.40/1M in, $1.60/1M out)</li>
+    <li>Evaluation: <strong>Claude Haiku 4.5</strong> (Bedrock: $1.00/1M in, $5.00/1M out)</li>
+    <li>Comparison Analysis: <strong>gpt-4o-mini</strong> ($0.15/1M in, $0.60/1M out)</li>
+    <li>TTS: <strong>Inworld TTS</strong> ($0.015/1K chars)</li>
+    <li>STT: <strong>OpenAI Whisper</strong> ($0.003/min)</li>
+    <li>Face Verification: <strong>AWS Rekognition</strong> ($0.001/image)</li>
+</ul>
+
+<h3>A. LLM Costs (Language Models)</h3>
+
+<table>
+    <thead>
+        <tr>
+            <th>Operation</th>
+            <th>Model</th>
+            <th>Calls</th>
+            <th>Tokens (in/out)</th>
+            <th>Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Question Generation</strong></td>
+            <td>gpt-4.1-mini</td>
+            <td>11 (greeting + 10 questions)</td>
+            <td>22,000 / 1,650</td>
+            <td>$0.0114</td>
+        </tr>
+        <tr>
+            <td><strong>Tag Classification</strong></td>
+            <td>gpt-4o-mini</td>
+            <td>10 (per question)</td>
+            <td>5,000 / 600</td>
+            <td>$0.0011</td>
+        </tr>
+        <tr>
+            <td><strong>Evaluation</strong></td>
+            <td>Claude Haiku 4.5</td>
+            <td>1 (at end)</td>
+            <td>8,000 / 1,200</td>
+            <td>$0.0140</td>
+        </tr>
+        <tr>
+            <td><strong>AI Detection</strong></td>
+            <td>gpt-4o-mini</td>
+            <td>~5 (sampling)</td>
+            <td>2,500 / 250</td>
+            <td>$0.0005</td>
+        </tr>
+        <tr>
+            <td><strong>Stop Agent</strong></td>
+            <td>gpt-4o-mini</td>
+            <td>3-5 (after min questions)</td>
+            <td>6,000 / 120</td>
+            <td>$0.0010</td>
+        </tr>
+        <tr>
+            <td><strong>Comparison Analysis</strong></td>
+            <td>gpt-4o-mini</td>
+            <td>1 (after interview)</td>
+            <td>5,000 / 800</td>
+            <td>$0.0013</td>
+        </tr>
+    </tbody>
+</table>
+
+<p><strong>Total LLM Cost: $0.0293 (2.9 cents)</strong></p>
+
+<h3>B. TTS Costs (Text-to-Speech)</h3>
+<p><strong>Inworld TTS:</strong> $0.015 per 1,000 characters</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Audio Generated</th>
+            <th>Characters</th>
+            <th>Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Greeting audio</td>
+            <td>100 chars</td>
+            <td>$0.0015</td>
+        </tr>
+        <tr>
+            <td>10 Question audios</td>
+            <td>1,500 chars (150 each)</td>
+            <td>$0.0225</td>
+        </tr>
+        <tr>
+            <td>Closing audio</td>
+            <td>200 chars</td>
+            <td>$0.0030</td>
+        </tr>
+        <tr>
+            <td><strong>Total</strong></td>
+            <td><strong>1,800 chars</strong></td>
+            <td><strong>$0.027 (2.7 cents)</strong></td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>C. STT Costs (Speech-to-Text)</h3>
+<p><strong>OpenAI Whisper:</strong> $0.003 per minute</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Audio Transcribed</th>
+            <th>Duration</th>
+            <th>Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>10 candidate answers (1 min each)</td>
+            <td>10 minutes</td>
+            <td><strong>$0.030 (3 cents)</strong></td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>D. Face Verification (AWS Rekognition)</h3>
+<p><strong>AWS Rekognition:</strong> $0.001 per image</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Operation</th>
+            <th>Images</th>
+            <th>Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Initial face upload check</td>
+            <td>1</td>
+            <td>$0.001</td>
+        </tr>
+        <tr>
+            <td>Continuous monitoring (every 60s for 15 min)</td>
+            <td>15</td>
+            <td>$0.015</td>
+        </tr>
+        <tr>
+            <td><strong>Total</strong></td>
+            <td><strong>16 images</strong></td>
+            <td><strong>$0.016 (1.6 cents)</strong></td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>TOTAL VARIABLE COST PER 10-TURN INTERVIEW:</h3>
+
+<pre>
+┌────────────────────────────────────────────────┐
+│ Component                    Cost    Percentage │
+├────────────────────────────────────────────────┤
+│ STT (10 min transcription)   $0.030    29.3%   │
+│ LLM (all operations)         $0.0293   28.6%   │
+│ TTS (1,800 chars audio)      $0.027    26.4%   │
+│ Face Verification (16 img)   $0.016    15.6%   │
+├────────────────────────────────────────────────┤
+│ TOTAL PER INTERVIEW          $0.1023   100%    │
+└────────────────────────────────────────────────┘
+</pre>
+
+<div class="box">
+    <p style="font-size: 14pt; margin: 0;"><strong class="highlight">≈ 10.2 cents per 10-turn interview</strong></p>
+</div>
+
+<h3>Cost by Interview Length:</h3>
+
+<table>
+    <thead>
+        <tr>
+            <th>Interview Type</th>
+            <th>Turns</th>
+            <th>STT Duration</th>
+            <th>Variable Cost</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Quick</td>
+            <td>5 questions</td>
+            <td>5 min</td>
+            <td>$0.055 (5.5¢)</td>
+        </tr>
+        <tr>
+            <td>Standard</td>
+            <td>10 questions</td>
+            <td>10 min</td>
+            <td>$0.102 (10.2¢)</td>
+        </tr>
+        <tr>
+            <td>Extended</td>
+            <td>15 questions</td>
+            <td>15 min</td>
+            <td>$0.149 (14.9¢)</td>
+        </tr>
+        <tr>
+            <td>Long</td>
+            <td>20 questions</td>
+            <td>20 min</td>
+            <td>$0.196 (19.6¢)</td>
+        </tr>
+    </tbody>
+</table>
+
+<p><strong>Each additional question adds ~$0.0047</strong> to the total cost.</p>
+
+<hr>
+
+<h2>3. SUBSCRIPTION COSTS (Monthly API Services)</h2>
+
+<p>These are <strong>monthly fees or subscriptions</strong> for API access (separate from usage costs).</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Service</th>
+            <th>Purpose</th>
+            <th>Monthly Cost</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>OpenAI API</strong></td>
+            <td>LLM + STT</td>
+            <td>$0</td>
+            <td>✅ Pay-per-use only, no minimum</td>
+        </tr>
+        <tr>
+            <td><strong>AWS Bedrock</strong></td>
+            <td>Claude models (Haiku for evaluation)</td>
+            <td>$0</td>
+            <td>✅ Pay-per-use only, no monthly fee</td>
+        </tr>
+        <tr>
+            <td><strong>AWS Rekognition</strong></td>
+            <td>Face verification</td>
+            <td>$0</td>
+            <td>✅ Pay-per-use, free tier: 1M images/month</td>
+        </tr>
+        <tr>
+            <td><strong>Inworld AI</strong></td>
+            <td>TTS (audio generation)</td>
+            <td>$0</td>
+            <td>✅ Pay-per-use only, no minimum</td>
+        </tr>
+        <tr>
+            <td><strong>Deepgram</strong></td>
+            <td>STT/TTS (alternative, not primary)</td>
+            <td>$0</td>
+            <td>⚠️ Configured but not active</td>
+        </tr>
+        <tr>
+            <td><strong>Picovoice Eagle</strong></td>
+            <td>Speaker verification</td>
+            <td>$0</td>
+            <td>❌ Disabled (PICOVOICE_ACCESS_KEY not set)</td>
+        </tr>
+        <tr>
+            <td><strong>Sapling AI</strong></td>
+            <td>AI answer detection</td>
+            <td>$0-29</td>
+            <td>⚠️ <strong>Status unknown</strong> - verify your plan</td>
+        </tr>
+        <tr>
+            <td><strong>XAI (Grok)</strong></td>
+            <td>Alternative LLM</td>
+            <td>$0</td>
+            <td>⚠️ Configured, pay-per-use if enabled</td>
+        </tr>
+    </tbody>
+</table>
+
+<div class="box">
+    <strong>Total Subscription Costs: $0-29/month</strong>
+</div>
+
+<p><strong>Notes:</strong></p>
+<ul>
+    <li>All services are <strong>pay-per-use</strong> with <strong>no monthly minimums</strong></li>
+    <li><strong>Sapling AI</strong> may have subscription fee ($29-99/month for paid plans) - please verify</li>
+    <li><strong>Picovoice Eagle</strong> ($10-50/month) is available but currently disabled</li>
+    <li><strong>AWS Free Tier</strong> covers first 1M Rekognition images/month (you're well under this limit)</li>
+</ul>
+
+<hr>
+
+<h2>4. TOTAL MONTHLY COST PROJECTIONS</h2>
+
+<h3>Scenario 1: Light Usage (100 interviews/month)</h3>
+<ul>
+    <li>Infrastructure: $25</li>
+    <li>Variable (100 × $0.102): $10.20</li>
+    <li>Subscriptions: $0</li>
+    <li><strong>Total: $35/month</strong> (35¢ per interview)</li>
+</ul>
+
+<h3>Scenario 2: Medium Usage (500 interviews/month)</h3>
+<ul>
+    <li>Infrastructure: $30</li>
+    <li>Variable (500 × $0.102): $51</li>
+    <li>Subscriptions: $0</li>
+    <li><strong>Total: $81/month</strong> (16¢ per interview)</li>
+</ul>
+
+<h3>Scenario 3: High Usage (2,000 interviews/month)</h3>
+<ul>
+    <li>Infrastructure: $35</li>
+    <li>Variable (2,000 × $0.102): $204</li>
+    <li>Subscriptions: $0</li>
+    <li><strong>Total: $239/month</strong> (12¢ per interview)</li>
+</ul>
+
+<h3>Scenario 4: Enterprise Scale (10,000 interviews/month)</h3>
+<ul>
+    <li>Infrastructure: $80 (upgrade to t3.medium)</li>
+    <li>Variable (10,000 × $0.102): $1,020</li>
+    <li>Subscriptions: $0</li>
+    <li><strong>Total: $1,100/month</strong> (11¢ per interview)</li>
+</ul>
+
+<p><strong>Cost per interview decreases with volume</strong> due to fixed infrastructure being amortized.</p>
+
+<hr>
+
+<h2>5. KEY FINDINGS</h2>
+
+<h3>✅ Cost DOES Increase as Interview Continues</h3>
+<p><strong>Linear growth:</strong> ~$0.0047 per additional question</p>
+<ul>
+    <li>Each turn requires: STT ($0.003) + TTS ($0.0027) + LLM (~$0.0014) + Face verification (amortized)</li>
+    <li>10-turn interview: $0.102</li>
+    <li>20-turn interview: $0.196</li>
+</ul>
+
+<h3>💰 Cost Breakdown by Category</h3>
+<pre>
+STT (transcription):      $0.030   (29.3%)  ← Largest cost
+LLM Operations:           $0.0293  (28.6%)  ← Haiku evaluation is main driver
+TTS (audio generation):   $0.027   (26.4%)
+Face Verification:        $0.016   (15.6%)
+</pre>
+
+<h3>📊 Per-Interview Cost</h3>
+<ul>
+    <li><strong>10.2 cents</strong> per standard 10-turn interview</li>
+    <li><strong>$10.20</strong> for 100 interviews</li>
+    <li><strong>$102</strong> for 1,000 interviews</li>
+    <li><strong>$1,020</strong> for 10,000 interviews</li>
+</ul>
+
+<h3>🔧 Real-time Cost Tracking</h3>
+<p>All costs tracked in real-time via <code>obs_log</code> in database:</p>
+<ul>
+    <li><code>/api/analytics/session/{session_id}</code> - per-session breakdown</li>
+    <li><code>/api/analytics/user/{email}</code> - user totals</li>
+    <li><code>/api/admin/obs-logs</code> - all operations</li>
+</ul>
+
+<hr>
+
+<div class="box" style="background-color: #fef3c7; border-color: #fbbf24;">
+    <h3 style="margin-top: 0;">Summary</h3>
+    <ul style="margin-bottom: 0;">
+        <li><strong>Infrastructure:</strong> $25-42/month (fixed)</li>
+        <li><strong>Variable:</strong> $0.102 per 10-turn interview (10 min speaking time)</li>
+        <li><strong>Subscriptions:</strong> $0-29/month (verify Sapling AI)</li>
+        <li><strong>Total at 500 interviews/month:</strong> ~$81/month (16¢ per interview)</li>
+    </ul>
+</div>
+
+<p style="margin-top: 30px; text-align: center; color: #6b7280; font-size: 10pt;"><strong>Report prepared by:</strong> Claude Code<br>
+<strong>Data sources:</strong> main.py, comparison_analysis.py, database schema, AWS/OpenAI/Inworld/Bedrock pricing</p>
+
+</body>
+</html>
