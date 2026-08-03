@@ -3941,6 +3941,19 @@ def submit_answer(data: dict):
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
 
+    # Check if interview was already ended (by voice verification or other reasons)
+    if session.get("phase") == "ended":
+        end_reason = session.get("end_reason", "unknown")
+        message = "This interview has been ended."
+        if end_reason == "speaker_verification_failed":
+            message = "Interview terminated — voice verification failed. Different speaker detected."
+        return {
+            "question": message,
+            "question_type": "end", "turn": session["turn"], "phase": "ended",
+            "audio": "", "difficulty": "basic", "should_end": True,
+            "end_reason": end_reason,
+        }
+
     # Check if speaker mismatch was detected in background
     if session.get("speaker_mismatch"):
         _end_interview(session, reason="speaker_verification_failed")
