@@ -1453,10 +1453,22 @@ function backToLobby() {
       document.getElementById('voice-name-prompt').textContent = name.split(' ')[0];
 
       S.resumePassed = true;
-      // Check for existing face reference (LMS provides email)
-      if (S.faceEnabled && resume.email) {
+
+      // LMS may have already sent face via /api/lms/launch — check session
+      if (S.faceEnabled && data.has_face_ref) {
+        S.facePassed = true;
+        document.getElementById('face-chip').textContent = 'Via LMS';
+        document.getElementById('face-chip').className = 'text-[10px] font-semibold text-success';
+        document.getElementById('dot-face').className = 'w-2 h-2 rounded-full bg-success';
+        document.getElementById('face-label').textContent = 'Face reference provided by LMS';
+        document.getElementById('face-btn').textContent = 'Provided';
+        document.getElementById('face-btn').disabled = true;
+        document.getElementById('face-btn').className = 'px-4 py-1.5 rounded-lg bg-success text-white text-xs font-semibold';
+      } else if (S.faceEnabled && resume.email) {
+        // Fallback: Check for existing face reference in DB (old flow)
         checkExistingFaceRef(resume.email);
       }
+
       // LMS may have already sent voice via /api/lms/launch — check session
       if (data.has_voice_ref) {
         S.voicePassed = true;

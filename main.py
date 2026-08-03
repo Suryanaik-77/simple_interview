@@ -4338,7 +4338,8 @@ def get_session_endpoint(session_id: str):
     if not session: raise HTTPException(404, "Session not found")
     return {"session_id": session_id, "phase": session["phase"], "turn": session["turn"],
             "resume": session.get("resume", {}), "mode": session.get("mode", "mock"),
-            "has_voice_ref": bool(session.get("user_voice_ref"))}
+            "has_voice_ref": bool(session.get("user_voice_ref")),
+            "has_face_ref": bool(session.get("face_ref_image"))}
 
 
 @app.post("/api/generate-report")
