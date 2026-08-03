@@ -51,6 +51,10 @@ PRICING = {
 # Token tracking storage (in-memory for now, can be moved to DB)
 _token_stats = []
 
+# Question history - keeps last 10 questions per session
+from collections import deque
+_question_history = deque(maxlen=10)
+
 
 def _get_source_name(hit, domain):
     """Get the appropriate source name field based on domain."""
@@ -837,6 +841,14 @@ Instructions:
             **tracker.get_summary()
         })
 
+        # Save to question history
+        _question_history.append({
+            "question": req.question,
+            "domain": "platform",
+            "timestamp": tracker.started_at.isoformat(),
+            "answer_preview": answer[:100] + "..." if len(answer) > 100 else answer
+        })
+
         return {
             "answer": answer,
             "sources": sources,
@@ -1126,6 +1138,14 @@ Instructions:
     # Save to stats
     tracker.save()
 
+    # Save to question history
+    _question_history.append({
+        "question": req.question,
+        "domain": domain,
+        "timestamp": tracker.started_at.isoformat(),
+        "answer_preview": answer[:100] + "..." if len(answer) > 100 else answer
+    })
+
     return result
 
 
@@ -1148,6 +1168,22 @@ def health():
             }
         }
     }
+
+
+@app.get("/api/history")
+def get_history():
+    """Get last 10 questions asked in this session."""
+    return {
+        "total": len(_question_history),
+        "questions": list(_question_history)
+    }
+
+
+@app.post("/api/history/clear")
+def clear_history():
+    """Clear question history."""
+    _question_history.clear()
+    return {"status": "cleared", "total": 0}
 
 
 @app.get("/api/query")
