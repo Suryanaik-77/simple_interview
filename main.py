@@ -3942,6 +3942,29 @@ def submit_answer(data: dict):
     if not session: raise HTTPException(404, "Session not found")
 
     # Check if interview was already ended (by voice verification or other reasons)
+    # Brief wait for background thread to finish if needed
+    import time
+    for check_attempt in range(3):  # Check 3 times over 0.6 seconds
+        current_session = sessions.get(sid)
+        if current_session and current_session.get("phase") == "ended":
+            end_reason = current_session.get("end_reason", "unknown")
+            message = "This interview has been ended."
+            if end_reason == "speaker_verification_failed":
+                message = "Interview terminated — voice verification failed. Different speaker detected."
+            log.info(f"[Session {sid[:8]}] Detected termination by background thread (reason: {end_reason})")
+            return {
+                "question": message,
+                "question_type": "end", "turn": current_session["turn"], "phase": "ended",
+                "audio": "", "difficulty": "basic", "should_end": True,
+                "end_reason": end_reason,
+            }
+        if check_attempt < 2:  # Don't sleep on last check
+            time.sleep(0.2)  # Wait 200ms for background thread
+
+    # Reload session after checks
+    session = sessions.get(sid)
+    if not session: raise HTTPException(404, "Session not found after reload")
+
     if session.get("phase") == "ended":
         end_reason = session.get("end_reason", "unknown")
         message = "This interview has been ended."
