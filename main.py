@@ -3433,19 +3433,23 @@ async def lms_launch(
 
     # Process user voice reference (for speaker verification)
     voice_bytes = None
+    log.info(f"[LMS] user_voice: {user_voice}, filename: {getattr(user_voice, 'filename', None) if user_voice else None}")
     if user_voice and user_voice.filename:
         voice_bytes = await user_voice.read()
         if len(voice_bytes) > 10_000_000:
             raise HTTPException(413, "Voice file too large. Max 10MB.")
+        log.info(f"[LMS] Received voice: {user_voice.filename} ({len(voice_bytes)} bytes)")
 
     # Process user face reference (for face verification)
     face_image_bytes = None
     face_wearing_glasses = False
     rekog_obs = None  # obs_log entry for the Rekognition call, attached to the session below
+    log.info(f"[LMS] user_face: {user_face}, filename: {getattr(user_face, 'filename', None) if user_face else None}")
     if user_face and user_face.filename:
         face_image_bytes = await user_face.read()
         if len(face_image_bytes) > 5_000_000:
             raise HTTPException(413, "Face image too large. Max 5MB.")
+        log.info(f"[LMS] Received face: {user_face.filename} ({len(face_image_bytes)} bytes)")
         # Validate with Rekognition: must contain exactly 1 face, detect glasses
         if rekognition_client:
             try:
