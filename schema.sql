@@ -313,3 +313,23 @@ FROM active_sessions s
 WHERE LOWER(s.session_data->>'phase') = 'ended'
   AND s.session_data->'evaluation' IS NOT NULL
   AND s.session_data->'evaluation' != 'null'::jsonb;
+
+-- ═══════════════════════════════════════════
+-- USER INTERVIEW QUOTA (Lifetime 3-hour limit)
+-- Tracks total interview time used per user
+-- ═══════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS user_interview_quota (
+    id                      SERIAL PRIMARY KEY,
+    email                   TEXT UNIQUE NOT NULL,
+    total_minutes_used      REAL NOT NULL DEFAULT 0,
+    quota_limit_minutes     REAL NOT NULL DEFAULT 180,  -- 3 hours default
+    last_interview_at       TIMESTAMPTZ,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_quota_email ON user_interview_quota(email);
+
+COMMENT ON TABLE user_interview_quota IS 'Tracks lifetime interview time quota per user (default 3 hours)';
+COMMENT ON COLUMN user_interview_quota.total_minutes_used IS 'Total minutes consumed across all interviews';
+COMMENT ON COLUMN user_interview_quota.quota_limit_minutes IS 'Maximum allowed minutes (admin can adjust per user)';

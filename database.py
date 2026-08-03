@@ -834,3 +834,128 @@ def get_recent_score_drift_stats(hours=168):
     except Exception as e:
         log.error(f"[DB] get_recent_score_drift_stats failed: {e}")
         return {}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# USER INTERVIEW QUOTA (Lifetime 3-hour limit)
+# ═══════════════════════════════════════════════════════════════════
+
+def get_user_quota(email):
+    """Get user's quota info. Returns dict with total_used, limit, remaining.
+    Creates entry with default 180 minutes if doesn't exist."""
+    if not _db_available:
+        return None
+    try:
+        from psycopg.rows import dict_row
+        with get_conn() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                # First ensure the user exists
+                cur.execute("""
+                    INSERT INTO user_interview_quota (email, total_minutes_used, quota_limit_minutes)
+                    VALUES (%s, 0, 180)
+                    ON CONFLICT (email) DO NOTHING
+                """, (email,))
+
+                # Then fetch the current quota
+                cur.execute("""
+                    SELECT email, total_minutes_used, quota_limit_minutes,
+                           (quota_limit_minutes - total_minutes_used) as remaining_minutes,
+                           last_interview_at, created_at, updated_at
+                    FROM user_interview_quota
+                    WHERE email = %s
+                """, (email,))
+                row = cur.fetchone()
+                conn.commit()
+                if row:
+                    return dict(row)
+                return None
+    except Exception as e:
+        log.error(f"[DB] get_user_quota failed: {e}")
+        return None
+
+
+def update_user_quota(email, minutes_used):
+    """Add minutes to user's total quota usage. Called when interview ends."""
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO user_interview_quota (email, total_minutes_used, last_interview_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (email) DO UPDATE SET
+                        total_minutes_used = user_interview_quota.total_minutes_used + %s,
+                        last_interview_at = NOW(),
+                        updated_at = NOW()
+                """, (email, minutes_used, minutes_used))
+                conn.commit()
+                log.info(f"[Quota] Added {minutes_used} minutes to {email}")
+                return True
+    except Exception as e:
+        log.error(f"[DB] update_user_quota failed: {e}")
+        return False
+
+
+def admin_reset_user_quota(email):
+    """Admin function: Reset user's quota to 0 (gives them full 3 hours again)."""
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE user_interview_quota
+                    SET total_minutes_used = 0, updated_at = NOW()
+                    WHERE email = %s
+                """, (email,))
+                conn.commit()
+                log.info(f"[Quota] Admin reset quota for {email}")
+                return True
+    except Exception as e:
+        log.error(f"[DB] admin_reset_user_quota failed: {e}")
+        return False
+
+
+def admin_set_user_quota_limit(email, limit_minutes):
+    """Admin function: Set custom quota limit for specific user."""
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO user_interview_quota (email, quota_limit_minutes)
+                    VALUES (%s, %s)
+                    ON CONFLICT (email) DO UPDATE SET
+                        quota_limit_minutes = %s,
+                        updated_at = NOW()
+                """, (email, limit_minutes, limit_minutes))
+                conn.commit()
+                log.info(f"[Quota] Admin set quota limit to {limit_minutes} min for {email}")
+                return True
+    except Exception as e:
+        log.error(f"[DB] admin_set_user_quota_limit failed: {e}")
+        return False
+
+
+def get_all_user_quotas(limit=100):
+    """Admin function: List all users with their quota usage."""
+    if not _db_available:
+        return []
+    try:
+        from psycopg.rows import dict_row
+        with get_conn() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT email, total_minutes_used, quota_limit_minutes,
+                           (quota_limit_minutes - total_minutes_used) as remaining_minutes,
+                           last_interview_at, created_at, updated_at
+                    FROM user_interview_quota
+                    ORDER BY total_minutes_used DESC
+                    LIMIT %s
+                """, (limit,))
+                return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        log.error(f"[DB] get_all_user_quotas failed: {e}")
+        return []

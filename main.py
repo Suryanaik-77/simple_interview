@@ -657,6 +657,11 @@ def _end_interview(session, reason="manual"):
     sid = session.get("id", "unknown")[:8]
     log.info(f"[Interview] Session {sid} ended - Reason: {reason} | Duration: {duration_minutes} min ({session['turn']} turns)")
 
+    # Deduct from user's lifetime quota
+    email = session.get("resume", {}).get("email")
+    if email and duration_minutes > 0:
+        database.update_user_quota(email, duration_minutes)
+
 
 # ── LLM Routing ──────────────────────────────────────────────────────────
 
@@ -3397,6 +3402,11 @@ async def lms_launch(
     if not LMS_API_KEY or api_key != LMS_API_KEY:
         raise HTTPException(401, "Invalid or missing API key")
 
+    # Check user's remaining quota before allowing LMS session creation
+    quota = database.get_user_quota(email)
+    if quota and quota["remaining_minutes"] <= 0:
+        raise HTTPException(403, f"Interview quota exhausted. User has used {quota['total_minutes_used']:.1f} minutes of their {quota['quota_limit_minutes']:.0f}-minute lifetime quota. Please contact support to extend quota.")
+
     domain = DOMAIN_ALIASES.get(domain, domain)
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(400, f"Unsupported domain: '{domain}'. Supported domains: {list(SUPPORTED_DOMAINS.keys())}")
@@ -3504,7 +3514,16 @@ async def lms_launch(
     # If request wants JSON (API call), return JSON; otherwise redirect to lobby
     accept = request.headers.get("accept", "")
     if "application/json" in accept:
-        return {"session_id": sid, "launch_url": launch_url, "resume": parsed}
+        # Include quota information in response
+        quota = database.get_user_quota(email)
+        quota_info = {}
+        if quota:
+            quota_info = {
+                "quota_remaining_minutes": quota["remaining_minutes"],
+                "quota_total_minutes": quota["quota_limit_minutes"],
+                "quota_used_minutes": quota["total_minutes_used"]
+            }
+        return {"session_id": sid, "launch_url": launch_url, "resume": parsed, **quota_info}
 
     from starlette.responses import RedirectResponse
     return RedirectResponse(launch_url, status_code=303)
@@ -3699,6 +3718,13 @@ async def create_session_endpoint(
     if resume["domain"] not in SUPPORTED_DOMAINS:
         resume["domain"] = "physical_design"  # fallback for direct sessions
 
+    # Check user's remaining quota before allowing session creation
+    user_email = resume.get("email")
+    if user_email:
+        quota = database.get_user_quota(user_email)
+        if quota and quota["remaining_minutes"] <= 0:
+            raise HTTPException(403, f"Interview quota exhausted. You have used {quota['total_minutes_used']:.1f} minutes of your {quota['quota_limit_minutes']:.0f}-minute lifetime quota. Please contact support to extend your quota.")
+
     sid = secrets.token_hex(8)
     session = {
         "id": sid, "mode": mode, "resume": resume, "phase": "greeting",
@@ -3741,7 +3767,19 @@ async def create_session_endpoint(
                 log.info(f"[FaceID] No fresh capture; loaded stored reference for {candidate_email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
 
     sessions[sid] = session
-    return {"session_id": sid, "resume": resume}
+
+    # Include quota information in response
+    quota_info = {}
+    if user_email:
+        quota = database.get_user_quota(user_email)
+        if quota:
+            quota_info = {
+                "quota_remaining_minutes": quota["remaining_minutes"],
+                "quota_total_minutes": quota["quota_limit_minutes"],
+                "quota_used_minutes": quota["total_minutes_used"]
+            }
+
+    return {"session_id": sid, "resume": resume, **quota_info}
 
 
 @app.post("/api/start-interview")
@@ -5160,6 +5198,43 @@ async def set_anticheat_config(data: dict, _=Depends(require_admin)):
         if key in ANTICHEAT_FEATURES and isinstance(enabled, bool):
             ANTICHEAT_FEATURES[key]["enabled"] = enabled
     return {"status": "success", "features": ANTICHEAT_FEATURES}
+
+
+# ── Admin: User Quota Management ─────────────────────────────────────────
+
+@app.get("/api/admin/quota-list")
+async def admin_quota_list(_=Depends(require_admin), limit: int = 100):
+    """List all user quotas, ordered by usage descending."""
+    quotas = database.get_all_user_quotas(limit=limit)
+    return {"quotas": quotas}
+
+@app.post("/api/admin/quota-reset")
+async def admin_quota_reset(data: dict, _=Depends(require_admin)):
+    """Reset a user's quota usage to 0."""
+    email = data.get("email", "").strip()
+    if not email:
+        raise HTTPException(400, "Email is required")
+
+    database.admin_reset_user_quota(email)
+    quota = database.get_user_quota(email)
+    log.info(f"[Admin] Reset quota for {email}")
+    return {"status": "success", "message": f"Quota reset for {email}", "quota": quota}
+
+@app.post("/api/admin/quota-set-limit")
+async def admin_quota_set_limit(data: dict, _=Depends(require_admin)):
+    """Set custom quota limit for a user."""
+    email = data.get("email", "").strip()
+    limit_minutes = data.get("limit_minutes")
+
+    if not email:
+        raise HTTPException(400, "Email is required")
+    if limit_minutes is None or limit_minutes < 0:
+        raise HTTPException(400, "Valid limit_minutes is required (>= 0)")
+
+    database.admin_set_user_quota_limit(email, limit_minutes)
+    quota = database.get_user_quota(email)
+    log.info(f"[Admin] Set quota limit for {email} to {limit_minutes} minutes")
+    return {"status": "success", "message": f"Quota limit set to {limit_minutes} minutes for {email}", "quota": quota}
 
 
 # ── Admin: Sessions ──────────────────────────────────────────────────────
