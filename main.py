@@ -2089,17 +2089,52 @@ def _get_interview_phase(turn: int) -> str:
 
 
 def _get_topics_covered(session) -> list[str]:
-    """Extract topics already covered from conversation."""
+    """Extract topics already covered from conversation.
+    Returns normalized topic names to prevent asking the same topic with different wording."""
     topics = []
+
+    # Topic groups - similar phrases map to the same topic
+    topic_keywords = {
+        "aspect_ratio": ["aspect ratio", "floorplan shape", "core aspect"],
+        "floorplan": ["floorplan", "floor plan", "chip layout planning"],
+        "placement": ["placement", "cell placement", "standard cell"],
+        "cts": ["cts", "clock tree", "clock distribution"],
+        "clock": ["clock", "clocking"],
+        "routing": ["routing", "route", "congestion", "track"],
+        "sta": ["sta", "static timing", "timing analysis"],
+        "timing": ["timing", "setup", "hold", "slack"],
+        "ir_drop": ["ir drop", "voltage drop", "power grid"],
+        "power": ["power", "rail", "straps", "rings"],
+        "electromigration": ["electromigration", "em", "current density"],
+        "drc": ["drc", "design rule"],
+        "lvs": ["lvs", "layout versus"],
+        "matching": ["matching", "symmetry"],
+        "parasitic": ["parasitic", "extraction", "rc"],
+        "latch": ["latch", "metastability"],
+        "esd": ["esd", "electrostatic"],
+        "ota": ["ota", "operational transconductance"],
+        "ldo": ["ldo", "regulator", "dropout"],
+        "bandgap": ["bandgap", "voltage reference"],
+        "pll": ["pll", "phase lock"],
+        "adc": ["adc", "analog to digital"],
+        "dac": ["dac", "digital to analog"],
+        "uvm": ["uvm", "universal verification"],
+        "coverage": ["coverage", "functional coverage"],
+        "assertion": ["assertion", "sva"],
+        "systemverilog": ["systemverilog", "sv"],
+        "formal": ["formal", "fv"],
+        "debug": ["debug", "waveform"],
+        "utilization": ["utilization", "density"],
+        "derating": ["derating", "derate"],
+    }
+
     for entry in session.get("conversation", []):
         q = entry.get("question", "").lower()
-        for topic in ["floorplan", "placement", "cts", "clock", "routing", "sta", "timing",
-                       "ir drop", "power", "drc", "lvs", "matching", "parasitic", "latch",
-                       "esd", "ota", "ldo", "bandgap", "pll", "adc", "dac",
-                       "uvm", "coverage", "assertion", "sv", "systemverilog", "formal",
-                       "debug", "waveform", "verification"]:
-            if topic in q and topic not in topics:
-                topics.append(topic)
+        for topic_name, keywords in topic_keywords.items():
+            if any(keyword in q for keyword in keywords):
+                if topic_name not in topics:
+                    topics.append(topic_name)
+
     return topics
 
 
