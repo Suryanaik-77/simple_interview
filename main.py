@@ -3989,6 +3989,14 @@ def submit_answer(data: dict):
             _end_interview(session, reason="llm_decision")
         save_candidate_session(session)
 
+    # Check if background thread (voice verification) ended the interview
+    # Reload from sessions dict to avoid race condition
+    current_session = sessions.get(sid)
+    if current_session and current_session.get("phase") == "ended":
+        # Background thread ended it - don't overwrite with our old copy
+        log.warning(f"[Session {sid[:8]}] Interview was ended by background thread (reason: {current_session.get('end_reason')}), preserving that state")
+        session = current_session
+
     sessions[sid] = session
 
     # Evaluate after the writeback so the eval thread's jsonb_set isn't clobbered.
@@ -3998,6 +4006,15 @@ def submit_answer(data: dict):
     total_ms = round((time.time() - t0_total) * 1000)
     llm_ms = result.get("llm_ms", 0)
     log.info(f"[Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms + TTS: {tts_ms}ms)")
+
+    # If background thread ended interview, override response
+    if session.get("phase") == "ended" and session.get("end_reason") == "speaker_verification_failed":
+        return {
+            "question": "Interview terminated — voice verification failed. Different speaker detected.",
+            "question_type": "end", "turn": session["turn"], "phase": "ended",
+            "audio": "", "difficulty": "basic", "should_end": True,
+            "end_reason": "speaker_verification_failed",
+        }
 
     return {
         "question": result["question"], "question_type": "interview",
