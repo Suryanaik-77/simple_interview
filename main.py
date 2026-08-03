@@ -3174,8 +3174,9 @@ def _verify_speaker_background(audio_bytes, session, turn):
                         count = session.get("speaker_mismatch_count", 0) + 1
                         session["speaker_mismatch_count"] = count
                         session.setdefault("speaker_mismatches", []).append(result)
+                        log.warning(f"[Eagle] {sid} — MISMATCH #{count} at turn {turn} - TERMINATING INTERVIEW")
+                        _end_interview(session, reason="speaker_verification_failed")
                         sessions[session["id"]] = session
-                        log.warning(f"[Eagle] {sid} — MISMATCH #{count} at turn {turn}")
                     return
                 else:
                     log.warning(f"[Eagle] {sid} — Enrollment failed: {profile_data}")
@@ -3208,8 +3209,9 @@ def _verify_speaker_background(audio_bytes, session, turn):
             count = session.get("speaker_mismatch_count", 0) + 1
             session["speaker_mismatch_count"] = count
             session.setdefault("speaker_mismatches", []).append(result)
+            log.warning(f"[Eagle] {sid} — MISMATCH #{count} at turn {turn} (score={result['score']}) - TERMINATING INTERVIEW")
+            _end_interview(session, reason="speaker_verification_failed")
             sessions[session["id"]] = session
-            log.warning(f"[Eagle] {sid} — MISMATCH #{count} at turn {turn} (score={result['score']})")
 
     except Exception as e:
         log.error(f"[Eagle] {sid} — Error: {e}")
@@ -3243,6 +3245,8 @@ def _verify_speaker_resemblyzer_fallback(audio_bytes, session, turn):
                         session["speaker_mismatch_count"] = count
                         session.setdefault("speaker_mismatches", []).append(
                             {"turn": turn, "score": round(score, 4), "ts": time.time()})
+                        log.warning(f"[Resemblyzer] {sid} — MISMATCH at turn {turn} vs LMS voice (score={score:.4f}) - TERMINATING INTERVIEW")
+                        _end_interview(session, reason="speaker_verification_failed")
                         sessions[session["id"]] = session
                     return
             session["speaker_ref_embedding"] = current_emb.tolist()
@@ -3259,6 +3263,8 @@ def _verify_speaker_resemblyzer_fallback(audio_bytes, session, turn):
             session["speaker_mismatch_count"] = count
             session.setdefault("speaker_mismatches", []).append(
                 {"turn": turn, "score": round(score, 4), "ts": time.time()})
+            log.warning(f"[Resemblyzer] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f}) - TERMINATING INTERVIEW")
+            _end_interview(session, reason="speaker_verification_failed")
             sessions[session["id"]] = session
 
     except Exception as e:
