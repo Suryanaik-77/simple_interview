@@ -5290,6 +5290,12 @@ def admin_sessions(_=Depends(require_admin)):
             else:
                 trajectory = "stable"
         
+        # Calculate duration
+        duration_minutes = s.get("duration_minutes")
+        if duration_minutes is None and s.get("started_at"):
+            end_time = s.get("ended_at", time.time())
+            duration_minutes = round((end_time - s["started_at"]) / 60, 2)
+
         session_list.append({
             "session_id": sid,
             "id": sid,
@@ -5307,6 +5313,7 @@ def admin_sessions(_=Depends(require_admin)):
             "trajectory": trajectory,
             "smooth_talker": s.get("smooth_talker", False),
             "anticheat_count": len(anticheat_log),
+            "duration_minutes": duration_minutes,
         })
     session_list.sort(key=lambda s: s.get("started_at", 0), reverse=True)
     return session_list

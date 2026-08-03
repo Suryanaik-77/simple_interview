@@ -383,8 +383,8 @@ textarea::placeholder{color:var(--t4)}
     <div class="sec-label">All sessions</div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Candidate</th><th>Domain</th><th>Level</th><th>Phase</th><th>Score</th><th>Questions</th><th>Risk</th><th>Trajectory</th><th>Started</th></tr></thead>
-        <tbody id="sessions-tbody"><tr><td colspan="9" class="loading-txt"><div class="spinner"></div></td></tr></tbody>
+        <thead><tr><th>Candidate</th><th>Domain</th><th>Level</th><th>Phase</th><th>Score</th><th>Questions</th><th>Duration</th><th>Risk</th><th>Trajectory</th><th>Started</th></tr></thead>
+        <tbody id="sessions-tbody"><tr><td colspan="10" class="loading-txt"><div class="spinner"></div></td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1065,10 +1065,10 @@ const SC = {
 let DEMO_MODE = false;
 
 const MOCK_SESSIONS = [
-  {session_id:'sess-001',candidate_name:'Priya Sharma',domain:'physical_design',level:'trained_fresher',phase:'ended',turn:18,avg_score:72,anticheat_count:2,signal_count:1,smooth_talker:false,trajectory:'rising',started_at:Date.now()/1000-3600},
-  {session_id:'sess-002',candidate_name:'Rahul Mehta',domain:'design_verification',level:'experienced_junior',phase:'ended',turn:22,avg_score:85,anticheat_count:0,signal_count:0,smooth_talker:false,trajectory:'flat_strong',started_at:Date.now()/1000-7200},
+  {session_id:'sess-001',candidate_name:'Priya Sharma',domain:'physical_design',level:'trained_fresher',phase:'ended',turn:18,avg_score:72,anticheat_count:2,signal_count:1,smooth_talker:false,trajectory:'rising',started_at:Date.now()/1000-3600,duration_minutes:12.5},
+  {session_id:'sess-002',candidate_name:'Rahul Mehta',domain:'design_verification',level:'experienced_junior',phase:'ended',turn:22,avg_score:85,anticheat_count:0,signal_count:0,smooth_talker:false,trajectory:'flat_strong',started_at:Date.now()/1000-7200,duration_minutes:18.3},
   {session_id:'sess-003',candidate_name:'Ananya Singh',domain:'analog_layout',level:'fresh_graduate',phase:'interview',turn:9,avg_score:48,anticheat_count:5,signal_count:4,smooth_talker:true,trajectory:'spiky',started_at:Date.now()/1000-1200},
-  {session_id:'sess-004',candidate_name:'Kiran Reddy',domain:'physical_design',level:'experienced_senior',phase:'ended',turn:20,avg_score:91,anticheat_count:0,signal_count:0,smooth_talker:false,trajectory:'flat_strong',started_at:Date.now()/1000-10800},
+  {session_id:'sess-004',candidate_name:'Kiran Reddy',domain:'physical_design',level:'experienced_senior',phase:'ended',turn:20,avg_score:91,anticheat_count:0,signal_count:0,smooth_talker:false,trajectory:'flat_strong',started_at:Date.now()/1000-10800,duration_minutes:15.7},
 ];
 
 const MOCK_DETAIL = {
@@ -2282,7 +2282,7 @@ async function loadSessions() {
     renderSessionsTable();
     renderSessionStats();
   } catch(e) {
-    document.getElementById('sessions-tbody').innerHTML = `<tr><td colspan="9" class="empty-state">Could not load sessions. Is the server running?</td></tr>`;
+    document.getElementById('sessions-tbody').innerHTML = `<tr><td colspan="10" class="empty-state">Could not load sessions. Is the server running?</td></tr>`;
   }
 }
 
@@ -2299,7 +2299,7 @@ function renderSessionStats() {
 
 function renderSessionsTable() {
   const tbody = document.getElementById('sessions-tbody');
-  if (!ALL_SESSIONS.length) { tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No sessions yet. Run an interview first.</td></tr>`; return; }
+  if (!ALL_SESSIONS.length) { tbody.innerHTML = `<tr><td colspan="10" class="empty-state">No sessions yet. Run an interview first.</td></tr>`; return; }
   tbody.innerHTML = ALL_SESSIONS.map(s => {
     const phase_chip = s.phase === 'ended' ? `<span class="chip chip-gray">Ended</span>` : `<span class="chip chip-ok">Live</span>`;
     const risk_chip  = s.signal_count >= 7 ? `<span class="chip chip-red">CRITICAL ${s.signal_count}</span>` :
@@ -2310,6 +2310,7 @@ function renderSessionsTable() {
                        s.trajectory === 'flat_strong' ? `<span class="chip chip-blue">Strong</span>` :
                        `<span class="chip chip-gray">${s.trajectory||'—'}</span>`;
     const started    = s.started_at ? new Date(s.started_at*1000).toLocaleTimeString() : '—';
+    const duration   = s.duration_minutes ? `${Math.floor(s.duration_minutes)} min` : (s.phase === 'ended' ? '—' : 'In progress');
     return `<tr onclick="openSessionDetail('${s.session_id}')">
       <td style="font-weight:500">${escH(s.candidate_name||'—')}</td>
       <td><span class="chip chip-blue">${escH(s.domain||'—').replace('_',' ')}</span></td>
@@ -2317,6 +2318,7 @@ function renderSessionsTable() {
       <td>${phase_chip}</td>
       <td><span style="font-family:var(--mono);font-weight:500;color:${s.avg_score>=70?'var(--green)':s.avg_score>=50?'var(--amber)':'var(--red)'}">${s.avg_score||'—'}</span></td>
       <td class="mono">${s.turn||0}</td>
+      <td class="mono" style="color:var(--t3)">${duration}</td>
       <td>${risk_chip}</td>
       <td>${traj_chip}</td>
       <td class="mono" style="color:var(--t3)">${started}</td>
