@@ -4900,17 +4900,16 @@ def face_compare(data: dict):
         except Exception as ge:
             log.error(f"[FaceCompare] Glasses detection on live frame failed: {ge}")
 
-        # Log anticheat event
-        session.setdefault("anticheat_log", []).append({
-            "event_type": "face_comparison",
-            "turn": session.get("turn", 0),
-            "timestamp": time.time(),
-            "metadata": f"similarity={similarity:.1f}%, matched={matched}, glasses_mismatch={glasses_mismatch}",
-        })
+        # Log anticheat event only if there's a problem (mismatch or glasses issue)
+        if not matched or glasses_mismatch:
+            session.setdefault("anticheat_log", []).append({
+                "event_type": "face_comparison",
+                "turn": session.get("turn", 0),
+                "timestamp": time.time(),
+                "metadata": f"similarity={similarity:.1f}%, matched={matched}, glasses_mismatch={glasses_mismatch}",
+            })
+            log.warning(f"[FaceCompare] Session {sid[:8]}: ALERT — similarity={similarity:.1f}%, matched={matched}, glasses_mismatch={glasses_mismatch}")
         sessions[sid] = session
-
-        if not matched:
-            log.info(f"[FaceCompare] Session {sid}: MISMATCH — similarity={similarity:.1f}%, glasses_mismatch={glasses_mismatch}")
 
         result = {
             "ok": True,
