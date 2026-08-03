@@ -308,8 +308,8 @@ body { font-family: 'Inter', sans-serif; }
         </div>
       </div>
       <div class="bg-surface-dim rounded-xl p-4 mb-3">
-        <p class="text-xs text-text-secondary mb-3">Read the following sentence aloud:</p>
-        <p class="text-sm font-medium text-text-primary italic text-center py-2">"Hello, my name is <span id="voice-name-prompt">___</span> and I am here for my interview."</p>
+        <p class="text-xs text-text-secondary mb-3">Read the following passage aloud clearly:</p>
+        <p class="text-sm font-medium text-text-primary italic text-center py-2">"Hello, my name is <span id="voice-name-prompt">___</span> and I am here for my interview today. I have carefully reviewed the job requirements and I am excited to discuss my qualifications and experience with the interviewing team."</p>
         <div class="flex items-center justify-center gap-3 mt-3">
           <div id="voice-wave" class="flex items-center gap-[2px] h-8">
             <div class="voice-bar w-1 bg-danger rounded-full" style="height:4px"></div>
@@ -986,8 +986,8 @@ async function recordVoice() {
     };
 
     _voiceRecorder.start();
-    // Auto-stop after 8 seconds
-    setTimeout(() => { if (_voiceRecorder && _voiceRecorder.state === 'recording') _voiceRecorder.stop(); }, 8000);
+    // Auto-stop after 12 seconds
+    setTimeout(() => { if (_voiceRecorder && _voiceRecorder.state === 'recording') _voiceRecorder.stop(); }, 12000);
 
   } catch(e) {
     label.textContent = 'Microphone access denied';
