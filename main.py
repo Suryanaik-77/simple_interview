@@ -2874,9 +2874,14 @@ def _enforce_followup_grouping(session, per_question: list) -> list:
         for fq in expected_fups:
             fq_item = by_q.get(fq)
             if fq_item:
-                for pt in (fq_item.get("missing_points") or []):
-                    if pt not in (item.get("missing_points") or []):
-                        item.setdefault("missing_points", []).append(pt)
+                # LLM generates "missed", not "missing_points" - support both for backward compat
+                for pt in (fq_item.get("missed") or fq_item.get("missing_points") or []):
+                    if pt not in (item.get("missed") or []):
+                        item.setdefault("missed", []).append(pt)
+                # Also merge covered points from follow-ups
+                for pt in (fq_item.get("covered") or []):
+                    if pt not in (item.get("covered") or []):
+                        item.setdefault("covered", []).append(pt)
 
         item["followup_qs"] = all_fups
         merged.append(item)
