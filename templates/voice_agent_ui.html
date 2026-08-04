@@ -1959,8 +1959,10 @@
                     }
                     document.getElementById('sub-label').textContent = `waiting for speech... (${avg.toFixed(0)}/255)`;
                 } else {
-                    // Nudged already and still silent. After 5s more, move to the next question.
-                    if (_nudgeEndedAt && (now - _nudgeEndedAt) >= NO_ANSWER_ADVANCE_MS) {
+                    // Nudged already and still silent. After 15s more, move to the next question.
+                    // BUT: only skip if we have no accumulated transcript (truly no answer given).
+                    // If the candidate spoke and we're transcribing, don't skip!
+                    if (_nudgeEndedAt && (now - _nudgeEndedAt) >= NO_ANSWER_ADVANCE_MS && !_accumulatedTranscript.trim()) {
                         skipToNextQuestion();
                         return;
                     }
