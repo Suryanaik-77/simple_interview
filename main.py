@@ -4465,6 +4465,12 @@ def end_session(data: dict):
 @app.get("/api/get-session")
 def get_session_endpoint(session_id: str):
     session = sessions.get(session_id)
+    # If not in memory, try loading from database (e.g., after service restart)
+    if not session and database.is_available():
+        session = database.get_active_session(session_id)
+        if session:
+            # Load into memory for subsequent requests
+            sessions[session_id] = session
     if not session: raise HTTPException(404, "Session not found")
     return {"session_id": session_id, "phase": session["phase"], "turn": session["turn"],
             "resume": session.get("resume", {}), "mode": session.get("mode", "mock"),
