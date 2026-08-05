@@ -19,6 +19,8 @@ from urllib.parse import quote
 from secrets_proxy import get_secret
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,6 +51,28 @@ log = logging.getLogger("interview")
 # ── App ──────────────────────────────────────────────────────────────────
 app = FastAPI(title="Simple Interview Agent")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.exception_handler(RequestValidationError)
+async def _log_validation_error(request: Request, exc: RequestValidationError):
+    """FastAPI rejects a bad request BEFORE the endpoint body runs, so a 422 leaves
+    no trace in the endpoint's own logging. Log what actually arrived — for multipart
+    posts, the field names and whether each part came through as a file or a string.
+    This is what tells us apart 'LMS omitted user_face' from 'LMS sent it as a plain
+    form field / under another name', which look identical in the 422 response."""
+    try:
+        form = await request.form()
+        fields = ", ".join(
+            f"{k}=<file {getattr(v, 'filename', None)!r}>" if hasattr(v, "filename")
+            else f"{k}=<str len={len(str(v))}>"
+            for k, v in form.multi_items()
+        ) or "(no form fields)"
+    except Exception as e:
+        fields = f"(form unreadable: {e})"
+    log.warning(f"[422] {request.method} {request.url.path} — received: {fields} | errors: {exc.errors()}")
+    # jsonable_encoder is required: exc.errors() embeds a ValueError in ctx for some
+    # error types, and json.dumps on that raises — turning every 422 into a 500.
+    return JSONResponse({"detail": jsonable_encoder(exc.errors())}, status_code=422)
 
 # Serve static files (face-liveness bundle, etc.)
 _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -3545,8 +3569,6 @@ async def lms_launch(
     log.info(f"[LMS] Received face: {user_face.filename} ({len(face_image_bytes)} bytes)")
 
     # Validate with Rekognition: must contain exactly 1 face, detect glasses
-    face_wearing_glasses = False  # Default if Rekognition not available
-    rekog_obs = None
     if rekognition_client:
         try:
             _rk_t0 = time.time()
@@ -3599,12 +3621,9 @@ async def lms_launch(
     session["has_face_ref"] = True
     session["face_ref_glasses"] = face_wearing_glasses
 
+    # DatabaseSessions.__setitem__ already writes Postgres then refreshes Redis, so the
+    # session survives a restart between launch and the candidate opening the lobby.
     sessions[sid] = session
-    # Persist to database immediately so has_face_ref flag is available in lobby
-    # even if service restarts between LMS launch and candidate loading lobby
-    if database.is_available():
-        database.save_active_session(sid, session)
-        redis_cache.delete_session(sid)  # Clear any stale cache
 
     token = jwt.encode({
         "type": "lms_launch",
@@ -4504,13 +4523,8 @@ def end_session(data: dict):
 
 @app.get("/api/get-session")
 def get_session_endpoint(session_id: str):
+    # sessions.get() already falls through Redis to Postgres (see DatabaseSessions).
     session = sessions.get(session_id)
-    # If not in memory, try loading from database (e.g., after service restart)
-    if not session and database.is_available():
-        session = database.get_active_session(session_id)
-        if session:
-            # Load into memory for subsequent requests
-            sessions[session_id] = session
     if not session: raise HTTPException(404, "Session not found")
     return {"session_id": session_id, "phase": session["phase"], "turn": session["turn"],
             "resume": session.get("resume", {}), "mode": session.get("mode", "mock"),
