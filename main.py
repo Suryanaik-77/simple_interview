@@ -3545,6 +3545,8 @@ async def lms_launch(
     log.info(f"[LMS] Received face: {user_face.filename} ({len(face_image_bytes)} bytes)")
 
     # Validate with Rekognition: must contain exactly 1 face, detect glasses
+    face_wearing_glasses = False  # Default if Rekognition not available
+    rekog_obs = None
     if rekognition_client:
         try:
             _rk_t0 = time.time()
