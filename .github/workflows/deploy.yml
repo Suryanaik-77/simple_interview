@@ -20,25 +20,37 @@ jobs:
             cd /home/ubuntu/simple_interview
             git pull origin main
 
-            # Install any new dependencies
-            /home/ubuntu/venv311/bin/pip install -r requirements.txt -q 2>/dev/null || true
+            # Ensure systemd service is stopped and disabled (manual mode)
+            sudo systemctl stop interview.service 2>/dev/null || true
+            sudo systemctl disable interview.service 2>/dev/null || true
 
-            # Restart the app — wait for port 8001 to be released before starting
-            pkill -f "python main.py" || true
+            # Install any new dependencies
+            source /home/ubuntu/venv311/bin/activate
+            pip install -r requirements.txt -q 2>/dev/null || true
+
+            # Restart the app — kill existing process and wait for port release
+            pkill -f "python3 main.py" || pkill -f "python main.py" || true
             for i in $(seq 1 10); do
               ss -tlnp | grep -q ':8001' || break
               echo "Waiting for port 8001 to free... ($i/10)"
               sleep 1
             done
-            nohup /home/ubuntu/venv311/bin/python main.py > app.log 2>&1 &
 
-            # Wait and verify — check the port, not just the process name
+            # Start manually with nohup (no systemd)
+            nohup /home/ubuntu/venv311/bin/python3 main.py > /home/ubuntu/simple_interview/app.log 2>&1 &
+
+            # Wait and verify app started
             for i in $(seq 1 12); do
               sleep 1
-              ss -tlnp | grep -q ':8001' && echo "App restarted successfully (${i}s)" && break
+              if ss -tlnp | grep -q ':8001'; then
+                echo "✓ App restarted successfully (${i}s)"
+                echo "✓ Logs: tail -f /home/ubuntu/simple_interview/app.log"
+                break
+              fi
               if [ $i -eq 12 ]; then
-                echo "App failed to start!"
-                tail -20 app.log
+                echo "✗ App failed to start!"
+                echo "Last 30 lines of log:"
+                tail -30 /home/ubuntu/simple_interview/app.log
                 exit 1
               fi
             done
