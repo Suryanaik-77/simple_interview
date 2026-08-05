@@ -1456,14 +1456,13 @@ function backToLobby() {
 
       // LMS may have already sent face via /api/lms/launch — check session
       if (S.faceEnabled && data.has_face_ref) {
-        S.facePassed = true;
-        document.getElementById('face-chip').textContent = 'Via LMS';
-        document.getElementById('face-chip').className = 'text-[10px] font-semibold text-success';
-        document.getElementById('dot-face').className = 'w-2 h-2 rounded-full bg-success';
-        document.getElementById('face-label').textContent = 'Face reference provided by LMS';
-        document.getElementById('face-btn').textContent = 'Provided';
-        document.getElementById('face-btn').disabled = true;
-        document.getElementById('face-btn').className = 'px-4 py-1.5 rounded-lg bg-success text-white text-xs font-semibold';
+        // markFacePassed owns the card's real element ids (face-verify-prompt /
+        // face-verify-status). Do NOT hand-roll this — an id typo here throws and
+        // aborts the rest of this .then(), silently skipping updateChecks().
+        markFacePassed(true);
+        const chip = document.getElementById('face-chip');
+        chip.textContent = 'Via LMS';
+        document.getElementById('face-confidence-text').textContent = 'Face reference provided by LMS';
       } else if (S.faceEnabled && resume.email) {
         // Fallback: Check for existing face reference in DB (old flow)
         checkExistingFaceRef(resume.email);
