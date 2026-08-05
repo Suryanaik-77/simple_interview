@@ -1,0 +1,14 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - text: VLSI
+    - emphasis [ref=e5]: .
+    - text: AI
+  - generic [ref=e6]: Interview Platform
+  - generic [ref=e7]: Username
+  - textbox "admin or reviewer" [ref=e8]
+  - generic [ref=e9]: Password
+  - textbox "••••••••" [ref=e10]
+  - button "Sign in" [ref=e11] [cursor=pointer]
+  - generic [ref=e13]:
+    - generic [ref=e14]: Demo mode (no server needed)
+    - button "Preview with sample data →" [ref=e15] [cursor=pointer]

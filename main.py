@@ -153,18 +153,6 @@ redis_cache.init_cache()
 
 import comparison_analysis
 
-# Initialize Eagle Speaker Verification (Picovoice)
-try:
-    import eagle_speaker_verification
-    eagle_available = eagle_speaker_verification.init_eagle()
-    if eagle_available:
-        log.info("[Eagle] Picovoice Eagle speaker verification enabled")
-    else:
-        log.warning("[Eagle] Speaker verification disabled (check PICOVOICE_ACCESS_KEY)")
-except Exception as e:
-    log.error(f"[Eagle] Failed to initialize: {e}")
-    eagle_available = False
-
 # Shared runtime config (LLM/TTS/STT). With multiple workers, an admin edit only
 # mutates one worker's RUNTIME_CONFIG dict. Postgres holds the durable, shared copy
 # (so changes survive restarts and reach every worker); Redis caches it for fast reads.
@@ -3220,101 +3208,18 @@ def _compute_speaker_embedding(audio_bytes):
 
 
 def _verify_speaker_background(audio_bytes, session, turn):
-    """Background speaker verification using Picovoice Eagle.
-    - Turn 1: Enroll reference profile (if not provided by LMS)
-    - Subsequent turns: Verify against enrolled profile
-    NOTE: Eagle profiles are base64-encoded for JSON/DB safety.
-    """
-    import base64
+    """Speaker verification via Resemblyzer, run off the request thread.
+
+    Turn 1 establishes the reference (from the LMS- or lobby-supplied sample if
+    there is one, otherwise from this turn's audio); later turns are scored
+    against it and a cosine below SPEAKER_VERIFY_THRESHOLD ends the interview."""
+    import numpy as np, base64
     sid = session.get("id", "?")[:8]
 
     try:
         if session.get("phase") == "ended":
             return
 
-        # Check if Eagle is available
-        if not eagle_available or not eagle_speaker_verification.is_available():
-            # Fallback to Resemblyzer if Eagle not available
-            return _verify_speaker_resemblyzer_fallback(audio_bytes, session, turn)
-
-        # Turn 1: Enroll speaker profile
-        if "eagle_speaker_profile" not in session:
-            # Use LMS-provided voice if available
-            voice_ref = session.get("user_voice_ref")
-            if voice_ref:
-                # Decode base64 → bytes
-                if isinstance(voice_ref, str):
-                    voice_ref = base64.b64decode(voice_ref)
-
-                # Enroll with Eagle
-                success, profile_data, metadata = eagle_speaker_verification.enroll_reference_voice(
-                    voice_ref, session["id"]
-                )
-
-                if success:
-                    session["eagle_speaker_profile"] = profile_data
-                    session.pop("user_voice_ref", None)  # Remove raw audio
-                    sessions[session["id"]] = session
-                    log.info(f"[Eagle] {sid} — Enrolled from LMS voice ({metadata.get('profile_size_bytes')} bytes)")
-
-                    # Verify first answer against enrolled profile
-                    result = eagle_speaker_verification.verify_turn_audio(
-                        session["id"], profile_data, audio_bytes, turn
-                    )
-
-                    if not result["verified"]:
-                        count = session.get("speaker_mismatch_count", 0) + 1
-                        session["speaker_mismatch_count"] = count
-                        session.setdefault("speaker_mismatches", []).append(result)
-                        log.warning(f"[Eagle] {sid} — MISMATCH #{count} at turn {turn} - TERMINATING INTERVIEW")
-                        _end_interview(session, reason="speaker_verification_failed")
-                        sessions[session["id"]] = session
-                    return
-                else:
-                    log.warning(f"[Eagle] {sid} — Enrollment failed: {profile_data}")
-                    return
-
-            # No LMS voice — enroll from first answer
-            success, profile_data, metadata = eagle_speaker_verification.enroll_reference_voice(
-                audio_bytes, session["id"]
-            )
-
-            if success:
-                session["eagle_speaker_profile"] = profile_data
-                sessions[session["id"]] = session
-                log.info(f"[Eagle] {sid} — Enrolled from turn 1 ({metadata.get('profile_size_bytes')} bytes)")
-            else:
-                log.warning(f"[Eagle] {sid} — Turn 1 enrollment failed: {profile_data}")
-            return
-
-        # Subsequent turns: verify against enrolled profile
-        profile_data = session.get("eagle_speaker_profile")
-        if not profile_data:
-            log.warning(f"[Eagle] {sid} — No profile found for verification")
-            return
-
-        result = eagle_speaker_verification.verify_turn_audio(
-            session["id"], profile_data, audio_bytes, turn
-        )
-
-        if not result["verified"]:
-            count = session.get("speaker_mismatch_count", 0) + 1
-            session["speaker_mismatch_count"] = count
-            session.setdefault("speaker_mismatches", []).append(result)
-            log.warning(f"[Eagle] {sid} — MISMATCH #{count} at turn {turn} (score={result['score']}) - TERMINATING INTERVIEW")
-            _end_interview(session, reason="speaker_verification_failed")
-            sessions[session["id"]] = session
-
-    except Exception as e:
-        log.error(f"[Eagle] {sid} — Error: {e}")
-
-
-def _verify_speaker_resemblyzer_fallback(audio_bytes, session, turn):
-    """Fallback to Resemblyzer if Eagle is not available."""
-    import numpy as np, base64
-    sid = session.get("id", "?")[:8]
-
-    try:
         current_emb = _compute_speaker_embedding(audio_bytes)
         if current_emb is None:
             return
@@ -3931,15 +3836,14 @@ async def set_session_voice_ref(session_id: str = Form(...), user_voice: UploadF
     An LMS launch creates the session up front, so the lobby skips /api/create-session
     and a sample recorded there had no upload path at all. Without this the reference
     never reaches the server and speaker verification falls through to enrolling
-    whoever speaks first (main.py _verify_speaker_resemblyzer_fallback), which means
+    whoever speaks first (main.py _verify_speaker_background), which means
     an impostor is enrolled as themselves and can never mismatch."""
     session = sessions.get(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
     # Never overwrite an established reference — an LMS-supplied sample or an
-    # already-enrolled profile is the stronger one and must win.
-    if (session.get("user_voice_ref") or session.get("speaker_ref_embedding")
-            or session.get("eagle_speaker_profile")):
+    # already-enrolled embedding is the stronger one and must win.
+    if session.get("user_voice_ref") or session.get("speaker_ref_embedding"):
         return {"ok": True, "skipped": True, "reason": "reference_already_set"}
     voice_bytes = await user_voice.read()
     if len(voice_bytes) > 10_000_000:
@@ -5336,17 +5240,11 @@ async def stt_test(audio: UploadFile = File(...), provider: str = Form("openai")
 @app.get("/api/admin/voice-verification")
 async def get_voice_verification_config(_=Depends(require_admin)):
     _sync_runtime_config()
-
-    # Get Eagle system info
-    eagle_info = {}
-    if eagle_available:
-        eagle_info = eagle_speaker_verification.get_system_info()
-
     return {
         "enabled": RUNTIME_CONFIG.get("voice_verification_enabled", True),
-        "engine": "eagle" if eagle_available else "resemblyzer",
-        "eagle_available": eagle_available,
-        "eagle_info": eagle_info
+        "engine": "resemblyzer",
+        "threshold": SPEAKER_VERIFY_THRESHOLD,
+        "min_audio_sec": SPEAKER_MIN_AUDIO_SEC,
     }
 
 @app.post("/api/admin/voice-verification")
