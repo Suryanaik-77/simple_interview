@@ -1014,6 +1014,18 @@ async function startInterview() {
   try {
     // LMS launch — session already exists, go directly
     if (S.lmsSessionId) {
+      // This path skips /api/create-session, which is the only place the FormData
+      // below is sent — so a sample recorded here (because the LMS supplied none)
+      // would be dropped, and speaker verification would enrol whoever speaks first.
+      if (S.voiceBlob) {
+        const vf = new FormData();
+        vf.append('session_id', S.lmsSessionId);
+        vf.append('user_voice', S.voiceBlob, 'voice_sample.webm');
+        try {
+          const vr = await fetch('/api/session/voice-ref', { method: 'POST', body: vf });
+          if (!vr.ok) console.error('Voice reference upload failed:', vr.status);
+        } catch(e) { console.error('Voice reference upload failed:', e); }
+      }
       window.location.href = '/interview?session_id=' + S.lmsSessionId;
       return;
     }

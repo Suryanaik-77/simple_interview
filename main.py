@@ -3909,6 +3909,34 @@ async def create_session_endpoint(
     return {"session_id": sid, "resume": resume, **quota_info}
 
 
+@app.post("/api/session/voice-ref")
+async def set_session_voice_ref(session_id: str = Form(...), user_voice: UploadFile = File(...)):
+    """Attach a lobby-recorded voice sample to a session that already exists.
+
+    An LMS launch creates the session up front, so the lobby skips /api/create-session
+    and a sample recorded there had no upload path at all. Without this the reference
+    never reaches the server and speaker verification falls through to enrolling
+    whoever speaks first (main.py _verify_speaker_resemblyzer_fallback), which means
+    an impostor is enrolled as themselves and can never mismatch."""
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    # Never overwrite an established reference — an LMS-supplied sample or an
+    # already-enrolled profile is the stronger one and must win.
+    if (session.get("user_voice_ref") or session.get("speaker_ref_embedding")
+            or session.get("eagle_speaker_profile")):
+        return {"ok": True, "skipped": True, "reason": "reference_already_set"}
+    voice_bytes = await user_voice.read()
+    if len(voice_bytes) > 10_000_000:
+        raise HTTPException(413, "Voice file too large. Max 10MB.")
+    if len(voice_bytes) <= 1000:
+        raise HTTPException(400, "Voice sample too short.")
+    session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
+    sessions[session_id] = session
+    log.info(f"[Voice] Stored lobby voice reference for session {session_id[:8]} ({len(voice_bytes)} bytes)")
+    return {"ok": True}
+
+
 @app.post("/api/start-interview")
 def start_interview(data: dict):
     _sync_runtime_config()
