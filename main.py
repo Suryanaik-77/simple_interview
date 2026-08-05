@@ -3569,6 +3569,11 @@ async def lms_launch(
     session["face_ref_glasses"] = face_wearing_glasses
 
     sessions[sid] = session
+    # Persist to database immediately so face_ref_image is available in lobby
+    # even if service restarts between LMS launch and candidate loading lobby
+    if database.is_available():
+        database.save_active_session(sid, session)
+        redis_cache.delete_session(sid)  # Clear any stale cache
 
     token = jwt.encode({
         "type": "lms_launch",
