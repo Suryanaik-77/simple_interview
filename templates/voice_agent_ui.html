@@ -2615,6 +2615,42 @@
         _origSetOrb(s);
     };
 
+    // 5b. Reload prevention
+    // A reload mid-interview drops the page's state and re-runs initInterview against a
+    // live session. Keyboard reloads are swallowed outright; the browser's own reload
+    // button can only be met with the native confirm dialog, which is the most any page
+    // is permitted to do. Either way the attempt is recorded, so a candidate who
+    // confirms through it still leaves a trace.
+    document.addEventListener('keydown', (e) => {
+        if (!sessionOn || interviewEnded) return;
+        const isReload = e.key === 'F5'
+            || ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R'));
+        if (!isReload) return;
+        e.preventDefault();
+        e.stopPropagation();
+        sendAntiCheat('reload_attempt', `key:${e.ctrlKey || e.metaKey ? 'ctrl+r' : 'F5'}`);
+        console.warn('[Anti-cheat] Reload blocked during interview');
+    }, true);  // capture phase, so it lands before other keydown handlers
+
+    window.addEventListener('beforeunload', (e) => {
+        if (!sessionOn || interviewEnded) return;   // stay silent once the report is up
+        // sendBeacon, not sendAntiCheat: a fetch started here is cancelled once the
+        // page actually unloads, losing the event in precisely the case that matters —
+        // the candidate confirming the dialog and leaving.
+        if (navigator.sendBeacon && sessionId) {
+            navigator.sendBeacon('/api/anticheat-event', new Blob([JSON.stringify({
+                session_id: sessionId,
+                event_type: 'reload_attempt',
+                turn: qCount,
+                timestamp: Date.now() / 1000,
+                metadata: 'beforeunload',
+            })], { type: 'application/json' }));
+        }
+        e.preventDefault();
+        e.returnValue = '';   // required by Chrome to raise the dialog
+        return '';
+    });
+
     // 6. Screen share detection + Minimize prevention
 
     // Screen share warning overlay
