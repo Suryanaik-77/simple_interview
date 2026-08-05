@@ -3411,22 +3411,32 @@ async def lms_launch(
     email: str = Form(...),
     domain: str = Form("physical_design"),
     resume: UploadFile = File(...),
-    user_face: UploadFile = File(...),  # NOW REQUIRED
+    user_face: UploadFile = File(...),
+    user_voice: UploadFile = File(...),
     callback_url: str = Form(""),
-    user_voice: UploadFile = File(None),
 ):
-    """LMS calls this to create a session and get a signed launch URL.
+    """LMS calls this to create a session and return the interview URL.
 
     REQUIRED fields:
     - name: Candidate's full name
     - email: Candidate's email address
-    - resume: Resume file (PDF/DOCX, max 5MB)
-    - user_face: Face photo (JPG/PNG, max 5MB) - REQUIRED for face verification
+    - resume: Résumé file (PDF/DOCX, max 5MB)
+    - user_face: Face photo (JPG/PNG, max 5MB) — the reference the start gate and
+      the per-minute compare loop check the live camera against
+    - user_voice: Voice sample (audio, max 10MB, at least SPEAKER_MIN_AUDIO_SEC
+      seconds of speech) — the reference speaker verification scores each answer
+      against
+
+    Both references are required because there is no lobby: the candidate goes
+    straight to the interview, so a missing one cannot be collected later and the
+    corresponding anti-cheat check would silently do nothing all interview.
 
     OPTIONAL fields:
     - domain: Interview domain (default: physical_design)
-    - user_voice: Voice sample (audio file, max 10MB)
     - callback_url: LMS callback URL (deprecated)
+
+    Each part must be sent as a multipart FILE part with a filename. A plain form
+    field containing base64 is rejected as "Expected UploadFile, received: str".
     """
     api_key = request.headers.get("X-API-Key", "")
     if not LMS_API_KEY or api_key != LMS_API_KEY:
@@ -3461,35 +3471,39 @@ async def lms_launch(
     parsed["domain"] = domain
     parsed["resume_text"] = text[:3000]
 
-    # Process user voice reference (for speaker verification)
-    voice_bytes = None
+    # ── Voice reference (REQUIRED) ──────────────────────────────────────────
+    # File(...) makes it mandatory, but a part sent without a filename still
+    # arrives as an empty UploadFile, so check explicitly.
     log.info(f"[LMS] user_voice: {user_voice}, filename: {getattr(user_voice, 'filename', None) if user_voice else None}")
-    if user_voice and user_voice.filename:
-        voice_bytes = await user_voice.read()
-        if len(voice_bytes) > 10_000_000:
-            raise HTTPException(413, "Voice file too large. Max 10MB.")
-        # Reject a sample the embedder would silently refuse. There is no lobby to
-        # re-record in, so this is the only voice reference the session will ever get:
-        # _compute_speaker_embedding returns None below SPEAKER_MIN_AUDIO_SEC, which
-        # leaves no reference at all and makes speaker verification a no-op for the
-        # whole interview. Reject only when the clip is positively measured as too
-        # short — if our own conversion fails, warn and accept rather than blocking
-        # every launch on broken ffmpeg.
-        try:
-            _np_audio, _ = _to_wav16k(voice_bytes)
-            voice_duration_sec = len(_np_audio) / 16000
-        except Exception as e:
-            voice_duration_sec = None
-            log.warning(f"[LMS] Could not measure voice duration: {e}")
-        if voice_duration_sec is not None and voice_duration_sec < SPEAKER_MIN_AUDIO_SEC:
-            raise HTTPException(400, f"Voice sample is too short ({voice_duration_sec:.1f}s). "
-                                     f"At least {SPEAKER_MIN_AUDIO_SEC:.0f} seconds of speech "
-                                     f"is required for speaker verification.")
-        _dur = f", {voice_duration_sec:.1f}s" if voice_duration_sec is not None else ""
-        log.info(f"[LMS] Received voice: {user_voice.filename} ({len(voice_bytes)} bytes{_dur})")
+    if not user_voice or not user_voice.filename:
+        raise HTTPException(400, "user_voice is required. Please provide a voice sample "
+                                 "for speaker verification.")
+    voice_bytes = await user_voice.read()
+    if len(voice_bytes) == 0:
+        raise HTTPException(400, "Voice sample is empty. Please provide a valid audio file.")
+    if len(voice_bytes) > 10_000_000:
+        raise HTTPException(413, "Voice file too large. Max 10MB.")
+    # Reject a sample the embedder would silently refuse. There is no lobby to
+    # re-record in, so this is the only voice reference the session will ever get:
+    # _compute_speaker_embedding returns None below SPEAKER_MIN_AUDIO_SEC, which
+    # leaves no reference at all and makes speaker verification a no-op for the
+    # whole interview. Reject only when the clip is positively measured as too
+    # short — if our own conversion fails, warn and accept rather than blocking
+    # every launch on broken ffmpeg.
+    try:
+        _np_audio, _ = _to_wav16k(voice_bytes)
+        voice_duration_sec = len(_np_audio) / 16000
+    except Exception as e:
+        voice_duration_sec = None
+        log.warning(f"[LMS] Could not measure voice duration: {e}")
+    if voice_duration_sec is not None and voice_duration_sec < SPEAKER_MIN_AUDIO_SEC:
+        raise HTTPException(400, f"Voice sample is too short ({voice_duration_sec:.1f}s). "
+                                 f"At least {SPEAKER_MIN_AUDIO_SEC:.0f} seconds of speech "
+                                 f"is required for speaker verification.")
+    _dur = f", {voice_duration_sec:.1f}s" if voice_duration_sec is not None else ""
+    log.info(f"[LMS] Received voice: {user_voice.filename} ({len(voice_bytes)} bytes{_dur})")
 
-    # Process user face reference (for face verification) - REQUIRED
-    # user_face is now mandatory via File(...) parameter, but validate it's not empty
+    # ── Face reference (REQUIRED) ───────────────────────────────────────────
     if not user_face or not user_face.filename:
         raise HTTPException(400, "user_face is required. Please provide a face photo for verification.")
 
@@ -3552,8 +3566,8 @@ async def lms_launch(
     import base64
     # LMS now reads results directly from the DB (lms_interview_results view).
     # callback_url is no longer used for new sessions.
-    if voice_bytes:
-        session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
+    # Both references are validated above, so both are always present here.
+    session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
     # Store only a flag - actual face loaded from face_references table by email
     # This avoids storing ~67KB base64 duplicate in every session
     session["has_face_ref"] = True
@@ -3577,8 +3591,8 @@ async def lms_launch(
     scheme = request.headers.get("x-forwarded-proto", "https")
     launch_url = f"{scheme}://{host}/interview?session_id={sid}"
 
-    log.info(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain}, "
-             f"face=yes, voice={'yes' if voice_bytes else 'NO — speaker verification will have no reference'}")
+    log.info(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain} "
+             f"— face + voice references registered")
 
     # If request wants JSON (API call), return JSON; otherwise redirect to the interview
     accept = request.headers.get("accept", "")
