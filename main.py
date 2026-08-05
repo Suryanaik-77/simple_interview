@@ -3948,16 +3948,15 @@ def start_interview(data: dict):
     # reference face exists for this candidate, and Rekognition is available.
     # Fails OPEN on unexpected AWS errors (the per-minute compare loop still
     # guards the session) but CLOSED on a genuine mismatch / missing frame.
-    # SKIP face gate for LMS sessions where face was already provided by LMS.
+    # This runs for LMS sessions too. An LMS launch only proves the uploaded photo
+    # contains exactly one face — it never establishes that the person now at the
+    # camera is that person, and LMS sessions are the unproctored ones. Excluding
+    # them let an impostor start freely and reach ~3 min of interview before the
+    # 60s compare loop accumulated the 3 mismatches needed to terminate.
     if ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
         has_face_ref = session.get("has_face_ref", False)
-        is_lms_session = session.get("lms_source", False)
 
-        if is_lms_session and has_face_ref:
-            log.info(f"[FaceGate] Session {sid[:8]}: skipped (LMS-provided face reference)")
-
-        # Skip live camera verification for LMS sessions (face already validated by LMS)
-        if has_face_ref and rekognition_client and not is_lms_session:
+        if has_face_ref and rekognition_client:
             # Load face reference from database by email
             candidate_email = session.get("resume", {}).get("email", "")
             if not candidate_email:
