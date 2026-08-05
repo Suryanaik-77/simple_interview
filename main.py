@@ -2713,7 +2713,22 @@ In addition to the overall assessment, do ALL of these:
 SCORING PHILOSOPHY — read carefully, this is STRICT:
 - Score each answer based purely on the DEPTH, SPECIFICITY, and CORRECTNESS the candidate demonstrates in their response. High scores require genuine understanding shown through concrete examples, specific numbers, real decisions, actual tool usage, or causal reasoning. Textbook definitions without application score LOW.
 
-PER-QUESTION SCORING SCALE (enforce these thresholds):
+SPECIAL CASE — INTRODUCTION QUESTION ("tell me about yourself", "introduce yourself"):
+The introduction question uses DIFFERENT criteria than technical questions. It tests LISTENING, COMMUNICATION, and COMPLETENESS:
+
+INTRODUCTION SCORING SCALE (0-10):
+- 8-10: Complete introduction (name, education with branch/year, experience/skills, current activity). Got interviewer's name RIGHT. Well-structured, professional.
+- 6-7: Covers most elements (name, education, some experience). Got interviewer's name right. May be slightly incomplete but shows effort.
+- 4-5: Basic introduction (name + education only) BUT got interviewer's name RIGHT. Missing experience/skills/current role.
+- 2-3: Very incomplete (only name or only education) OR got interviewer's name WRONG (major listening failure). Missing most expected elements.
+- 0-1: Barely answered, completely off-topic, or multiple critical failures (wrong name + incomplete).
+
+CRITICAL for introductions:
+- Getting the interviewer's name WRONG is a MAJOR penalty (cap score at 3/10 maximum, even if other content is good)
+- Missing what they've been doing since graduation (if years have passed) is a significant gap
+- Expected elements: name, education (branch + year), experience/internships, skills/interests, current role/activity
+
+TECHNICAL QUESTIONS - PER-QUESTION SCORING SCALE (enforce these thresholds):
 - 9-10: Deep understanding with specifics (numbers, decisions, debugging steps, tool commands, causal reasoning). Goes beyond textbook.
 - 7-8: Solid correct answer with reasoning. Explains WHY, not just WHAT. May be textbook-based but shows clear comprehension.
 - 5-6: Correct concept but basic/verbose explanation. Textbook level with some reasoning. Acceptable for trained freshers.
