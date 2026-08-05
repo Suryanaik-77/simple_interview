@@ -3547,7 +3547,7 @@ async def lms_launch(
         # No Rekognition client - still accept the image but warn
         log.warning("[FaceID] AWS Rekognition not configured - skipping face validation")
 
-    # Save to DB
+    # Save to DB (permanent face reference by email)
     database.save_face_reference(email, face_image_bytes, 0, wearing_glasses=face_wearing_glasses)
     log.info(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
 
@@ -3564,12 +3564,13 @@ async def lms_launch(
     # callback_url is no longer used for new sessions.
     if voice_bytes:
         session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
-    # Set face reference in session (REQUIRED - always present)
-    session["face_ref_image"] = base64.b64encode(face_image_bytes).decode("ascii")
+    # Store only a flag - actual face loaded from face_references table by email
+    # This avoids storing ~67KB base64 duplicate in every session
+    session["has_face_ref"] = True
     session["face_ref_glasses"] = face_wearing_glasses
 
     sessions[sid] = session
-    # Persist to database immediately so face_ref_image is available in lobby
+    # Persist to database immediately so has_face_ref flag is available in lobby
     # even if service restarts between LMS launch and candidate loading lobby
     if database.is_available():
         database.save_active_session(sid, session)
@@ -3825,23 +3826,23 @@ async def create_session_endpoint(
     candidate_email = resume.get("email", "")
     if ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
         if face_ref_b64:
-            session["face_ref_image"] = face_ref_b64
+            session["has_face_ref"] = True
             session["face_ref_glasses"] = (face_ref_glasses == "1")
-            # Refresh the stored reference so it stays current for this candidate.
+            # Save/refresh the stored reference in DB so it's available for verification
             if candidate_email:
                 try:
                     database.save_face_reference(candidate_email, base64.b64decode(face_ref_b64),
                                                  0, wearing_glasses=(face_ref_glasses == "1"))
+                    log.info(f"[FaceID] Saved fresh session face capture for {candidate_email} (glasses={face_ref_glasses=='1'})")
                 except Exception as e:
-                    log.error(f"[FaceID] Failed to refresh stored reference for {candidate_email}: {e}")
-            log.info(f"[FaceID] Using fresh session face capture ({len(face_ref_b64)} b64 chars, glasses={face_ref_glasses=='1'})")
+                    log.error(f"[FaceID] Failed to save reference for {candidate_email}: {e}")
         elif candidate_email:
             face_bytes, face_conf, face_glasses = database.get_face_reference(candidate_email)
             if face_bytes:
-                session["face_ref_image"] = base64.b64encode(face_bytes).decode("ascii")
+                session["has_face_ref"] = True
                 session["face_liveness_confidence"] = face_conf
                 session["face_ref_glasses"] = face_glasses
-                log.info(f"[FaceID] No fresh capture; loaded stored reference for {candidate_email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
+                log.info(f"[FaceID] No fresh capture; using stored reference for {candidate_email} (confidence={face_conf:.1f}%, glasses={face_glasses})")
 
     sessions[sid] = session
 
@@ -3900,51 +3901,60 @@ def start_interview(data: dict):
     # guards the session) but CLOSED on a genuine mismatch / missing frame.
     # SKIP face gate for LMS sessions where face was already provided by LMS.
     if ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
-        ref_b64 = session.get("face_ref_image")
+        has_face_ref = session.get("has_face_ref", False)
         is_lms_session = session.get("lms_source", False)
 
-        if is_lms_session and ref_b64:
+        if is_lms_session and has_face_ref:
             log.info(f"[FaceGate] Session {sid[:8]}: skipped (LMS-provided face reference)")
 
         # Skip live camera verification for LMS sessions (face already validated by LMS)
-        if ref_b64 and rekognition_client and not is_lms_session:
-            live_b64 = data.get("face_image") or ""
-            if not live_b64:
-                raise HTTPException(428, "Camera is off or no frame was captured. "
-                                         "Enable your camera so we can verify your identity, then try again.")
-            try:
-                _fg_t0 = time.time()
-                resp = rekognition_client.compare_faces(
-                    SourceImage={"Bytes": base64.b64decode(ref_b64)},
-                    TargetImage={"Bytes": base64.b64decode(live_b64)},
-                    SimilarityThreshold=0.0,
-                )
-                # One CompareFaces call per interview start — record its cost.
-                session.setdefault("obs_log", []).append(
-                    _obs_entry("Rekognition", "aws-rekognition-compare-faces",
-                               round((time.time() - _fg_t0) * 1000),
-                               cost_usd=_REKOGNITION_COST_PER_IMAGE))
-                matches = resp.get("FaceMatches", [])
-                similarity = matches[0]["Similarity"] if matches else 0.0
-                gate_ok = similarity >= FACE_COMPARE_THRESHOLD
-                session.setdefault("anticheat_log", []).append({
-                    "event_type": "face_gate",
-                    "turn": 0, "timestamp": time.time(),
-                    "metadata": f"start similarity={similarity:.1f}% ok={gate_ok}",
-                })
-                if not gate_ok:
-                    log.info(f"[FaceGate] Session {sid[:8]}: start BLOCKED (similarity={similarity:.1f}%)")
-                    raise HTTPException(403, "Face verification failed — the person on camera does "
-                                             "not match the registered face. Make sure the registered "
-                                             "candidate is clearly visible, then try again.")
-                log.info(f"[FaceGate] Session {sid[:8]}: start verified (similarity={similarity:.1f}%)")
-            except HTTPException:
-                raise
-            except rekognition_client.exceptions.InvalidParameterException:
-                raise HTTPException(422, "No face detected on camera. Make sure your face is clearly "
-                                         "visible and well-lit, then try again.")
-            except Exception as e:
-                log.error(f"[FaceGate] compare failed, allowing start: {e}")
+        if has_face_ref and rekognition_client and not is_lms_session:
+            # Load face reference from database by email
+            candidate_email = session.get("resume", {}).get("email", "")
+            if not candidate_email:
+                log.warning(f"[FaceGate] Session {sid[:8]}: no email in resume, skipping face check")
+            else:
+                face_bytes, _, _ = database.get_face_reference(candidate_email)
+                if not face_bytes:
+                    log.warning(f"[FaceGate] Session {sid[:8]}: face reference not found in DB for {candidate_email}")
+                else:
+                    live_b64 = data.get("face_image") or ""
+                    if not live_b64:
+                        raise HTTPException(428, "Camera is off or no frame was captured. "
+                                                 "Enable your camera so we can verify your identity, then try again.")
+                    try:
+                        _fg_t0 = time.time()
+                        resp = rekognition_client.compare_faces(
+                            SourceImage={"Bytes": face_bytes},
+                            TargetImage={"Bytes": base64.b64decode(live_b64)},
+                            SimilarityThreshold=0.0,
+                        )
+                        # One CompareFaces call per interview start — record its cost.
+                        session.setdefault("obs_log", []).append(
+                            _obs_entry("Rekognition", "aws-rekognition-compare-faces",
+                                       round((time.time() - _fg_t0) * 1000),
+                                       cost_usd=_REKOGNITION_COST_PER_IMAGE))
+                        matches = resp.get("FaceMatches", [])
+                        similarity = matches[0]["Similarity"] if matches else 0.0
+                        gate_ok = similarity >= FACE_COMPARE_THRESHOLD
+                        session.setdefault("anticheat_log", []).append({
+                            "event_type": "face_gate",
+                            "turn": 0, "timestamp": time.time(),
+                            "metadata": f"start similarity={similarity:.1f}% ok={gate_ok}",
+                        })
+                        if not gate_ok:
+                            log.info(f"[FaceGate] Session {sid[:8]}: start BLOCKED (similarity={similarity:.1f}%)")
+                            raise HTTPException(403, "Face verification failed — the person on camera does "
+                                                     "not match the registered face. Make sure the registered "
+                                                     "candidate is clearly visible, then try again.")
+                        log.info(f"[FaceGate] Session {sid[:8]}: start verified (similarity={similarity:.1f}%)")
+                    except HTTPException:
+                        raise
+                    except rekognition_client.exceptions.InvalidParameterException:
+                        raise HTTPException(422, "No face detected on camera. Make sure your face is clearly "
+                                                 "visible and well-lit, then try again.")
+                    except Exception as e:
+                        log.error(f"[FaceGate] compare failed, allowing start: {e}")
 
     greeting = generate_greeting(session)
     audio, tts_ms = synthesize_speech(greeting)
@@ -4475,7 +4485,7 @@ def get_session_endpoint(session_id: str):
     return {"session_id": session_id, "phase": session["phase"], "turn": session["turn"],
             "resume": session.get("resume", {}), "mode": session.get("mode", "mock"),
             "has_voice_ref": bool(session.get("user_voice_ref")),
-            "has_face_ref": bool(session.get("face_ref_image"))}
+            "has_face_ref": bool(session.get("has_face_ref"))}
 
 
 @app.post("/api/generate-report")
@@ -4988,11 +4998,20 @@ def face_compare(data: dict):
     session = sessions.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
-    ref_b64 = session.get("face_ref_image")
-    if not ref_b64:
+    has_face_ref = session.get("has_face_ref", False)
+    if not has_face_ref:
         return {"ok": True, "skipped": True, "reason": "no_reference_face"}
+
+    # Load face reference from database by email
+    candidate_email = session.get("resume", {}).get("email", "")
+    if not candidate_email:
+        return {"ok": True, "skipped": True, "reason": "no_email_in_session"}
+
+    ref_bytes, _, _ = database.get_face_reference(candidate_email)
+    if not ref_bytes:
+        return {"ok": True, "skipped": True, "reason": "face_not_found_in_db"}
+
     try:
-        ref_bytes = base64.b64decode(ref_b64)
         target_bytes = base64.b64decode(image_b64)
         _fc_t0 = time.time()
         resp = rekognition_client.compare_faces(
