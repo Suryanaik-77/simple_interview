@@ -5283,6 +5283,87 @@ async def get_interview_prompt_admin(domain: str = "physical_design", level: str
     return {"prompt": prompt, "filename": filename, "level": level, "domain": domain}
 
 
+# ── Admin: Verification Telemetry ────────────────────────────────────────
+
+def _verification_summary(sid, d):
+    """Reduce one session blob to just its identity-verification state.
+
+    Deliberately narrow. It reports whether each reference exists and how the
+    checks scored — never the references themselves and never interview content.
+    Excluded on purpose: the raw voice sample (user_voice_ref), the reference
+    embedding, résumé text, and the conversation. Those are what make this table
+    sensitive, and none of them are needed to answer "did the check run, and what
+    did it score"."""
+    resume = d.get("resume") or {}
+    anticheat = d.get("anticheat_log") or []
+    face_events = [
+        {"event": e.get("event_type"), "turn": e.get("turn"), "detail": e.get("metadata")}
+        for e in anticheat
+        if "face" in str(e.get("event_type", ""))
+    ]
+    started = d.get("started_at")
+    return {
+        "session_id": sid,
+        "candidate": resume.get("candidate_name"),
+        "email": resume.get("email"),
+        "domain": resume.get("domain"),
+        "started_at": datetime.fromtimestamp(started, tz=timezone.utc).isoformat() if started else None,
+        "turns": d.get("turn", 0),
+        "phase": d.get("phase"),
+        "end_reason": d.get("end_reason"),
+        "lms_source": bool(d.get("lms_source")),
+        "face": {
+            "reference_registered": bool(d.get("has_face_ref")),
+            "reference_glasses": d.get("face_ref_glasses"),
+            "events": face_events,
+        },
+        "voice": {
+            # Present before turn 1; consumed into the embedding on first check.
+            "sample_pending": bool(d.get("user_voice_ref")),
+            "reference_enrolled": bool(d.get("speaker_ref_embedding")),
+            "mismatch_flag": bool(d.get("speaker_mismatch")),
+            "mismatch_count": d.get("speaker_mismatch_count", 0),
+            "mismatches": [
+                {"turn": m.get("turn"), "score": m.get("score"), "vs": m.get("vs")}
+                for m in (d.get("speaker_mismatches") or [])
+            ],
+        },
+    }
+
+
+@app.get("/api/admin/verification-telemetry")
+async def verification_telemetry(limit: int = 10, session_id: str = "", _=Depends(require_admin)):
+    """Read-only view of face/voice verification state for recent sessions.
+
+    Exists so identity-check behaviour can be inspected without shell access to the
+    host. Admin-authenticated and strictly read-only; it runs one fixed query and
+    accepts no caller-supplied SQL."""
+    if not database.is_available():
+        raise HTTPException(503, "Database not available")
+    limit = max(1, min(limit, 50))
+    import json as _json
+    with database.get_conn() as conn:
+        with conn.cursor() as cur:
+            if session_id:
+                cur.execute("SELECT session_id, session_data FROM active_sessions "
+                            "WHERE session_id = %s", (session_id,))
+            else:
+                cur.execute("SELECT session_id, session_data FROM active_sessions "
+                            "ORDER BY (session_data->>'started_at')::float DESC NULLS LAST "
+                            "LIMIT %s", (limit,))
+            rows = cur.fetchall()
+    out = []
+    for sid, d in rows:
+        if isinstance(d, str):
+            d = _json.loads(d)
+        out.append(_verification_summary(sid, d))
+    return {"count": len(out),
+            "thresholds": {"face_similarity_pct": FACE_COMPARE_THRESHOLD,
+                           "speaker_cosine": SPEAKER_VERIFY_THRESHOLD,
+                           "speaker_min_audio_sec": SPEAKER_MIN_AUDIO_SEC},
+            "sessions": out}
+
+
 # ── Admin: Voice Config ──────────────────────────────────────────────────
 
 @app.post("/api/toggle-tts")
