@@ -3187,6 +3187,46 @@ import random as _random
 SPEAKER_VERIFY_THRESHOLD = 0.75  # Resemblyzer cosine similarity threshold
 SPEAKER_MIN_AUDIO_SEC = 3.0     # Minimum audio length for reliable embedding
 
+
+def _patch_session(session_id, updates=None, pops=()):
+    """Apply a few keys to the LATEST stored session instead of writing a snapshot back.
+
+    The speaker check runs in a thread holding the session as it looked at
+    /api/transcribe time. DatabaseSessions deserializes a fresh dict on every read, so
+    that thread owns a *copy* — writing the whole thing back races with the same turn's
+    /api/stream-answer write, and whichever lands second silently wipes the other's
+    changes (the reference embedding, or the turn's question/answer). Re-read, patch,
+    write. This is the only way a background thread can durably change one field."""
+    latest = sessions.get(session_id)
+    if latest is None:
+        return None
+    if updates:
+        latest.update(updates)
+    for k in pops:
+        latest.pop(k, None)
+    sessions[session_id] = latest
+    return latest
+
+
+def _terminate_for_speaker_mismatch(session_id, entry):
+    """Record a mismatch and end the interview — on the latest stored session."""
+    latest = sessions.get(session_id)
+    if latest is None:
+        return 0
+    count = latest.get("speaker_mismatch_count", 0) + 1
+    latest["speaker_mismatch_count"] = count
+    latest.setdefault("speaker_mismatches", []).append(entry)
+    # /api/stream-answer, /api/submit-answer and /api/transcribe all gate on this flag.
+    # Nothing used to set it, so every one of those guards was dead.
+    latest["speaker_mismatch"] = True
+    if latest.get("phase") != "ended":
+        _end_interview(latest, reason="speaker_verification_failed")
+    sessions[session_id] = latest
+    log.warning(f"[Resemblyzer] {session_id[:8]} — MISMATCH #{count} at turn {entry.get('turn')} "
+                f"(score={entry.get('score')}) - INTERVIEW TERMINATED")
+    return count
+
+
 def _compute_speaker_embedding(audio_bytes):
     """Compute Resemblyzer 256-dim embedding from audio bytes. Returns numpy array or None.
     Skips audio shorter than SPEAKER_MIN_AUDIO_SEC for reliability."""
@@ -3239,25 +3279,21 @@ def _verify_speaker_background(audio_bytes, session, turn):
                     log.warning(f"[Resemblyzer] {sid} — reference voice failed to embed; "
                                 f"NOT enrolling from turn {turn}, will retry")
                     return
-                session["speaker_ref_embedding"] = ref_emb.tolist()
-                session.pop("user_voice_ref", None)
-                sessions[session["id"]] = session
-                log.info(f"[Resemblyzer] {sid} — Reference from LMS voice")
+                _patch_session(session["id"],
+                               {"speaker_ref_embedding": ref_emb.tolist()},
+                               pops=("user_voice_ref",))  # drop the raw audio
+                log.info(f"[Resemblyzer] {sid} — Reference from supplied voice sample")
                 score = float(np.dot(ref_emb, current_emb) /
                               (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
                 if score < SPEAKER_VERIFY_THRESHOLD:
-                    count = session.get("speaker_mismatch_count", 0) + 1
-                    session["speaker_mismatch_count"] = count
-                    session.setdefault("speaker_mismatches", []).append(
-                        {"turn": turn, "score": round(score, 4), "ts": time.time()})
-                    log.warning(f"[Resemblyzer] {sid} — MISMATCH at turn {turn} vs reference voice (score={score:.4f}) - TERMINATING INTERVIEW")
-                    _end_interview(session, reason="speaker_verification_failed")
-                    sessions[session["id"]] = session
+                    _terminate_for_speaker_mismatch(
+                        session["id"],
+                        {"turn": turn, "score": round(score, 4), "ts": time.time(),
+                         "vs": "reference_voice"})
                 else:
                     log.info(f"[Resemblyzer] {sid} — turn {turn} verified vs reference voice (score={score:.4f})")
                 return
-            session["speaker_ref_embedding"] = current_emb.tolist()
-            sessions[session["id"]] = session
+            _patch_session(session["id"], {"speaker_ref_embedding": current_emb.tolist()})
             log.info(f"[Resemblyzer] {sid} — Reference from turn 1")
             return
 
@@ -3266,13 +3302,9 @@ def _verify_speaker_background(audio_bytes, session, turn):
                       (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
 
         if score < SPEAKER_VERIFY_THRESHOLD:
-            count = session.get("speaker_mismatch_count", 0) + 1
-            session["speaker_mismatch_count"] = count
-            session.setdefault("speaker_mismatches", []).append(
+            _terminate_for_speaker_mismatch(
+                session["id"],
                 {"turn": turn, "score": round(score, 4), "ts": time.time()})
-            log.warning(f"[Resemblyzer] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f}) - TERMINATING INTERVIEW")
-            _end_interview(session, reason="speaker_verification_failed")
-            sessions[session["id"]] = session
         else:
             # Log passes too. Without this a silent no-op and a genuine pass look
             # identical in the log, which makes "why did no mismatch fire?"
@@ -4186,15 +4218,45 @@ def stream_answer(data: dict):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    # Check if speaker mismatch was detected in background
+    # This is the endpoint the live UI actually answers through (/api/submit-answer is
+    # only the fallback), so the speaker check has to be enforced HERE or it does
+    # nothing. The check runs in a thread spawned by /api/transcribe and usually lands
+    # a second or two later, so poll briefly like /api/submit-answer does.
     from starlette.responses import StreamingResponse
-    if session.get("speaker_mismatch"):
-        _end_interview(session, reason="speaker_verification_failed")
+    for _attempt in range(3):
+        if session.get("phase") == "ended" or session.get("speaker_mismatch"):
+            break
+        if _attempt < 2:
+            time.sleep(0.2)
+            session = sessions.get(sid) or session
+
+    if session.get("speaker_mismatch") or session.get("end_reason") == "speaker_verification_failed":
+        if session.get("phase") != "ended":
+            _end_interview(session, reason="speaker_verification_failed")
+            sessions[sid] = session
+        log.warning(f"[Stream] {sid[:8]} — refusing turn, speaker verification failed")
+        turn = session.get("turn", 0)
+
         def mismatch_stream():
-            msg = "This interview has been ended due to a speaker verification failure."
+            msg = "Interview terminated — voice verification failed. Different speaker detected."
             yield f"data: {json.dumps({'type': 'text', 'content': msg, 'done': True, 'should_end': True, 'speaker_mismatch': True})}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended', 'speaker_mismatch': True})}\n\n"
+            # should_end on the 'done' event is what actually stops the client
+            # (voice_agent_ui.html only calls endSession() from this event).
+            yield f"data: {json.dumps({'type': 'done', 'turn': turn, 'phase': 'ended', 'should_end': True, 'speaker_mismatch': True, 'end_reason': 'speaker_verification_failed'})}\n\n"
         return StreamingResponse(mismatch_stream(), media_type="text/event-stream")
+
+    if session.get("phase") == "ended":
+        # Ended for some other reason (time limit, stop agent, admin). Streaming another
+        # question here would write the session back alive at the end of event_stream().
+        end_reason = session.get("end_reason", "unknown")
+        log.info(f"[Stream] {sid[:8]} — session already ended ({end_reason}), not continuing")
+        turn = session.get("turn", 0)
+
+        def ended_stream():
+            msg = "This interview has been ended."
+            yield f"data: {json.dumps({'type': 'text', 'content': msg, 'done': True, 'should_end': True})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'turn': turn, 'phase': 'ended', 'should_end': True, 'end_reason': end_reason})}\n\n"
+        return StreamingResponse(ended_stream(), media_type="text/event-stream")
 
     def event_stream():
         t0 = time.time()
@@ -4470,6 +4532,22 @@ def stream_answer(data: dict):
 
         if is_end:
             save_candidate_session(session)
+
+        # The speaker-check thread can terminate the session while this turn was
+        # streaming. Its write lands in Postgres/Redis; ours would overwrite it and
+        # bring the interview back to life. Re-read and keep its verdict.
+        latest = sessions.get(sid)
+        if latest and latest.get("phase") == "ended" and session.get("phase") != "ended":
+            log.warning(f"[Stream] {sid[:8]} — ended by background thread "
+                        f"({latest.get('end_reason')}) while streaming, preserving that state")
+            session["phase"] = "ended"
+            session["end_reason"] = latest.get("end_reason")
+            session["ended_at"] = latest.get("ended_at")
+            session["duration_minutes"] = latest.get("duration_minutes")
+            for k in ("speaker_mismatch", "speaker_mismatch_count", "speaker_mismatches"):
+                if k in latest:
+                    session[k] = latest[k]
+            is_end = True
 
         # Save session to DB
         sessions[sid] = session
