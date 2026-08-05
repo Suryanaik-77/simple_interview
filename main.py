@@ -3956,6 +3956,21 @@ def start_interview(data: dict):
             "timing": {"tts_ms": tts_ms},
         }
 
+    # Reloading an ended session must not revive it. The client already refuses to
+    # call this when phase == "ended", but the stale sweeper can end a session while
+    # the tab sits open, and nothing server-side stopped the next reload from
+    # restarting a finished interview. Checked before the face gate so a reload on a
+    # finished session doesn't spend a Rekognition call to be told it's over.
+    if session.get("phase") == "ended":
+        end_reason = session.get("end_reason", "unknown")
+        log.info(f"[Resume] Session {sid[:8]}: reload on an ended session ({end_reason}), refusing restart")
+        return {
+            "question": "This interview has already ended.", "question_type": "ended",
+            "turn": session.get("turn", 0), "phase": "ended", "audio": None,
+            "difficulty": "basic", "should_end": True,
+            "resume": session.get("resume", {}), "timing": {"tts_ms": 0},
+        }
+
     # ── Face gate ──────────────────────────────────────────────────────────
     # Verify the live camera frame matches the registered reference BEFORE the
     # interview starts. The interviewer never checks this itself, so the start
@@ -4018,6 +4033,38 @@ def start_interview(data: dict):
                                                  "visible and well-lit, then try again.")
                     except Exception as e:
                         log.error(f"[FaceGate] compare failed, allowing start: {e}")
+
+    # ── Resume instead of restarting ────────────────────────────────────────
+    # A page reload re-enters this endpoint on a session that is already running.
+    # Re-greeting would restart the conversation from the top, and stream_answer
+    # writes whatever comes back next into conversation[-1]["answer"] — so the
+    # candidate's reply to that repeated greeting lands on the question that was
+    # actually outstanding, overwriting its real answer. Hand back the question
+    # they were on instead. The face gate above has already re-verified them, so a
+    # reload costs an identity check rather than the transcript.
+    conv = session.get("conversation") or []
+    if session.get("phase") == "interview" and conv:
+        pending_q = (conv[-1].get("question") or "").strip()
+        if pending_q:
+            audio, tts_ms = synthesize_speech(pending_q)
+            tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
+            session.setdefault("obs_log", []).append(
+                _obs_entry("TTS_resume", tts_provider, tts_ms, "success" if audio else "failure",
+                           chars=len(pending_q), cost_usd=_calc_tts_cost(tts_provider, len(pending_q))))
+            session.setdefault("anticheat_log", []).append({
+                "event_type": "interview_resumed",
+                "turn": session.get("turn", 0), "timestamp": time.time(),
+                "metadata": f"reload at turn {session.get('turn', 0)}",
+            })
+            sessions[sid] = session
+            log.info(f"[Resume] Session {sid[:8]}: reloaded at turn {session.get('turn', 0)} — "
+                     f"re-asking pending question, not re-greeting")
+            return {
+                "question": pending_q, "question_type": "resume", "turn": session.get("turn", 0),
+                "phase": "interview", "audio": audio, "difficulty": "basic",
+                "should_end": False, "resume": session.get("resume", {}),
+                "timing": {"tts_ms": tts_ms},
+            }
 
     greeting = generate_greeting(session)
     audio, tts_ms = synthesize_speech(greeting)
