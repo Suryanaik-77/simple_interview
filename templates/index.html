@@ -965,7 +965,10 @@ async function recordVoice() {
       bars.forEach(b => { b.style.animation = 'none'; b.style.height = '4px'; });
 
       const elapsed = (Date.now() - _voiceStartTime) / 1000;
-      if (elapsed < 2) {
+      // Must match SPEAKER_MIN_AUDIO_SEC (3.0) in main.py. This used to accept 2s
+      // while the message said 3s, so a 2-3s sample passed here and was then
+      // silently dropped by _compute_speaker_embedding, leaving no reference.
+      if (elapsed < 3) {
         label.textContent = 'Too short. Please record for at least 3 seconds.';
         btn.textContent = 'Record Again';
         btn.className = 'px-4 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold hover:bg-danger/90 transition-colors';

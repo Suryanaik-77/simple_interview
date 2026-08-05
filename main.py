@@ -3325,22 +3325,32 @@ def _verify_speaker_resemblyzer_fallback(audio_bytes, session, turn):
                 if isinstance(voice_ref, str):
                     voice_ref = base64.b64decode(voice_ref)
                 ref_emb = _compute_speaker_embedding(voice_ref)
-                if ref_emb is not None:
-                    session["speaker_ref_embedding"] = ref_emb.tolist()
-                    session.pop("user_voice_ref", None)
-                    sessions[session["id"]] = session
-                    log.info(f"[Resemblyzer] {sid} — Reference from LMS voice")
-                    score = float(np.dot(ref_emb, current_emb) /
-                                  (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
-                    if score < SPEAKER_VERIFY_THRESHOLD:
-                        count = session.get("speaker_mismatch_count", 0) + 1
-                        session["speaker_mismatch_count"] = count
-                        session.setdefault("speaker_mismatches", []).append(
-                            {"turn": turn, "score": round(score, 4), "ts": time.time()})
-                        log.warning(f"[Resemblyzer] {sid} — MISMATCH at turn {turn} vs LMS voice (score={score:.4f}) - TERMINATING INTERVIEW")
-                        _end_interview(session, reason="speaker_verification_failed")
-                        sessions[session["id"]] = session
+                if ref_emb is None:
+                    # A reference exists but will not embed (too short, or ffmpeg
+                    # failed). Do NOT fall through to enrolling this turn's speaker
+                    # as the reference — that silently downgrades the check to
+                    # comparing the speaker against themselves, so no mismatch can
+                    # ever fire. Leave user_voice_ref in place and retry next turn.
+                    log.warning(f"[Resemblyzer] {sid} — reference voice failed to embed; "
+                                f"NOT enrolling from turn {turn}, will retry")
                     return
+                session["speaker_ref_embedding"] = ref_emb.tolist()
+                session.pop("user_voice_ref", None)
+                sessions[session["id"]] = session
+                log.info(f"[Resemblyzer] {sid} — Reference from LMS voice")
+                score = float(np.dot(ref_emb, current_emb) /
+                              (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
+                if score < SPEAKER_VERIFY_THRESHOLD:
+                    count = session.get("speaker_mismatch_count", 0) + 1
+                    session["speaker_mismatch_count"] = count
+                    session.setdefault("speaker_mismatches", []).append(
+                        {"turn": turn, "score": round(score, 4), "ts": time.time()})
+                    log.warning(f"[Resemblyzer] {sid} — MISMATCH at turn {turn} vs reference voice (score={score:.4f}) - TERMINATING INTERVIEW")
+                    _end_interview(session, reason="speaker_verification_failed")
+                    sessions[session["id"]] = session
+                else:
+                    log.info(f"[Resemblyzer] {sid} — turn {turn} verified vs reference voice (score={score:.4f})")
+                return
             session["speaker_ref_embedding"] = current_emb.tolist()
             sessions[session["id"]] = session
             log.info(f"[Resemblyzer] {sid} — Reference from turn 1")
@@ -3358,6 +3368,11 @@ def _verify_speaker_resemblyzer_fallback(audio_bytes, session, turn):
             log.warning(f"[Resemblyzer] {sid} — MISMATCH #{count} at turn {turn} (score={score:.4f}) - TERMINATING INTERVIEW")
             _end_interview(session, reason="speaker_verification_failed")
             sessions[session["id"]] = session
+        else:
+            # Log passes too. Without this a silent no-op and a genuine pass look
+            # identical in the log, which makes "why did no mismatch fire?"
+            # impossible to answer.
+            log.info(f"[Resemblyzer] {sid} — turn {turn} verified (score={score:.4f})")
 
     except Exception as e:
         log.error(f"[Resemblyzer] {sid} — Error: {e}")
