@@ -3468,7 +3468,25 @@ async def lms_launch(
         voice_bytes = await user_voice.read()
         if len(voice_bytes) > 10_000_000:
             raise HTTPException(413, "Voice file too large. Max 10MB.")
-        log.info(f"[LMS] Received voice: {user_voice.filename} ({len(voice_bytes)} bytes)")
+        # Reject a sample the embedder would silently refuse. There is no lobby to
+        # re-record in, so this is the only voice reference the session will ever get:
+        # _compute_speaker_embedding returns None below SPEAKER_MIN_AUDIO_SEC, which
+        # leaves no reference at all and makes speaker verification a no-op for the
+        # whole interview. Reject only when the clip is positively measured as too
+        # short — if our own conversion fails, warn and accept rather than blocking
+        # every launch on broken ffmpeg.
+        try:
+            _np_audio, _ = _to_wav16k(voice_bytes)
+            voice_duration_sec = len(_np_audio) / 16000
+        except Exception as e:
+            voice_duration_sec = None
+            log.warning(f"[LMS] Could not measure voice duration: {e}")
+        if voice_duration_sec is not None and voice_duration_sec < SPEAKER_MIN_AUDIO_SEC:
+            raise HTTPException(400, f"Voice sample is too short ({voice_duration_sec:.1f}s). "
+                                     f"At least {SPEAKER_MIN_AUDIO_SEC:.0f} seconds of speech "
+                                     f"is required for speaker verification.")
+        _dur = f", {voice_duration_sec:.1f}s" if voice_duration_sec is not None else ""
+        log.info(f"[LMS] Received voice: {user_voice.filename} ({len(voice_bytes)} bytes{_dur})")
 
     # Process user face reference (for face verification) - REQUIRED
     # user_face is now mandatory via File(...) parameter, but validate it's not empty
@@ -3542,23 +3560,27 @@ async def lms_launch(
     session["face_ref_glasses"] = face_wearing_glasses
 
     # DatabaseSessions.__setitem__ already writes Postgres then refreshes Redis, so the
-    # session survives a restart between launch and the candidate opening the lobby.
+    # session survives a restart between launch and the candidate opening the link.
     sessions[sid] = session
 
-    token = jwt.encode({
-        "type": "lms_launch",
-        "sid": sid,
-        "email": email,
-        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=30),
-    }, JWT_SECRET, algorithm="HS256")
-
+    # Straight to the interview — the LMS collects résumé, face and voice up front and
+    # runs its own mic/camera check, so there is no lobby step. The interview page is
+    # self-contained: it reads session_id from the URL, starts its own camera, and
+    # posts a live frame to /api/start-interview, which is where the face gate runs.
+    #
+    # No token in the URL: the lms_launch JWT this used to carry was never validated
+    # anywhere (the only jwt.decode sites are admin auth and type="share"), and its
+    # 30-minute expiry contradicted the one-hour session window anyway. The window is
+    # enforced by the stale sweeper, which ends any session more than
+    # STALE_SESSION_SEC old measured from started_at.
     host = request.headers.get("host", request.base_url.hostname)
     scheme = request.headers.get("x-forwarded-proto", "https")
-    launch_url = f"{scheme}://{host}/?lms=1&token={token}&session_id={sid}"
+    launch_url = f"{scheme}://{host}/interview?session_id={sid}"
 
-    log.info(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain}")
+    log.info(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain}, "
+             f"face=yes, voice={'yes' if voice_bytes else 'NO — speaker verification will have no reference'}")
 
-    # If request wants JSON (API call), return JSON; otherwise redirect to lobby
+    # If request wants JSON (API call), return JSON; otherwise redirect to the interview
     accept = request.headers.get("accept", "")
     if "application/json" in accept:
         # Include quota information in response
