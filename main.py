@@ -3439,11 +3439,23 @@ async def lms_launch(
     email: str = Form(...),
     domain: str = Form("physical_design"),
     resume: UploadFile = File(...),
+    user_face: UploadFile = File(...),  # NOW REQUIRED
     callback_url: str = Form(""),
     user_voice: UploadFile = File(None),
-    user_face: UploadFile = File(None),
 ):
-    """LMS calls this to create a session and get a signed launch URL."""
+    """LMS calls this to create a session and get a signed launch URL.
+
+    REQUIRED fields:
+    - name: Candidate's full name
+    - email: Candidate's email address
+    - resume: Resume file (PDF/DOCX, max 5MB)
+    - user_face: Face photo (JPG/PNG, max 5MB) - REQUIRED for face verification
+
+    OPTIONAL fields:
+    - domain: Interview domain (default: physical_design)
+    - user_voice: Voice sample (audio file, max 10MB)
+    - callback_url: LMS callback URL (deprecated)
+    """
     api_key = request.headers.get("X-API-Key", "")
     if not LMS_API_KEY or api_key != LMS_API_KEY:
         raise HTTPException(401, "Invalid or missing API key")
@@ -3486,47 +3498,58 @@ async def lms_launch(
             raise HTTPException(413, "Voice file too large. Max 10MB.")
         log.info(f"[LMS] Received voice: {user_voice.filename} ({len(voice_bytes)} bytes)")
 
-    # Process user face reference (for face verification)
-    face_image_bytes = None
+    # Process user face reference (for face verification) - REQUIRED
+    # user_face is now mandatory via File(...) parameter, but validate it's not empty
+    if not user_face or not user_face.filename:
+        raise HTTPException(400, "user_face is required. Please provide a face photo for verification.")
+
     face_wearing_glasses = False
     rekog_obs = None  # obs_log entry for the Rekognition call, attached to the session below
-    log.info(f"[LMS] user_face: {user_face}, filename: {getattr(user_face, 'filename', None) if user_face else None}")
-    if user_face and user_face.filename:
-        face_image_bytes = await user_face.read()
-        if len(face_image_bytes) > 5_000_000:
-            raise HTTPException(413, "Face image too large. Max 5MB.")
-        log.info(f"[LMS] Received face: {user_face.filename} ({len(face_image_bytes)} bytes)")
-        # Validate with Rekognition: must contain exactly 1 face, detect glasses
-        if rekognition_client:
-            try:
-                _rk_t0 = time.time()
-                resp = rekognition_client.detect_faces(
-                    Image={"Bytes": face_image_bytes},
-                    Attributes=["ALL"]
-                )
-                # Record the Rekognition cost so it lands in the session's obs_log
-                # total (one DetectFaces call per face registration).
-                rekog_obs = _obs_entry("Rekognition", "aws-rekognition-detect-faces",
-                                       round((time.time() - _rk_t0) * 1000),
-                                       cost_usd=_REKOGNITION_COST_PER_IMAGE)
-                faces = resp.get("FaceDetails", [])
-                if len(faces) == 0:
-                    raise HTTPException(400, "No face detected in the uploaded image")
-                if len(faces) > 1:
-                    raise HTTPException(400, "Multiple faces detected — only one person should be visible")
-                # Check glasses
-                face = faces[0]
-                glasses_info = face.get("Eyeglasses", {})
-                face_wearing_glasses = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
-                log.info(f"[FaceID] LMS glasses detected: {face_wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
-            except HTTPException:
-                raise
-            except Exception as e:
-                log.error(f"[FaceID] LMS face detection failed: {e}")
-                raise HTTPException(500, f"Face detection failed: {e}")
-        # Save to DB — reference will be set into session below after session is created
-        database.save_face_reference(email, face_image_bytes, 0, wearing_glasses=face_wearing_glasses)
-        log.info(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
+    log.info(f"[LMS] user_face: {user_face}, filename: {user_face.filename}")
+
+    # Read and validate face image (REQUIRED)
+    face_image_bytes = await user_face.read()
+    if len(face_image_bytes) > 5_000_000:
+        raise HTTPException(413, "Face image too large. Max 5MB.")
+    if len(face_image_bytes) == 0:
+        raise HTTPException(400, "Face image is empty. Please provide a valid image file.")
+
+    log.info(f"[LMS] Received face: {user_face.filename} ({len(face_image_bytes)} bytes)")
+
+    # Validate with Rekognition: must contain exactly 1 face, detect glasses
+    if rekognition_client:
+        try:
+            _rk_t0 = time.time()
+            resp = rekognition_client.detect_faces(
+                Image={"Bytes": face_image_bytes},
+                Attributes=["ALL"]
+            )
+            # Record the Rekognition cost so it lands in the session's obs_log
+            rekog_obs = _obs_entry("Rekognition", "aws-rekognition-detect-faces",
+                                   round((time.time() - _rk_t0) * 1000),
+                                   cost_usd=_REKOGNITION_COST_PER_IMAGE)
+            faces = resp.get("FaceDetails", [])
+            if len(faces) == 0:
+                raise HTTPException(400, "No face detected in the uploaded image")
+            if len(faces) > 1:
+                raise HTTPException(400, "Multiple faces detected — only one person should be visible")
+            # Check glasses
+            face = faces[0]
+            glasses_info = face.get("Eyeglasses", {})
+            face_wearing_glasses = glasses_info.get("Value", False) and glasses_info.get("Confidence", 0) > 80
+            log.info(f"[FaceID] LMS glasses detected: {face_wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.error(f"[FaceID] LMS face detection failed: {e}")
+            raise HTTPException(500, f"Face detection failed: {e}")
+    else:
+        # No Rekognition client - still accept the image but warn
+        log.warning("[FaceID] AWS Rekognition not configured - skipping face validation")
+
+    # Save to DB
+    database.save_face_reference(email, face_image_bytes, 0, wearing_glasses=face_wearing_glasses)
+    log.info(f"[FaceID] LMS: registered face for {email} ({len(face_image_bytes)} bytes, glasses={face_wearing_glasses})")
 
     sid = secrets.token_hex(8)
     session = {
@@ -3541,10 +3564,9 @@ async def lms_launch(
     # callback_url is no longer used for new sessions.
     if voice_bytes:
         session["user_voice_ref"] = base64.b64encode(voice_bytes).decode("ascii")
-    # Set face reference in session so start-gate + per-minute compare work
-    if face_image_bytes:
-        session["face_ref_image"] = base64.b64encode(face_image_bytes).decode("ascii")
-        session["face_ref_glasses"] = face_wearing_glasses
+    # Set face reference in session (REQUIRED - always present)
+    session["face_ref_image"] = base64.b64encode(face_image_bytes).decode("ascii")
+    session["face_ref_glasses"] = face_wearing_glasses
 
     sessions[sid] = session
 
