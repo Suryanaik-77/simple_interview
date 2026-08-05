@@ -3051,7 +3051,7 @@ threading.Thread(target=_eval_sweeper_loop, daemon=True, name="eval-sweeper").st
 STALE_SESSION_SEC = int(os.getenv("STALE_SESSION_SEC", "3600"))  # 1 hour
 
 def _stale_session_sweeper():
-    """End sessions that have been inactive for over 1 hour.
+    """End sessions that have been running for over 1 hour (based on started_at).
     Catches candidates who disconnected mid-interview, browser closed, etc.
     Runs every 5 minutes alongside the eval sweeper."""
     while True:
@@ -3060,29 +3060,42 @@ def _stale_session_sweeper():
             if not database.is_available():
                 continue
             import json as _json
+            current_time = time.time()
             with database.get_conn() as conn:
                 with conn.cursor() as cur:
-                    # Find active/interview/greeting sessions older than STALE_SESSION_SEC
+                    # Find active/interview/greeting sessions where started_at is older than STALE_SESSION_SEC
                     cur.execute("""
                         SELECT session_id, session_data FROM active_sessions
                         WHERE session_data->>'phase' NOT IN ('ended')
-                          AND updated_at < NOW() - (%s || ' seconds')::interval
-                        LIMIT 20
-                    """, (str(STALE_SESSION_SEC),))
-                    stale = cur.fetchall()
+                        LIMIT 100
+                    """)
+                    all_active = cur.fetchall()
+
+            # Filter by started_at from session data (not updated_at from DB)
+            stale = []
+            for sid, data in all_active:
+                try:
+                    if isinstance(data, str):
+                        data = _json.loads(data)
+                    started_at = data.get("started_at", 0)
+                    if started_at and (current_time - started_at) > STALE_SESSION_SEC:
+                        stale.append((sid, data))
+                except Exception as e:
+                    log.error(f"[StaleSweep] Error parsing session {sid[:8]}: {e}")
+
             if not stale:
                 continue
             log.info(f"[StaleSweep] Found {len(stale)} stale session(s) to end")
             for sid, data in stale:
                 try:
-                    if isinstance(data, str):
-                        data = _json.loads(data)
+                    # data is already parsed in the filter loop above
                     turns = data.get("turn", 0)
                     name = data.get("resume", {}).get("candidate_name", "?")
+                    runtime_min = round((current_time - data.get("started_at", current_time)) / 60, 1)
                     data["phase"] = "ended"
                     data["end_reason"] = "stale_timeout"
                     database.save_active_session(sid, data)
-                    log.info(f"[StaleSweep] Ended {sid[:8]} ({name}, turn {turns}) — inactive > {STALE_SESSION_SEC}s")
+                    log.info(f"[StaleSweep] Ended {sid[:8]} ({name}, turn {turns}, runtime {runtime_min}min)")
                     # Trigger evaluation if enough turns
                     if turns >= MIN_ANSWERS_FOR_EVAL:
                         threading.Thread(target=evaluate_interview, args=(data,), daemon=True).start()
