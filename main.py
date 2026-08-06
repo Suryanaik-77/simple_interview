@@ -4617,7 +4617,11 @@ def end_session(data: dict):
     sid = data.get("session_id")
     session = sessions.get(sid)
     if session:
-        _end_interview(session, reason="manual")
+        # Only set end_reason="manual" on a still-active session. If it was already
+        # ended (e.g. speaker_verification_failed), this endpoint still gets called
+        # by the client's cleanup path — don't clobber the real reason with "manual".
+        if session.get("phase") != "ended":
+            _end_interview(session, reason="manual")
         # Evaluate synchronously, then KEEP the session row. The admin review reads
         # from active_sessions, so deleting here would make every completed interview
         # (and its evaluation) vanish from the review. The submit/stream end paths
