@@ -214,10 +214,10 @@ def _compare_skills(
     # Check which skills were actually discussed in the current interview
     discussed_skills = set()
     for turn in current_conversation:
-        question = turn.get("question", "").lower()
-        answer = turn.get("answer", "").lower()
+        question = (turn.get("question") or "").lower()
+        answer = (turn.get("answer") or "").lower()
         for skill in current_skills:
-            if skill.lower() in question or skill.lower() in answer:
+            if skill and (skill.lower() in question or skill.lower() in answer):
                 discussed_skills.add(skill)
 
     return {
@@ -289,8 +289,8 @@ def _generate_comparison_insights(
     complexity_indicators = []
     if current_eval.get("per_question"):
         for q_eval in current_eval["per_question"]:
-            question = q_eval.get("question", "").lower()
-            comment = q_eval.get("comment", "").lower()
+            question = (q_eval.get("question") or "").lower()
+            comment = (q_eval.get("comment") or "").lower()
             missed = q_eval.get("missed", [])
 
             # Check for deeper/complex question indicators
@@ -411,14 +411,14 @@ def _summarize_conversation(conversation: List[Dict], per_question: List[Dict] =
 
     for i, turn in enumerate(conversation[:10]):  # First 10 turns
         if turn.get("question"):
-            q = turn.get("question", "")[:150]  # Truncate long questions
-            a = turn.get("answer", "")[:150]
+            q = (turn.get("question") or "")[:150]  # Truncate long questions
+            a = (turn.get("answer") or "")[:150]
 
             # Get score and topic from evaluation data if available
             if i in eval_map:
                 score = eval_map[i].get("score", "N/A")
                 topic = eval_map[i].get("topic", "N/A")
-                feedback = eval_map[i].get("comment", "")[:100]
+                feedback = (eval_map[i].get("comment") or "")[:100]
                 qa_pairs.append(f"Q{i+1} (Topic: {topic}): {q}\nA: {a}\nScore: {score}/10\nFeedback: {feedback}")
             else:
                 # Fallback to turn data
