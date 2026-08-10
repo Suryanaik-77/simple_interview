@@ -740,7 +740,7 @@ Classify this question into one of three categories:
 2. **DOMAIN** - Technical questions about VLSI/semiconductor content:
    - Physical Design (PD): synthesis, clock tree, placement, routing, STA, PV, LEC
    - Design Verification (DV): binary numbers, gates, boolean logic, Karnaugh maps
-   - Analog Layout: MOSFET, transistors, wafer fabrication, power dissipation
+   - Layout: MOSFET, transistors, wafer fabrication, power dissipation, current mirrors, differential pairs, cascodes, biasing
    - EDA tools usage: ICC2, Innovus, PrimeTime, Calibre commands and flows
 
 3. **BOTH** - Questions that could involve both platform AND domain knowledge
@@ -872,7 +872,7 @@ Instructions:
     domain = req.domain.lower()
     if domain not in RAG_ENGINES:
         return {
-            "error": f"Invalid domain '{domain}'. Choose 'pd' (Physical Design), 'dv' (Design Verification), or 'analog' (Analog Layout)",
+            "error": f"Invalid domain '{domain}'. Choose 'pd' (Physical Design), 'dv' (Design Verification), or 'analog' (Layout)",
             "sources": []
         }
 
@@ -883,7 +883,7 @@ Instructions:
         # Simple flow: retrieve and answer
         hits = engine.search(req.question, k=max(req.k, RETRIEVE_K))
         if not hits:
-            domain_label = "DV" if domain == "dv" else "Analog Layout"
+            domain_label = "DV" if domain == "dv" else "Layout"
             return {"answer": f"No {domain_label} content found for this question.", "sources": [], "domain": domain}
     else:
         # PD domain - full flow with clarify/facets/routing
