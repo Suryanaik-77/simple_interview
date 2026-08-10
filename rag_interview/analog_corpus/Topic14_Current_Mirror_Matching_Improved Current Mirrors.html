@@ -1,0 +1,370 @@
+<html><head><title>10 Improved Current Mirrors</title></head><body>
+<h1 data-number="10"><span class="header-section-number">10</span> Improved Current Mirrors</h1>
+<p>In <a href="#sec-current-mirror" class="quarto-xref">Section&nbsp;6</a>, we looked into the operation of the basic current mirror. While it is a useful structure and easy to implement, its output resistance is limited by the MOSFET’s output conductance to <span class="math inline">\(r_\mathrm{out} = g_\mathrm{ds}^{-1}\)</span>, and its current mirroring accuracy is also limited by channel-length modulation effects since the <span class="math inline">\(V_\mathrm{DS}\)</span> of the output transistor varies with load conditions, and is thus different from the <span class="math inline">\(V_\mathrm{DS}\)</span> of the reference transistor.</p>
+<p>Using the cascode principle introduced in <a href="#sec-cascode-stage" class="quarto-xref">Section&nbsp;9</a>, we can improve both the output resistance and the current mirroring accuracy of the current mirror by adding a cascode stage (shown in blue). The improved current mirror structure is shown in <a href="#fig-current-mirror-cascode" class="quarto-xref">Figure&nbsp;47</a>.</p>
+<div id="cell-fig-current-mirror-cascode" class="cell" data-execution_count="37">
+<div class="cell-output cell-output-display">
+<div id="fig-current-mirror-cascode" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-current-mirror-cascode-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-current-mirror-cascode-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-81" title="Figure&nbsp;47: A cascoded current mirror using a biasing voltage to set the cascode gate potential."><img src="aicd_files/figure-html/fig-current-mirror-cascode-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-current-mirror-cascode-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;47: A cascoded current mirror using a biasing voltage to set the cascode gate potential.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>We can see that by introducing the cascode transistors we achieve the following benefits:</p>
+<ol type="1">
+<li>Increased output resistance, as we have seen in <a href="#eq-cascode-output" class="quarto-xref">Equation&nbsp;32</a>.</li>
+<li>Improved current mirroring accuracy, since the cascode transistors help to keep the drain-source voltage of the output transistor nearly constant and equal to that of the reference transistor.</li>
+</ol>
+<p>There are several ways to implement the bias voltage <span class="math inline">\(V_\mathrm{bias}\)</span> for setting the cascode transistors’ gate potential. One simple option is to use a biasing resistor <span class="math inline">\(R_\mathrm{bias}\)</span> (highlighted in blue) as shown in <a href="#fig-current-mirror-highswing" class="quarto-xref">Figure&nbsp;48</a>, which is called a “high-swing” cascode structure.</p>
+<div id="cell-fig-current-mirror-highswing" class="cell" data-execution_count="38">
+<div class="cell-output cell-output-display">
+<div id="fig-current-mirror-highswing" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-current-mirror-highswing-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-current-mirror-highswing-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-82" title="Figure&nbsp;48: A high-swing cascoded current mirror. The voltage drop across the resistor R_\mathrm{bias} sets the drain-source voltage of the lower transistors (together with the sizing of the MOSFETs)."><img src="aicd_files/figure-html/fig-current-mirror-highswing-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-current-mirror-highswing-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;48: A high-swing cascoded current mirror. The voltage drop across the resistor <span class="math inline">\(R_\mathrm{bias}\)</span> sets the drain-source voltage of the lower transistors (together with the sizing of the MOSFETs).
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The output impedance according to <a href="#eq-cs-cascode-output-impedance" class="quarto-xref">Equation&nbsp;33</a> of the improved current mirror is approximately given by (<span class="math inline">\(r_\mathrm{ds,casc} = g_\mathrm{ds,casc}^{-1}\)</span> and <span class="math inline">\(g_\mathrm{m,casc}\)</span> are the parameters of the cascode transistor, and <span class="math inline">\(r_\mathrm{ds} = g_\mathrm{ds}^{-1}\)</span> is the parameter of the bottom transistor):</p>
+<p><span id="eq-curmir-cascoded-rout"><span class="math display">\[
+r_\mathrm{out} = r_\mathrm{ds,casc} + r_\mathrm{ds} \cdot (1 + g_\mathrm{m,casc} \cdot r_\mathrm{ds,casc}).
+\tag{35}\]</span></span></p>
+<p>We can bias the gate voltages of the cascode transistors with any suitable bias circuit, but a simple way is to use a resistor <span class="math inline">\(R_\mathrm{bias}\)</span> as shown in the figure. The voltage drop across this resistor sets the drain-source voltage of the lower transistors (together with the sizing of the MOSFETs). By choosing a sufficiently large value for <span class="math inline">\(R_\mathrm{bias}\)</span>, we can ensure that both transistors remain in saturation for the desired range of output currents. The cascode transistors make sure that the drain-source voltage of the output transistor remains nearly constant and equal to the drain-source voltage of the reference transistor, thus improving the current mirroring accuracy.</p>
+<p>Another option for an improved current mirror is to use source degeneration with a resistor. This configuration is shown in <a href="#fig-current-mirror-degeneration" class="quarto-xref">Figure&nbsp;49</a>. Here, the source degeneration resistors <span class="math inline">\(R_\mathrm{deg}\)</span> help to stabilize the operating point of the current mirror using series feedback.</p>
+<div id="cell-fig-current-mirror-degeneration" class="cell" data-execution_count="39">
+<div class="cell-output cell-output-display">
+<div id="fig-current-mirror-degeneration" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-current-mirror-degeneration-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-current-mirror-degeneration-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-83" title="Figure&nbsp;49: A current mirror with resistive degeneration."><img src="aicd_files/figure-html/fig-current-mirror-degeneration-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-current-mirror-degeneration-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;49: A current mirror with resistive degeneration.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Here, similar to <a href="#eq-curmir-cascoded-rout" class="quarto-xref">Equation&nbsp;35</a>, the output resistance can be approximated by</p>
+<p><span id="eq-curmir-degeneration-rout"><span class="math display">\[
+r_\mathrm{out} = r_\mathrm{ds} + R_\mathrm{deg} \cdot (1 + g_\mathrm{m}\cdot r_\mathrm{ds}).
+\tag{36}\]</span></span></p>
+<p>A third popular option to implement an improved current mirror is to use the so-called regulated current mirror, which uses an additional amplifier to sense the drain potential of the bottom transistor and keep it constant <span class="citation" data-cites="Hosticka_1979">(<a href="#ref-Hosticka_1979" role="doc-biblioref">Hosticka 1979</a>)</span>. Note that the output current will not change if the <span class="math inline">\(V_\mathrm{DS}\)</span> of the bottom transistor is kept constant. We can use any suitable amplifier for this purpose, e.g., a simple OTA as introduced in <a href="#sec-basic-ota" class="quarto-xref">Section&nbsp;8</a>. In the most basic form, we use a common-source stage with a current mirror load as shown in blue in <a href="#fig-current-mirror-reg-casc" class="quarto-xref">Figure&nbsp;50</a>.</p>
+<div id="cell-fig-current-mirror-reg-casc" class="cell" data-execution_count="40">
+<div class="cell-output cell-output-display">
+<div id="fig-current-mirror-reg-casc" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-current-mirror-reg-casc-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-current-mirror-reg-casc-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-84" title="Figure&nbsp;50: A regulated-cascode current mirror. The simple common-source amplifier is used to keep the drain voltage of the bottom transistor constant, thus improving the current mirroring accuracy and output resistance."><img src="aicd_files/figure-html/fig-current-mirror-reg-casc-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-current-mirror-reg-casc-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;50: A regulated-cascode current mirror. The simple common-source amplifier is used to keep the drain voltage of the bottom transistor constant, thus improving the current mirroring accuracy and output resistance.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>We assume the voltage gain of the auxiliary amplifier to be <span class="math inline">\(A_\mathrm{v} = g_\mathrm{maux} / g_\mathrm{dsaux}\)</span>, where <span class="math inline">\(g_\mathrm{maux}\)</span> and <span class="math inline">\(g_\mathrm{dsaux}\)</span> are the transconductance and output conductance of the auxiliary amplifier, respectively. The output resistance of the regulated cascode current mirror can then be approximated by</p>
+<p><span id="eq-curmir-regcasc-rout"><span class="math display">\[
+\begin{split}
+r_\mathrm{out} &amp;= r_\mathrm{ds,casc} + r_\mathrm{ds} \cdot [1 + g_\mathrm{m,casc} \cdot r_\mathrm{ds,casc} \cdot (1 + g_\mathrm{maux} / g_\mathrm{dsaux})] \\
+&amp; \approx r_\mathrm{ds} \cdot g_\mathrm{m,casc} \cdot r_\mathrm{ds,casc} \cdot g_\mathrm{m,aux} \cdot r_\mathrm{ds,aux}
+\end{split}
+\tag{37}\]</span></span></p>
+<p>which, compared to <a href="#eq-curmir-cascoded-rout" class="quarto-xref">Equation&nbsp;35</a>, is further improved by the gain of the auxiliary amplifier.</p>
+<p>We now want to size all these current mirror structures and simulate their performance. We try to size them for similar chip area in order to get a fair comparison. We assume a reference current of <span class="math inline">\(I_\mathrm{bias} = 50\,\mu\text{A}\)</span> and a mirror ratio of 1:1. We size for a minimum voltage headroom for the current sources of <span class="math inline">\(V_\mathrm{DS,min} = 0.4\,\text{V}\)</span>. The calculations are summarized in this <a href="./gmid/sizing_improved_current_mirror.html">sizing notebook</a>.</p>
+<p>The resulting circuits are drawn in <a href="#fig-curmir-variations-tb" class="quarto-xref">Figure&nbsp;51</a>. The testbench simulates the dc output characteristics of all four current mirror variations (the three improved ones and the basic one for reference). The testbench also runs a Monte-Carlo simulation to evaluate the current mirroring accuracy under device mismatch (see <a href="#sec-mosfet-mismatch" class="quarto-xref">Section&nbsp;8.6.1</a>).</p>
+<div id="fig-curmir-variations-tb" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-curmir-variations-tb-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="./xschem/current_mirror_variations.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-85" title="Figure&nbsp;51: Simulation schematic of the improved current mirrors."><img src="./xschem/current_mirror_variations.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-curmir-variations-tb-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;51: Simulation schematic of the improved current mirrors.
+</figcaption>
+</figure>
+</div>
+<p>The output characteristics from the dc sweep simulation are shown in <a href="#fig-curmir-output" class="quarto-xref">Figure&nbsp;52</a>, and a zoom-in in <a href="#fig-curmir-output-zoom" class="quarto-xref">Figure&nbsp;53</a>. We can see that all improved current mirror structures achieve a significantly higher output resistance compared to the basic current mirror. The regulated cascode structure achieves the highest output resistance, as expected.</p>
+<div id="cell-fig-curmir-output" class="cell" data-execution_count="41">
+<div class="cell-output cell-output-display">
+<div id="fig-curmir-output" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-curmir-output-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-curmir-output-output-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-86" title="Figure&nbsp;52: Output characteristics of the four current mirror structures."><img src="aicd_files/figure-html/fig-curmir-output-output-1.png" width="759" height="566" class="figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-curmir-output-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;52: Output characteristics of the four current mirror structures.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="cell-fig-curmir-output-zoom" class="cell" data-execution_count="42">
+<div class="cell-output cell-output-display">
+<div id="fig-curmir-output-zoom" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-curmir-output-zoom-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-curmir-output-zoom-output-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-87" title="Figure&nbsp;53: Output characteristics of the four current mirror structures (zoom in). The high-swing cascode and the regulated cascode achieve significantly higher output resistance compared to the basic and degenerated current mirror."><img src="aicd_files/figure-html/fig-curmir-output-zoom-output-1.png" width="759" height="566" class="figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-curmir-output-zoom-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;53: Output characteristics of the four current mirror structures (zoom in). The high-swing cascode and the regulated cascode achieve significantly higher output resistance compared to the basic and degenerated current mirror.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>We now look into the results of the Monte-Carlo simulation to evaluate the current mirroring accuracy under device mismatch using 500 runs and a compliance voltage of 0.4 V. The results are summarized in <a href="#fig-curmir-mc" class="quarto-xref">Figure&nbsp;54</a>. We can see that the high-swing cascode and the regulated cascode achieve a very precise nominal current accuracy of almost 50 µA. However, the source-degenerated current mirror shows a significantly reduced spread of the output current, indicating a reduced mismatch of the poly-silicon resistors compared to the MOSFETs.</p>
+<div id="cell-fig-curmir-mc" class="cell" data-execution_count="43">
+<div class="cell-output cell-output-display">
+<div id="fig-curmir-mc" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-curmir-mc-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-curmir-mc-output-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-88" title="Figure&nbsp;54: Monte Carlo analysis of the four current mirror structures showing current distribution and fitted Gaussian curves."><img src="aicd_files/figure-html/fig-curmir-mc-output-1.png" width="760" height="758" class="figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-curmir-mc-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;54: Monte Carlo analysis of the four current mirror structures showing current distribution and fitted Gaussian curves.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Finally, we compare the output noise of the four different current mirror structures in <a href="#fig-curmir-noise" class="quarto-xref">Figure&nbsp;55</a>. We can see that the regulated cascode has the highest output noise due to the additional auxiliary amplifier, while the source-degenerated mirror has the lowest output noise.</p>
+<div id="cell-fig-curmir-noise" class="cell" data-execution_count="44">
+<div class="cell-output cell-output-display">
+<div id="fig-curmir-noise" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-curmir-noise-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-curmir-noise-output-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-89" title="Figure&nbsp;55: Output noise current vs.&nbsp;frequency for the four current mirror structures."><img src="aicd_files/figure-html/fig-curmir-noise-output-1.png" width="758" height="565" class="figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-curmir-noise-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;55: Output noise current vs.&nbsp;frequency for the four current mirror structures.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<section id="sec-low-voltage-regulated-curmir" class="level2" data-number="10.1">
+<h2 data-number="10.1" class="anchored" data-anchor-id="sec-low-voltage-regulated-curmir"><span class="header-section-number">10.1</span> Low-Voltage Regulated Current Mirror</h2>
+<p>The one drawback of the regulated cascode current mirror shown in <a href="#fig-current-mirror-reg-casc" class="quarto-xref">Figure&nbsp;50</a> is its relatively high compliance voltage, which is due to the fact that <span class="math inline">\(V_\mathrm{DS1} = V_\mathrm{GSaux}\)</span>. One alternative implementation that reduces the compliance voltage is shown in <a href="#fig-current-mirror-reg-casc-lv" class="quarto-xref">Figure&nbsp;56</a>. Here, we use a differential common-gate stage (essentially a current mirror with inputs at the sources of the transistors) as an auxiliary amplifier, which significantly reduces the required voltage headroom, at the expense of a slightly increased circuit complexity <span class="citation" data-cites="Ivanov_Opamp">(<a href="#ref-Ivanov_Opamp" role="doc-biblioref">Ivanov and Filanovsky 2004</a>)</span>. However, the bias current sources <span class="math inline">\(I_\mathrm{bias2,3}\)</span> of the auxiliary amplifier introduce some additional noise and mismatch.</p>
+<div id="cell-fig-current-mirror-reg-casc-lv" class="cell" data-execution_count="45">
+<div class="cell-output cell-output-display">
+<div id="fig-current-mirror-reg-casc-lv" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-current-mirror-reg-casc-lv-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-current-mirror-reg-casc-lv-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-90" title="Figure&nbsp;56: A low-voltage regulated-cascode current mirror. The differential common-gate error amplifier is used to keep the drain voltage of the bottom transistors constant, thus improving the current mirroring accuracy and output resistance."><img src="aicd_files/figure-html/fig-current-mirror-reg-casc-lv-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-current-mirror-reg-casc-lv-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;56: A low-voltage regulated-cascode current mirror. The differential common-gate error amplifier is used to keep the drain voltage of the bottom transistors constant, thus improving the current mirroring accuracy and output resistance.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="sec-curmir-variations-summary" class="level2" data-number="10.2">
+<h2 data-number="10.2" class="anchored" data-anchor-id="sec-curmir-variations-summary"><span class="header-section-number">10.2</span> Current Source Variations Summary</h2>
+<p>In summary, we can classify the usage of the different current mirror structures as follows:</p>
+<ul>
+<li>For general applications where output resistance and current accuracy are not critical, the <strong>basic current mirror</strong> can be used. It also has the lowest compliance voltage since only one transistor is stacked.</li>
+<li>The <strong>high-swing cascode current mirror</strong> is a good choice when higher output resistance is needed, while still keeping the circuit relatively simple.</li>
+<li>The <strong>source-degenerated current mirror</strong> is a good choice when the best current matching and low output noise are required. The additional voltage headroom that is dropped across the source degeneration can be adapted (higher is better), but a minimum value of 0.1 V should be used.</li>
+<li>The <strong>regulated cascode current mirror</strong> is the best choice when the highest output resistance is required, and the additional complexity and output noise are acceptable.</li>
+<li>The <strong>low-voltage regulated cascode current mirror</strong> is a good alternative to the regulated cascode when a low compliance voltage is required.</li>
+</ul>
+<p>Please note that the absolute performance can be tweaked by proper sizing. The examples shown here are sized for similar chip area and a fair comparison.</p>
+</section>
+<section id="sec-current-mirror-matching" class="level2" data-number="10.3">
+<h2 data-number="10.3" class="anchored" data-anchor-id="sec-current-mirror-matching"><span class="header-section-number">10.3</span> Current Mirror Matching</h2>
+<p>Looking at the different current mirror architectures in <a href="#sec-current-mirror-improved" class="quarto-xref">Section&nbsp;10</a>, we can see that the current mirror matching is dominated by the bottom transistor pair (assuming equal <span class="math inline">\(V_\mathrm{DS}\)</span>), with the exception of the resistively degenerated current mirror. We asserted that the matching of the resistively-degenerated current mirror is improved due to the lower impact of MOSFET mismatch compared to resistor mismatch. We will now substantiate this claim.</p>
+<p>We will derive the current mirror matching of a pair of resistively-degenerated current mirror transistors shown in <a href="#fig-current-mirror-degeneration" class="quarto-xref">Figure&nbsp;49</a>.</p>
+<div id="cell-fig-current-mirror-matching" class="cell" data-execution_count="46">
+<div class="cell-output cell-output-display">
+<div id="fig-current-mirror-matching" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-current-mirror-matching-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-current-mirror-matching-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-91" title="Figure&nbsp;57: A current mirror pair with resistive degeneration."><img src="aicd_files/figure-html/fig-current-mirror-matching-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-current-mirror-matching-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;57: A current mirror pair with resistive degeneration.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The variance <span class="math inline">\(\sigma^2\)</span> of the output current difference, normalized to the current, is given by <span class="citation" data-cites="Gray_Meyer_2009">(<a href="#ref-Gray_Meyer_2009" role="doc-biblioref">Gray et al. 2009</a>)</span></p>
+<p><span id="eq-curmir-matching"><span class="math display">\[
+\begin{split}
+\sigma^2\left\{\frac{\Delta I_\mathrm{D}}{I_\mathrm{D}}\right\} &amp; = \frac{\sigma^2\left\{\Delta V_\mathrm{th}\right\}}{(V_\mathrm{drv} + V_\mathrm{deg})^2}
++ \left( \frac{V_\mathrm{drv}}{V_\mathrm{drv} + V_\mathrm{deg}} \right)^2 \cdot \sigma^2\left\{\frac{\Delta K}{K}\right\} \\
+&amp; + \left( \frac{V_\mathrm{deg}}{V_\mathrm{drv} + V_\mathrm{deg}} \right)^2 \cdot \sigma^2\left\{\frac{\Delta R}{R}\right\}.
+\end{split}
+\tag{38}\]</span></span></p>
+<p>The definition of <span class="math inline">\(V_\mathrm{drv}\)</span> is adapted here and understood as half of the <span class="math inline">\(V_\mathrm{DS}\)</span> saturation voltage, i.e., <span class="math inline">\(V_\mathrm{drv} = V_\mathrm{DS,sat} / 2 \approx I_\mathrm{D}/ g_\mathrm{m}\)</span>. The degeneration voltage is the voltage drop across the degeneration resistors and given by <span class="math inline">\(V_\mathrm{deg} = I_\mathrm{D}\cdot R\)</span>.</p>
+<p>The standard deviation of the resistor <span class="math inline">\(\sigma\left\{\Delta R / R\right\}\)</span> can be calculated using <a href="#eq-resistor-mismatch" class="quarto-xref">Equation&nbsp;30</a>. Further, the threshold voltage mismatch <span class="math inline">\(\sigma\left\{\Delta V_\mathrm{th}\right\}\)</span> can be calculated using <a href="#eq-mosfet-mismatch-vth" class="quarto-xref">Equation&nbsp;26</a>.</p>
+<p>By using the approximation of <a href="#eq-mosfet-gmid-stronginversion" class="quarto-xref">Equation&nbsp;4</a>, we can express <a href="#eq-curmir-matching" class="quarto-xref">Equation&nbsp;38</a> in terms of our preferred sizing parameter <span class="math inline">\(g_\mathrm{m}/ I_\mathrm{D}\)</span>:</p>
+<p><span id="eq-curmir-matching-alt"><span class="math display">\[
+\begin{split}
+\sigma^2\left\{\frac{\Delta I_\mathrm{D}}{I_\mathrm{D}}\right\} &amp; = \frac{\sigma^2\left\{\Delta V_\mathrm{th}\right\}}{[(g_\mathrm{m}/I_\mathrm{D})^{-1} + V_\mathrm{deg}]^2}
++ \left( \frac{1}{1 + V_\mathrm{deg}\cdot g_\mathrm{m}/I_\mathrm{D}} \right)^2 \cdot \sigma^2\left\{\frac{\Delta K}{K}\right\} \\
+&amp; + \left( \frac{V_\mathrm{deg} \cdot g_\mathrm{m}/I_\mathrm{D}}{1 + V_\mathrm{deg} \cdot g_\mathrm{m}/I_\mathrm{D}} \right)^2 \cdot \sigma^2\left\{\frac{\Delta R}{R}\right\}.
+\end{split}
+\tag{39}\]</span></span></p>
+<p>The standard deviation of the transconductance parameter mismatch <span class="math inline">\(\sigma\left\{\Delta K / K\right\}\)</span> can be calculated similarly as (which is an alternative form to <a href="#eq-mosfet-mismatch-kp" class="quarto-xref">Equation&nbsp;27</a>)</p>
+<p><span id="eq-mosfet-mismatch-kp-alt"><span class="math display">\[
+\sigma^2\left\{\frac{\Delta K}{K}\right\} = \sigma^2\left\{\Delta W\right\} \cdot \frac{1}{W^2} + \sigma^2\left\{\Delta L\right\} \cdot \frac{1}{L^2} + \sigma^2\left\{\frac{\Delta \mu}{\mu}\right\} \cdot \frac{1}{W L},
+\tag{40}\]</span></span></p>
+<p>where <span class="math inline">\(\sigma\left\{\Delta W\right\}\)</span> and <span class="math inline">\(\sigma\left\{\Delta L\right\}\)</span> are the process-dependent mismatch parameters for the width <span class="math inline">\(W\)</span> and length <span class="math inline">\(L\)</span>, respectively, and <span class="math inline">\(\sigma\left\{\Delta \mu / \mu\right\}\)</span> is the mobility mismatch parameter.</p>
+<p>The standard deviations of the components of the SG13G2 process are summarized in <a href="#tbl-sg13g2-mismatch" class="quarto-xref">Table&nbsp;3</a>. For mismatch calculations we can assume them to be uncorrelated.</p>
+<div id="tbl-sg13g2-mismatch" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-sg13g2-mismatch-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;3: IHP SG13G2 device mismatch
+</figcaption>
+<div aria-describedby="tbl-sg13g2-mismatch-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 27%">
+<col style="width: 48%">
+<col style="width: 23%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Component</th>
+<th>Matching Parameter</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Resistor <code>rsil</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta R / R\right\} \cdot \sqrt{WL}\)</span></td>
+<td>1.2 % µm</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Resistor <code>rppd</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta R / R\right\} \cdot \sqrt{WL}\)</span></td>
+<td>1.5 % µm</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Resistor <code>rhigh</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta R / R\right\} \cdot \sqrt{WL}\)</span></td>
+<td>5 % µm</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">MIM <code>cap_cmim</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta C / C\right\} \cdot \sqrt{WL}\)</span></td>
+<td>1 % µm (estimated)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">MOSFET <code>sg13_lv_nmos</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta V_\mathrm{th}\right\} \cdot \sqrt{WL}\)</span></td>
+<td>3.9 mV µm</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">MOSFET <code>sg13_lv_nmos</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta W\right\}\)</span></td>
+<td>4 nm</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">MOSFET <code>sg13_lv_nmos</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta L\right\}\)</span></td>
+<td>2 nm</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">MOSFET <code>sg13_lv_nmos</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta \mu/\mu\right\} \cdot \sqrt{WL}\)</span></td>
+<td>0.5 % µm</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">MOSFET <code>sg13_lv_pmos</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta V_\mathrm{th}\right\} \cdot \sqrt{WL}\)</span></td>
+<td>2.2 mV µm</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">MOSFET <code>sg13_lv_pmos</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta W\right\}\)</span></td>
+<td>4 nm</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">MOSFET <code>sg13_lv_pmos</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta L\right\}\)</span></td>
+<td>2 nm</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">MOSFET <code>sg13_lv_pmos</code></td>
+<td><span class="math inline">\(\sigma\left\{\Delta \mu/\mu\right\} \cdot \sqrt{WL}\)</span></td>
+<td>0.33 % µm</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+<p>Inspecting <a href="#eq-curmir-matching" class="quarto-xref">Equation&nbsp;38</a> we can see that by implementing a common-source transistor without source degeneration (i.e., <span class="math inline">\(V_\mathrm{deg} = 0\)</span>), the current mirror matching is dominated by the threshold voltage mismatch and the transconductance parameter mismatch of the MOSFETs:</p>
+<p><span id="eq-curmir-matching-nodeg"><span class="math display">\[
+\sigma^2\left\{\frac{\Delta I_\mathrm{D}}{I_\mathrm{D}}\right\} = \sigma^2\left\{\Delta V_\mathrm{th}\right\} \left( \frac{g_\mathrm{m}}{I_\mathrm{D}} \right)^2 + \sigma^2\left\{\frac{\Delta K}{K}\right\}
+\tag{41}\]</span></span></p>
+<p>The first term in <a href="#eq-curmir-matching-nodeg" class="quarto-xref">Equation&nbsp;41</a> can be minimized by choosing a low <span class="math inline">\(g_\mathrm{m}/ I_\mathrm{D}\)</span> ratio, while the latter term is minimized by increasing the device area (i.e., increasing <span class="math inline">\(W\)</span> and <span class="math inline">\(L\)</span>).</p>
+<p>Looking at the resistively-degenerated current mirror, and using a large degeneration voltage <span class="math inline">\(V_\mathrm{deg}\)</span>, we can simplify <a href="#eq-curmir-matching-alt" class="quarto-xref">Equation&nbsp;39</a> to</p>
+<p><span id="eq-curmir-matching-strongdeg"><span class="math display">\[
+\sigma^2\left\{\frac{\Delta I_\mathrm{D}}{I_\mathrm{D}}\right\} = \sigma^2\left\{\frac{\Delta R}{R}\right\}
+\tag{42}\]</span></span></p>
+<p>indicating that now the current matching of the degenerated current mirror is defined by the resistor matching only. Since resistors typically have a significantly better matching than MOSFETs, this can lead to a significant improvement in current mirror accuracy.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="Current Mirror Matching Calculation">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Current Mirror Matching Calculation
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Let us now calculate the current mirror matching of the simple current mirror. Using <a href="#eq-curmir-matching-nodeg" class="quarto-xref">Equation&nbsp;41</a>, and using the sizing values of <span class="math inline">\(g_\mathrm{m}/ I_\mathrm{D}= 5\,\text{V}^{-1}\)</span>, <span class="math inline">\(W = 10\,\mu\text{m}\)</span>, and <span class="math inline">\(L = 5\,\mu\text{m}\)</span>, we can calculate the standard deviation of the transconductance parameter mismatch using <a href="#eq-mosfet-mismatch-kp-alt" class="quarto-xref">Equation&nbsp;40</a> and <a href="#tbl-sg13g2-mismatch" class="quarto-xref">Table&nbsp;3</a>: <span class="math display">\[
+\sigma\left\{\frac{\Delta K}{K}\right\} = \sqrt{ \left( \frac{4\,\text{nm}}{10\,\mu\text{m}} \right)^2 + \left( \frac{2\,\text{nm}}{5\,\mu\text{m}} \right)^2 + \left( \frac{0.5\,\%\mu\text{m}}{\sqrt{10\,\mu\text{m} \cdot 5\,\mu\text{m}}} \right)^2 } = 0.09\,\%.
+\]</span></p>
+<p>The standard deviation of the threshold voltage mismatch can be calculated using <a href="#eq-mosfet-mismatch-vth" class="quarto-xref">Equation&nbsp;26</a> and <a href="#tbl-sg13g2-mismatch" class="quarto-xref">Table&nbsp;3</a>: <span class="math display">\[
+\sigma\left\{\Delta V_\mathrm{th}\right\} = \frac{3.9\,\text{mV}\mu\text{m}}{\sqrt{10\,\mu\text{m} \cdot 5\,\mu\text{m}}} = 0.55\,\text{mV}.
+\]</span></p>
+<p>Bringing both results into <a href="#eq-curmir-matching-nodeg" class="quarto-xref">Equation&nbsp;41</a>, we get <span class="math display">\[
+\sigma\left\{\frac{\Delta I_\mathrm{D}}{I_\mathrm{D}}\right\} = \sqrt{ (0.55\,\text{mV} \cdot 5\,\text{V}^{-1})^2 + (0.09\,\%)^2} \approx 0.29\,\%.
+\]</span> Comparing with the simulation results in <a href="#fig-curmir-mc" class="quarto-xref">Figure&nbsp;54</a> for the basic current mirror, we can see that this gives a reasonable estimate compared to the standard deviation of about <span class="math inline">\(0.21\,\mu\text{A}/48.9\,\mu\text{A} = 0.43\,\%\)</span> obtained from the Monte-Carlo simulation. The remaining discrepancy is due to simplifications in the analytical model (e.g., the square-law approximation).</p>
+<p>Let us now calculate the current mirror matching of the resistively-degenerated current mirror. We can use <a href="#eq-curmir-matching-alt" class="quarto-xref">Equation&nbsp;39</a> to analyze this configuration. We use the sizing values of <span class="math inline">\(g_\mathrm{m}/ I_\mathrm{D}= 10\,\text{V}^{-1}\)</span>, <span class="math inline">\(W = 20\,\mu\text{m}\)</span>, and <span class="math inline">\(L = 3\,\mu\text{m}\)</span>, for the MOSFET, and <span class="math inline">\(V_\mathrm{deg} = 0.2\,\text{V}\)</span>, <span class="math inline">\(L = 15\,\mu\text{m}\)</span> / <span class="math inline">\(W = 1\,\mu\text{m}\)</span> for the used <code>rppd</code> resistor.</p>
+<p>The standard deviation of the transconductance parameter mismatch can be calculated as <span class="math display">\[
+\sigma\left\{\frac{\Delta K}{K}\right\} = \sqrt{ \left( \frac{4\,\text{nm}}{20\,\mu\text{m}} \right)^2 + \left( \frac{2\,\text{nm}}{3\,\mu\text{m}} \right)^2 + \left( \frac{0.5\,\%\mu\text{m}}{\sqrt{20\,\mu\text{m} \cdot 3\,\mu\text{m}}} \right)^2 } = 0.10\,\%.
+\]</span></p>
+<p>The standard deviation of the threshold voltage mismatch can be calculated as <span class="math display">\[
+\sigma\left\{\Delta V_\mathrm{th}\right\} = \frac{3.9\,\text{mV}\mu\text{m}}{\sqrt{20\,\mu\text{m} \cdot 3\,\mu\text{m}}} = 0.50\,\text{mV}.
+\]</span></p>
+<p>The standard deviation of the resistor mismatch can be calculated using <a href="#eq-resistor-mismatch" class="quarto-xref">Equation&nbsp;30</a> and <a href="#tbl-sg13g2-mismatch" class="quarto-xref">Table&nbsp;3</a>: <span class="math display">\[
+\sigma\left\{\frac{\Delta R}{R}\right\} = \frac{1.5\,\%\mu\text{m}}{\sqrt{15\,\mu\text{m} \cdot 1\,\mu\text{m}}} = 0.39\,\%.
+\]</span></p>
+<p>Plugging these results into <a href="#eq-curmir-matching-alt" class="quarto-xref">Equation&nbsp;39</a>, we get <span class="math display">\[
+\begin{split}
+\sigma^2\left\{\frac{\Delta I_\mathrm{D}}{I_\mathrm{D}}\right\} =&amp;
+\left( \frac{0.50\,\text{mV}}{0.1\,\text{V} + 0.2\,\text{V}} \right)^2 +
+\left( \frac{1}{1 + 0.2\,\text{V} \cdot 10\,\text{V}^{-1}} \cdot 0.10\,\% \right)^2 \\
+&amp; + \left( \frac{0.2\,\text{V} \cdot 10\,\text{V}^{-1}}{1 + 0.2\,\text{V} \cdot 10\,\text{V}^{-1}} \cdot 0.39\,\%\right)^2 \\
+=&amp; (0.29\,\%)^2.
+\end{split}
+\]</span></p>
+<p>We see that compared to the basic current mirror, the resistively-degenerated current mirror achieves a significantly improved current matching. This matches quite well with the simulation results in <a href="#fig-curmir-mc" class="quarto-xref">Figure&nbsp;54</a> for the resistively-degenerated current mirror, where we obtained a standard deviation of about <span class="math inline">\(0.12\,\mu\text{A}/48.8\,\mu\text{A} = 0.25\,\%\)</span> from the Monte-Carlo simulation.</p>
+</div>
+</div>
+</section>
+</section>
+<section id="sec-improved-ota" class="level1" data-number="11">
+
+<p><em>Source: iic-jku "Analog (Integrated) Circuit Design" course materials (Institute for Integrated Circuits, Johannes Kepler University Linz), licensed Apache-2.0. https://github.com/iic-jku/analog-circuit-design</em></p>
+</body></html>

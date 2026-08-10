@@ -1,0 +1,406 @@
+<html><head><title>2 First Steps</title></head><body>
+<h1 data-number="2"><span class="header-section-number">2</span> First Steps</h1>
+<p>In this first chapter we will learn to use Xschem for schematic entry, and how to operate the ngspice SPICE simulator for circuit simulations. Further, we will make ourselves familiar with the transistor and other passive components available in the IHP Microelectronics SG13G2 technology. While this is strictly speaking a BiCMOS technology offering MOSFETs as well as SiGe heterojunction bipolar transistors (HBTs), we will use it as a pure CMOS technology, which is available from IHP under the name SG13C.</p>
+<section id="sec-mosfet" class="level2" data-number="2.1">
+<h2 data-number="2.1" class="anchored" data-anchor-id="sec-mosfet"><span class="header-section-number">2.1</span> The Metal-Oxide-Semiconductor Field-Effect-Transistor (MOSFET)</h2>
+<p>In this course, we will <strong>not</strong> dive into semiconductor physics and derive the device operation bottom-up starting from a fundamental level governed by quantum mechanics or a simplified solid-state physics based approach resulting in the well-known square-law model. Instead, we will treat the MOSFET behaviorally by assuming a 4-terminal device, and the performance of this device regarding its terminal voltages and currents we will largely derive from the simulation model.</p>
+<div id="cell-fig-amplifiers" class="cell" data-execution_count="1">
+<div class="cell-output cell-output-display">
+<div id="fig-amplifiers" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-amplifiers-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-amplifiers-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="Figure&nbsp;1: Circuit symbols for different voltage-controlled amplifiers (from left to right: MOSFET, bipolar junction transistor, junction FET, triode)."><img src="aicd_files/figure-html/fig-amplifiers-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-amplifiers-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1: Circuit symbols for different voltage-controlled amplifiers (from left to right: MOSFET, bipolar junction transistor, junction FET, triode).
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Look at the transistor symbols shown in <a href="#fig-amplifiers" class="quarto-xref">Figure&nbsp;1</a>. By treating them as a black box, where the output current is controlled by an input voltage, we can design circuits with all of them, even vacuum tubes would work in the same way.</p>
+<p>Since we have an emphasis on integrated circuit design in this course, the size of the MOSFET can be adapted by changing its width <span class="math inline">\(W\)</span> and its length <span class="math inline">\(L\)</span>. As we will see later, <span class="math inline">\(L\)</span> has a profound impact on the MOSFET performance allowing to trade-off speed versus output conductance versus device-to-device matching. The width <span class="math inline">\(W\)</span> is more of a scaling parameter to adapt the current <strong>density</strong> (strictly speaking charge density) forming in the MOSFET channel to a desired current. More about this later.</p>
+<p>The circuit symbol that we will use for the n-channel MOSFET is shown in <a href="#fig-nmos-symbol" class="quarto-xref">Figure&nbsp;2</a>, and for the p-channel MOSFET it is shown in <a href="#fig-pmos-symbol" class="quarto-xref">Figure&nbsp;3</a>. A control voltage between gate (“G”) and source (“S”) controls the current flow between drain (“D”) and source. The MOSFET is a 4-terminal device, so the bulk (“B”) can also control the drain-source current flow. Often, the bulk is connected to source, and then the bulk terminal is not shown to declutter the schematics.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="MOSFET Background">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>MOSFET Background
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Strictly speaking, the drain-source current of a MOSFET is controlled by the voltage between gate and bulk (<span class="math inline">\(V_\mathrm{GB}\)</span>) and the voltage between drain and source (<span class="math inline">\(V_\mathrm{DS}\)</span>). Since bulk is often connected to source anyway, and many circuit designers historically were already familiar with the operation of the bipolar junction transistor (BJT), it is common to consider the gate-source voltage (besides the drain-source voltage) as the controlling voltage.</p>
+<p>This focus on gate-source suggests that the source is special compared to the drain. In a typical physical MOSFET, however, the drain and source are constructed exactly the same (i.e., the MOSFET is a symmetric device), and which terminal is drain, and which terminal is source, is only determined by the applied voltage potentials, and can change dynamically during operation (think of a MOSFET operating as a switch… which side is the drain, which side is the source?).</p>
+<p>Unfortunately, this focus on a “special” source has made its way into some MOSFET compact models. The model that is used in SG13G2 luckily uses the PSP model, which is formulated symmetrically with regards to drain and source, and is thus very well suited for analog and RF circuit design. For a detailed understanding of the PSP model please refer to the <a href="https://www.cea.fr/cea-tech/leti/pspsupport/Documents/psp103p6_summary.pdf">model documentation</a>.</p>
+</div>
+</div>
+<div id="cell-fig-nmos-symbol" class="cell" data-execution_count="2">
+<div class="cell-output cell-output-display">
+<div id="fig-nmos-symbol" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-nmos-symbol-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-nmos-symbol-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="Figure&nbsp;2: Circuit symbol of n-channel MOSFET. For circuit design in this course, we will mostly use the middle symbol without bulk connection and an arrow indicating the source terminal."><img src="aicd_files/figure-html/fig-nmos-symbol-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-nmos-symbol-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2: Circuit symbol of n-channel MOSFET. For circuit design in this course, we will mostly use the middle symbol without bulk connection and an arrow indicating the source terminal.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="cell-fig-pmos-symbol" class="cell" data-execution_count="3">
+<div class="cell-output cell-output-display">
+<div id="fig-pmos-symbol" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-pmos-symbol-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-pmos-symbol-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="Figure&nbsp;3: Circuit symbol of p-channel MOSFET. As for n-channel MOSFETs, we will mostly use the middle symbol without bulk connection and an arrow indicating the source terminal."><img src="aicd_files/figure-html/fig-pmos-symbol-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-pmos-symbol-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3: Circuit symbol of p-channel MOSFET. As for n-channel MOSFETs, we will mostly use the middle symbol without bulk connection and an arrow indicating the source terminal.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-important callout-titled" title="MOSFET Symbol">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>MOSFET Symbol
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Looking at the MOSFET symbols in <a href="#fig-nmos-symbol" class="quarto-xref">Figure&nbsp;2</a> and <a href="#fig-pmos-symbol" class="quarto-xref">Figure&nbsp;3</a>, you might have noticed that the left and the right symbols are symmetric for the drain and source terminals, while the middle symbol shows an arrow in the source connection.</p>
+<p>This is a common “error” in many important textbooks and online resources <span class="citation" data-cites="Razavi_Analog_CMOS Gray_Meyer_2009 Sansen_Essentials">(<a href="#ref-Razavi_Analog_CMOS" role="doc-biblioref">Razavi 2017</a>; <a href="#ref-Gray_Meyer_2009" role="doc-biblioref">Gray et al. 2009</a>; <a href="#ref-Sansen_Essentials" role="doc-biblioref">Sansen 2006</a>)</span>, and it is important to be aware of this. The drain and source of a MOSFET are (usually) symmetric, and the current flow can be reversed by changing the applied voltages (and then also drain and source swap; generally, for an NMOS, the connection with the higher potential is the drain, the one with the lower potential is the source. For a PMOS, the situation is inverted).</p>
+<p>The symbol in the middle of <a href="#fig-nmos-symbol" class="quarto-xref">Figure&nbsp;2</a> and <a href="#fig-pmos-symbol" class="quarto-xref">Figure&nbsp;3</a> is thus misleading, because is suggests that the source is special and that the current can only flow in one direction. This is not the case, and it is important to be aware of this when designing circuits, especially when using MOSFETs as switches. As many symbols are drawn this way, we will also use this symbol in this course (and the resemblance to a bipolar junction transistor is intentional), but please be aware of the fact that the drain and source are symmetric, and the current can flow in both directions depending on the bias voltages!</p>
+</div>
+</div>
+<p>For hand calculations and theoretical discussions we will use the following simplified large-signal model, shown in <a href="#fig-mosfet-large-signal-model" class="quarto-xref">Figure&nbsp;4</a>. A current source <span class="math inline">\(I_\mathrm{D}\)</span> models the current flow between drain and source, and it is controlled by the three control voltages <span class="math inline">\(V_\mathrm{GS}\)</span>, <span class="math inline">\(V_\mathrm{DS}\)</span>, and <span class="math inline">\(V_\mathrm{SB}\)</span>. Note that in this way (since <span class="math inline">\(I_\mathrm{D}= f(V_\mathrm{DS})\)</span>) also a resistive behavior between D and S can be modelled. In case that B and S are shorted then simply <span class="math inline">\(V_\mathrm{SB} = 0\)</span> and <span class="math inline">\(C_\mathrm{SB}\)</span> is shorted.</p>
+<div id="cell-fig-mosfet-large-signal-model" class="cell" data-execution_count="4">
+<div class="cell-output cell-output-display">
+<div id="fig-mosfet-large-signal-model" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-mosfet-large-signal-model-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-mosfet-large-signal-model-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="Figure&nbsp;4: The MOSFET large-signal model. In general, all capacitors are nonlinear, i.e., they depend on their terminal voltages."><img src="aicd_files/figure-html/fig-mosfet-large-signal-model-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-mosfet-large-signal-model-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;4: The MOSFET large-signal model. In general, all capacitors are nonlinear, i.e., they depend on their terminal voltages.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>In an ideal MOSFET no dc current is flowing into the gate, the behavior is purely capacitive. We model this by two capacitors: <span class="math inline">\(C_\mathrm{GG}= C_\mathrm{GS}+ C_\mathrm{GD}+ C_\mathrm{GB}\)</span> is the total capacitance when looking into the gate of the MOSFET. <span class="math inline">\(C_\mathrm{GS}\)</span> is usually the dominant capacitance, and <span class="math inline">\(C_\mathrm{GD}\)</span> models the capacitive feedback between D and G, usually induced by a topological overlap capacitance in the physical construction of the MOSFET. This capacitance is often small compared to <span class="math inline">\(C_\mathrm{GS}\)</span>, but in situations where we have a large voltage swing at the drain, this capacitance will be affected by the <a href="https://en.wikipedia.org/wiki/Miller_effect">Miller effect</a> (see <a href="#sec-miller-theorem" class="quarto-xref">Section&nbsp;17.1</a>). In hand calculations we will often set <span class="math inline">\(C_\mathrm{GD}= C_\mathrm{GB}= C_\mathrm{DB}= C_\mathrm{SB}= 0\)</span>.</p>
+<p>To model a physical MOSFET there will be also a requirement for resistors in the model to account for terminal access resistances (<span class="math inline">\(R_\mathrm{G}\)</span>, <span class="math inline">\(R_\mathrm{D}\)</span>, and <span class="math inline">\(R_\mathrm{S}\)</span>) as well as resistors to model second-order effects like non-quasistatic operation. For lower frequencies and bulk MOSFETs we will not consider these resistors, and just deal with the capacitive behavior.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="MOSFET Bulk Terminal">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>MOSFET Bulk Terminal
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>In many situations we will connect the bulk and source terminals of a MOSFET together, which results in a simplified large-signal model. As an exercise, look at <a href="#fig-mosfet-large-signal-model" class="quarto-xref">Figure&nbsp;4</a> and draw this simplified model (hint: look at <a href="#fig-mosfet-small-signal-model" class="quarto-xref">Figure&nbsp;6</a> and <a href="#fig-mosfet-small-signal-model-simplified" class="quarto-xref">Figure&nbsp;7</a> for inspiration).</p>
+</div>
+</div>
+<p>Now, as we are skipping the bottom-up approach of deriving the MOSFET large-signal behavior from basic principles, we need to understand the behavior of the elements of the large-signal model in <a href="#fig-mosfet-large-signal-model" class="quarto-xref">Figure&nbsp;4</a> by using a circuit simulator and observing what happens. And generally, a first step in any new IC technology should be to investigate basic MOSFET performance, by doing simple dc sweeps of <span class="math inline">\(V_\mathrm{GS}\)</span> and <span class="math inline">\(V_\mathrm{DS}\)</span> and looking at <span class="math inline">\(I_\mathrm{D}\)</span> and other large- and small-signal parameters.</p>
+<p>As a side note, the students who want to understand MOSFET behavior from a physical angle should consult the MOSFET chapter from the JKU course “Design of Complex Integrated Circuits” (VL 336.048). A great introduction into MOSFET operation and fabrication is given in <span class="citation" data-cites="Chenming_Hu_2010">(<a href="#ref-Chenming_Hu_2010" role="doc-biblioref">Hu 2010</a>)</span>, which is available freely <a href="https://www.chu.berkeley.edu/modern-semiconductor-devices-for-integrated-circuits-chenming-calvin-hu-2010/">online</a> and is a recommended read. A very detailed description of the MOSFET (leaving usually no question unanswered) is provided in <span class="citation" data-cites="Tsividis_McAndrew_2011">(<a href="#ref-Tsividis_McAndrew_2011" role="doc-biblioref">Tsividis and McAndrew 2011</a>)</span>.</p>
+<p>Now, in order to get started, basic Xschem testbenches are prepared, and first simple dc sweeps of various voltages and currents will be done. But before that, please look at the important note below!</p>
+<div class="callout callout-style-default callout-important callout-titled" title="Mathematical Notation">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Mathematical Notation
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Throughout this material, we will largely stick to the following notation standardized by IEEE:</p>
+<ul>
+<li>A <strong>dc quantity</strong> is shown with an upper-case variable name with upper-case subscripts, like <span class="math inline">\(V_\mathrm{GS}\)</span>.</li>
+<li>Double-subscripts denote <strong>dc sources</strong>, like <span class="math inline">\(V_\mathrm{DD}\)</span> and <span class="math inline">\(V_\mathrm{SS}\)</span>.</li>
+<li>An <strong>ac (small-signal) quantity</strong> (incremental quantity) has a lower-case variable name with a lower-case subscript, like <span class="math inline">\(g_\mathrm{m}\)</span>.</li>
+<li>A <strong>total quantity</strong> (dc plus ac) is shown as a lowercase variable name with upper-case subscript, like <span class="math inline">\(i_\mathrm{DS}\)</span>.</li>
+<li>An upper-case variable name with a lower-case subscript is used to denote <strong>RMS quantities</strong>, like <span class="math inline">\(I_\mathrm{ds}\)</span>.</li>
+</ul>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="A Comment on Active and Passive Devices and Linear vs. Nonlinear">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>A Comment on Active and Passive Devices and Linear vs.&nbsp;Nonlinear
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>In contrast to the <strong>passive</strong> devices resistor <span class="math inline">\(R\)</span>, inductor <span class="math inline">\(L\)</span>, and capacitor <span class="math inline">\(C\)</span>, which can only dissipate energy (and are often treated in a linearized fashion), transistors (like the MOSFET) are called “<strong>active</strong>”, since they can provide signal power amplification. However, transistors can not create energy out of thin air, but merely convert <strong>dc</strong> energy (supplied by the power supply) into <strong>ac</strong> energy <span class="citation" data-cites="Manley-Rowe_1956">(<a href="#ref-Manley-Rowe_1956" role="doc-biblioref">Manley and Rowe 1956</a>)</span>. They have to have nonlinear transfer characteristics to do this, but it has been shown that a piecewise-linear characteristic is sufficient <span class="citation" data-cites="Jakoby_2022">(<a href="#ref-Jakoby_2022" role="doc-biblioref">Jakoby 2022</a>)</span>. This is very good news for circuit design, as usually we strive for linear behaviour!</p>
+</div>
+</div>
+<section id="large-signal-mosfet-model" class="level3" data-number="2.1.1">
+<h3 data-number="2.1.1" class="anchored" data-anchor-id="large-signal-mosfet-model"><span class="header-section-number">2.1.1</span> Large-Signal MOSFET Model</h3>
+<p>We start with an investigation into the large-signal MOSFET model shown in <a href="#fig-mosfet-large-signal-model" class="quarto-xref">Figure&nbsp;4</a> by using the simple testbench for the LV NMOS shown in <a href="#fig-simple-nmos-tb" class="quarto-xref">Figure&nbsp;5</a>.</p>
+<div id="fig-simple-nmos-tb" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-simple-nmos-tb-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="./xschem/dc_lv_nmos.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="Figure&nbsp;5: Testbench for NMOS dc sweeps."><img src="./xschem/dc_lv_nmos.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-simple-nmos-tb-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;5: Testbench for NMOS dc sweeps.
+</figcaption>
+</figure>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="MOSFET Simulation Model">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>MOSFET Simulation Model
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>For modelling the MOSFET behavior in a circuit simulator like ngspice different models are available. Some of these models have been widely adopted, like the <a href="https://en.wikipedia.org/wiki/BSIM">BSIM</a> (Berkeley Short-channel IGFET Model) or PSP (Philips Penn State) model. The PSP model version 103.6 is used in the IHP SG13G2 PDK for the LV and HV MOSFET. This model has several advantages:</p>
+<ul>
+<li>Physics-based surface-potential model</li>
+<li>Symmetric formulation with respect to drain and source</li>
+<li>Support for mobility reduction, velocity saturation, DIBL, gate current, lateral doping gradient effects, STI stress, NQS, etc.</li>
+</ul>
+<p>The PSP 103.6 model documentation can be found <a href="https://www.cea.fr/cea-tech/leti/pspsupport/Documents/psp103p6_summary.pdf">here</a>. In chapter 8 the dc operating point output of the model (these parameters can be queried in ngspice) is explained, which is helpful to interpret the simulation output.</p>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip callout-titled" title="Exercise: MOSFET Investigation">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Exercise: MOSFET Investigation
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Please try to execute the following steps and answer these questions:</p>
+<ol type="1">
+<li>Get the LV NMOS testbench (available at <a href="https://github.com/iic-jku/analog-circuit-design/blob/main/xschem/dc_lv_nmos.sch" class="uri">https://github.com/iic-jku/analog-circuit-design/blob/main/xschem/dc_lv_nmos.sch</a>) working in your IIC-OSIC-TOOLS environment.</li>
+<li>Make yourself familiar with Xschem (change the schematic in various ways, run a simulation, graph the result).</li>
+<li>Make yourself familiar with ngspice (run various simulations, save nets and parameters, use the embedded Xschem graphing, explore the interactive ngspice shell to look at MOSFET model parameters).</li>
+<li>Explore the LV NMOS <code>sg13_lv_nmos</code>:
+<ol type="1">
+<li>How is <span class="math inline">\(I_\mathrm{D}\)</span> affected by <span class="math inline">\(V_\mathrm{GS}\)</span> and <span class="math inline">\(V_\mathrm{DS}\)</span>?</li>
+<li>Change <span class="math inline">\(W\)</span> and <span class="math inline">\(L\)</span> of the MOSFET. What is the impact on the above parameters? Can you explain the variations?</li>
+<li>Look at the capacitance values for <span class="math inline">\(C_\mathrm{GS}\)</span>, <span class="math inline">\(C_\mathrm{GB}\)</span>, <span class="math inline">\(C_\mathrm{GD}\)</span>, and <span class="math inline">\(C_\mathrm{DB}\)</span>. How are they affected by <span class="math inline">\(W\)</span> and <span class="math inline">\(L\)</span> and by changing the bias conditions (play with <span class="math inline">\(V_\mathrm{GS}\)</span> and <span class="math inline">\(V_\mathrm{DS}\)</span>)?</li>
+<li>When looking at the model parameters in ngspice, you see that there is a <span class="math inline">\(C_\mathrm{GD}\)</span> and a <span class="math inline">\(C_\mathrm{DG}\)</span>. Why is this, what could be the difference? Sometimes these capacitors show a negative value, why? (Hint: Study <a href="#nte-maxwell-cap-matrix" class="quarto-xref">Note&nbsp;1</a>)</li>
+</ol></li>
+<li>Build testbenches in Xschem for the LV PMOS, the HV NMOS, and the HV PMOS. Explore the different results.
+<ol type="1">
+<li>For a given <span class="math inline">\(W\)</span> and <span class="math inline">\(L\)</span>, which device provides more drain current? How are the capacitances related?</li>
+<li>If you would have to size an inverter, what would be the ideal ratio of <span class="math inline">\(W_p/W_n\)</span>? Will you exactly design this ratio, or are the reasons to deviate?</li>
+<li>There are LV and HV MOSFETs, and you investigated the difference in performance. What is the rationale when designing circuits for selection either an LV type, and when to choose an HV type?</li>
+</ol></li>
+<li>Build a test bench to explore the body effect, start with LV NMOS.
+<ol type="1">
+<li>What happens when <span class="math inline">\(V_\mathrm{SB}\neq 0\)</span>?</li>
+</ol></li>
+</ol>
+</div>
+</div>
+</section>
+<section id="sec-mosfet-smallsignal-model" class="level3" data-number="2.1.2">
+<h3 data-number="2.1.2" class="anchored" data-anchor-id="sec-mosfet-smallsignal-model"><span class="header-section-number">2.1.2</span> Small-Signal MOSFET Model</h3>
+<p>As you have seen in the previous investigations, the large-signal model of <a href="#fig-mosfet-large-signal-model" class="quarto-xref">Figure&nbsp;4</a> describes the behavior of the MOSFET across a wide range of voltages applied at the MOSFET terminals. Unfortunately, for hand analysis dealing with a nonlinear model is close to impossible, at the very least it is quite tedious.</p>
+<p>However, for many practical situations, we bias a MOSFET with a set of dc voltages applied to its terminal, and only apply small signal excursions during operation. If we do this, we can linearize the large-signal model in this dc operating point, and resort to a small-signal model which can be very useful for hand calculations. Many experienced designers analyze their circuits by doing these kind of hand calculations and describing the circuit analytically, which is a great way to understand fundamental performance limits and relationships between parameters.</p>
+<p>We will use the small-signal MOSFET model shown in <a href="#fig-mosfet-small-signal-model" class="quarto-xref">Figure&nbsp;6</a> for this course. The current-source <span class="math inline">\(i_\mathrm{d}= g_\mathrm{m}v_\mathrm{gs}\)</span> models the drain current <span class="math inline">\(I_\mathrm{D}\)</span> as a function of <span class="math inline">\(V_\mathrm{GS}\)</span> with</p>
+<p><span class="math display">\[
+g_\mathrm{m}= \frac{\partial I_\mathrm{D}(V_\mathrm{GS}, V_\mathrm{DS}, V_\mathrm{SB})}{\partial V_\mathrm{GS}},
+\]</span></p>
+<p>and the output conductance <span class="math inline">\(g_\mathrm{ds}\)</span> models the dependence of the drain current on <span class="math inline">\(V_\mathrm{DS}\)</span>:</p>
+<p><span class="math display">\[
+g_\mathrm{ds}= \frac{\partial I_\mathrm{D}(V_\mathrm{GS}, V_\mathrm{DS}, V_\mathrm{SB})}{\partial V_\mathrm{DS}}
+\]</span></p>
+<p>The drain current dependency on the source-bulk voltage (the so-called “body effect”) is introduced by the current source <span class="math inline">\(i_\mathrm{d}= g_\mathrm{mb} v_\mathrm{sb}\)</span>:</p>
+<p><span class="math display">\[
+g_\mathrm{mb}= \frac{\partial I_\mathrm{D}(V_\mathrm{GS}, V_\mathrm{DS}, V_\mathrm{SB})}{\partial V_\mathrm{SB}}
+\]</span></p>
+<div id="cell-fig-mosfet-small-signal-model" class="cell" data-execution_count="5">
+<div class="cell-output cell-output-display">
+<div id="fig-mosfet-small-signal-model" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-mosfet-small-signal-model-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-mosfet-small-signal-model-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="Figure&nbsp;6: The MOSFET small-signal model."><img src="aicd_files/figure-html/fig-mosfet-small-signal-model-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-mosfet-small-signal-model-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;6: The MOSFET small-signal model.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>As has been mentioned before, in many situations (and whenever we want to use a simplified model) we connect source and bulk of the MOSFET together. This results in the much simplified small-signal model shown in <a href="#fig-mosfet-small-signal-model-simplified" class="quarto-xref">Figure&nbsp;7</a>.</p>
+<div id="cell-fig-mosfet-small-signal-model-simplified" class="cell" data-execution_count="6">
+<div class="cell-output cell-output-display">
+<div id="fig-mosfet-small-signal-model-simplified" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-mosfet-small-signal-model-simplified-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-mosfet-small-signal-model-simplified-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="Figure&nbsp;7: The MOSFET small-signal model when source and bulk are shorted."><img src="aicd_files/figure-html/fig-mosfet-small-signal-model-simplified-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-mosfet-small-signal-model-simplified-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;7: The MOSFET small-signal model when source and bulk are shorted.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Like any electronic device, the MOSFET introduces noise into the circuit. In this course we will only consider the <strong>drain-source current noise</strong> of the MOSFET, given by</p>
+<p><span id="eq-mosfet-noise"><span class="math display">\[
+\overline{I_\mathrm{n}^2} = 4 k T \gamma g_\mathrm{d0},
+\tag{1}\]</span></span></p>
+<p>where <span class="math inline">\(\overline{I_\mathrm{n}^2}\)</span> is the one-sided power-spectral density of the noise in A<span class="math inline">\(^2\)</span>/Hz; <span class="math inline">\(k\)</span> is the Boltzmann constant; <span class="math inline">\(T\)</span> is the absolute temperature; <span class="math inline">\(\gamma\)</span> is a (fitting) parameter in simplified theory changing between <span class="math inline">\(\gamma = 2/3\)</span> in saturation and <span class="math inline">\(\gamma =1\)</span> for triode operation; <span class="math inline">\(g_\mathrm{d0}\)</span> is equal to <span class="math inline">\(g_\mathrm{m}\)</span> in saturation and <span class="math inline">\(g_\mathrm{ds}\)</span> in triode.</p>
+<div class="callout callout-style-default callout-note callout-titled" title="MOSFET Triode and Saturation Region">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>MOSFET Triode and Saturation Region
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Sometimes we will refer to different operating modes of the MOSFET like “saturation” or “triode.” Generally speaking, when the drain-source voltage is small, then the MOSFET acts as a voltage-controlled resistor (since the impact of both <span class="math inline">\(V_\mathrm{GS}\)</span> and <span class="math inline">\(V_\mathrm{DS}\)</span> on <span class="math inline">\(I_\mathrm{D}\)</span> is large), and this mode of operation we call “<strong>triode</strong>” mode.</p>
+<p>When the drain-source voltage <span class="math inline">\(V_\mathrm{DS}\)</span> is increased, at some point the drain-source current saturates and is only a weak function of the drain-source voltage, while still being well controlled by <span class="math inline">\(V_\mathrm{GS}\)</span>. This mode is called “<strong>saturation</strong>” mode.</p>
+<p>As you can see in the large-signal investigations, these transitions happen gradually, and it is difficult to define a precise point where one operating mode switches to the other one. In this sense we use terms like “triode” and “saturation” only in an approximate sense.</p>
+</div>
+</div>
+<p>We can also consider an even more reduced small-signal MOSFET model compared to <a href="#fig-mosfet-small-signal-model-simplified" class="quarto-xref">Figure&nbsp;7</a>, which is shown in <a href="#fig-mosfet-small-signal-model-basic" class="quarto-xref">Figure&nbsp;8</a>. In this, we just consider the transconductance <span class="math inline">\(g_\mathrm{m}\)</span>, the input capacitor <span class="math inline">\(C_\mathrm{gg}\)</span>, as well as the output conductance <span class="math inline">\(g_\mathrm{ds}\)</span>. Note that we can redraw the pi-model of <a href="#fig-mosfet-small-signal-model-basic" class="quarto-xref">Figure&nbsp;8</a> into the <span class="math inline">\(\tau\)</span>-model of <a href="#fig-mosfet-small-signal-model-basic-t" class="quarto-xref">Figure&nbsp;9</a>. Depending on the circuit configuration, either the first or the second form results in simpler calculations of the circuit equations.</p>
+<div id="cell-fig-mosfet-small-signal-model-basic" class="cell" data-execution_count="7">
+<div class="cell-output cell-output-display">
+<div id="fig-mosfet-small-signal-model-basic" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-mosfet-small-signal-model-basic-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-mosfet-small-signal-model-basic-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="Figure&nbsp;8: The MOSFET small-signal basic pi-model."><img src="aicd_files/figure-html/fig-mosfet-small-signal-model-basic-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-mosfet-small-signal-model-basic-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;8: The MOSFET small-signal basic pi-model.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="cell-fig-mosfet-small-signal-model-basic-t" class="cell" data-execution_count="8">
+<div class="cell-output cell-output-display">
+<div id="fig-mosfet-small-signal-model-basic-t" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-mosfet-small-signal-model-basic-t-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-mosfet-small-signal-model-basic-t-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="Figure&nbsp;9: The MOSFET small-signal basic T-model."><img src="aicd_files/figure-html/fig-mosfet-small-signal-model-basic-t-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-mosfet-small-signal-model-basic-t-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;9: The MOSFET small-signal basic T-model.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip callout-titled" title="Exercise: MOSFET Model Transformation">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Exercise: MOSFET Model Transformation
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Can you show, with which circuit manipulations you can transform the pi-model of <a href="#fig-mosfet-small-signal-model-basic" class="quarto-xref">Figure&nbsp;8</a> into the T-model of <a href="#fig-mosfet-small-signal-model-basic-t" class="quarto-xref">Figure&nbsp;9</a>?</p>
+</div>
+</div>
+<p>A metric which is useful to assess the speed of a MOSFET is the so-called <strong>transit frequency</strong> <span class="math inline">\(f_\mathrm{T}\)</span>. It is defined as the frequency where the small-signal current gain (output current divided by the input current) of a MOSFET driven by a voltage-source at the input and loaded by a voltage source at the output drops to unity (reaches one). It can easily be derived using the simplified MOSFET small-signal model of <a href="#fig-mosfet-small-signal-model-simplified" class="quarto-xref">Figure&nbsp;7</a> by driving it with a voltage source and shorting the output to ground (neglecting the feed-forward current introduced by <span class="math inline">\(C_\mathrm{gd}\)</span>): <span id="eq-mosfet-transit-frequency"><span class="math display">\[
+\omega_\mathrm{T} = 2 \pi f_\mathrm{T} \approx \frac{g_\mathrm{m}}{C_\mathrm{gg}} = \frac{g_\mathrm{m}}{C_\mathrm{gs}+ C_\mathrm{gd}+ C_\mathrm{gb}}.
+\tag{2}\]</span></span> This frequency is an extrapolated frequency where the MOSFET operation is dominated by several second-order effects (hence <a href="#eq-mosfet-transit-frequency" class="quarto-xref">Equation&nbsp;2</a> is not valid any longer). A rule-of-thumb is to use a MOSFET up to approximately <span class="math inline">\(f_\mathrm{T} / 10\)</span>. In any case, <span class="math inline">\(f_\mathrm{T}\)</span> is a proxy of the speed of a MOSFET; in other words, how much input capacitance <span class="math inline">\(C_\mathrm{gg}\)</span> is incurred when creating a certain <span class="math inline">\(g_\mathrm{m}\)</span>.</p>
+<div class="callout callout-style-default callout-tip callout-titled" title="Exercise: MOSFET Transit Frequency">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Exercise: MOSFET Transit Frequency
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>As a home exercise, try to derive <a href="#eq-mosfet-transit-frequency" class="quarto-xref">Equation&nbsp;2</a> starting from <a href="#fig-mosfet-small-signal-model-simplified" class="quarto-xref">Figure&nbsp;7</a>. This is a useful exercise to verify your understanding of the small-signal model.</p>
+</div>
+</div>
+<p>Now we need to see how the small-signal parameters seen in <a href="#fig-mosfet-small-signal-model" class="quarto-xref">Figure&nbsp;6</a> can be investigated and estimated using circuit simulation.</p>
+<div class="callout callout-style-default callout-tip callout-titled" title="Exercise: MOSFET Small-Signal Parameters">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Exercise: MOSFET Small-Signal Parameters
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Please try to execute the following steps and answer the following questions:</p>
+<ol type="1">
+<li>Reuse the LV NMOS testbench (available at <a href="https://github.com/iic-jku/analog-circuit-design/blob/main/xschem/dc_lv_nmos.sch" class="uri">https://github.com/iic-jku/analog-circuit-design/blob/main/xschem/dc_lv_nmos.sch</a>).</li>
+<li>Explore the LV NMOS <code>sg13_lv_nmos</code>:
+<ol type="1">
+<li>How are <span class="math inline">\(g_\mathrm{m}\)</span> and <span class="math inline">\(g_\mathrm{ds}\)</span> changing when you change the dc node voltages?</li>
+<li>What is the ratio of <span class="math inline">\(g_\mathrm{m}\)</span> to <span class="math inline">\(g_\mathrm{mb}\)</span>? What is the physical reason behind this ratio (you might want to revisit MOSFET device physics at this point)?</li>
+<li>Take a look at the device capacitances <span class="math inline">\(C_\mathrm{gs}\)</span>, <span class="math inline">\(C_\mathrm{gd}\)</span>, and <span class="math inline">\(C_\mathrm{gb}\)</span>. Why are they important? What is the <span class="math inline">\(f_\mathrm{T}\)</span> of the MOSFET?</li>
+<li>Look at the drain noise current according to the MOSFET model and compare with a hand calculation of the noise. In the noise equation there is the factor <span class="math inline">\(\gamma\)</span>, which in triode is <span class="math inline">\(\gamma=1\)</span> and in saturation is <span class="math inline">\(\gamma=2/3\)</span> according to basic text books. Which value of <span class="math inline">\(\gamma\)</span> are you calculating? Why might it be different?</li>
+</ol></li>
+<li>Go back to your testbench for the LV PMOS <code>sg13_lv_pmos</code>:
+<ol type="1">
+<li>What is the difference in <span class="math inline">\(g_\mathrm{m}\)</span>, <span class="math inline">\(g_\mathrm{ds}\)</span>, and other parameters between the NMOS and the PMOS? Why could they be different?</li>
+</ol></li>
+</ol>
+</div>
+</div>
+<div id="nte-maxwell-cap-matrix" class="callout callout-style-default callout-note callout-titled" title="Maxwell Capacitance Matrix">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Note&nbsp;1: Maxwell Capacitance Matrix
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>A Maxwell capacitance matrix <span class="citation" data-cites="Maxwell_1873">(<a href="#ref-Maxwell_1873" role="doc-biblioref">Maxwell 1873</a>)</span> provides the relation between voltages on a set of conductors and the charges on these conductors. For a given conductor set with <span class="math inline">\(N\)</span> conductors (and thus <span class="math inline">\(N\)</span> terminals) the relation is <span class="math display">\[
+\mathbf{Q} = \mathbf{C} \cdot \mathbf{V}
+\]</span> where <span class="math inline">\(\mathbf{Q}\)</span> is a vector of the charges on the <span class="math inline">\(N\)</span> conductors, <span class="math inline">\(\mathbf{C}\)</span> is a <span class="math inline">\(N \times N\)</span> capacitance matrix, and <span class="math inline">\(\mathbf{V}\)</span> is the potential vector. In the case of two conductors and physical capacitances between them, <span class="math inline">\(\mathbf{C}\)</span> is given by <span class="math display">\[
+\mathbf{C} =
+\begin{pmatrix}
+C_{11} + C_{12} &amp; -C_{12} \\
+-C_{21} &amp; C_{21} + C_{22} \\
+\end{pmatrix}
+\]</span> where <span class="math inline">\(C_{xx} = \partial Q_x / \partial V_x\)</span> is the auto capacitance from a conductor <span class="math inline">\(x\)</span> towards infinity (ground), and <span class="math inline">\(C_{xy} = \partial Q_x / \partial V_y\)</span> is the mutual capacitance from node/conductor <span class="math inline">\(x\)</span> to node/conductor <span class="math inline">\(y\)</span>. For a physical capacitor <span class="math inline">\(C_{xy} = C_{yx}\)</span>.</p>
+<p>Using the above equation to calculate <span class="math inline">\(Q_1\)</span> (the charge on conductor <span class="math inline">\(1\)</span>) results in <span class="math display">\[
+Q_1 = ( C_{11} + C_{12} ) V_1 - C_{12} V_2 = C_{11} (V_1 - 0) + C_{12} (V_1 - V_2)
+\]</span> which is the expected result.</p>
+<p>Such a Maxwell capacitance formulation is also used in the MOSFET model to describe the charge at a terminal as a function of potential at another terminal. So, <span class="math display">\[
+C_\mathrm{GD}= \frac{\partial Q_\mathrm{G}}{\partial V_\mathrm{D}}
+\]</span> or <span class="math display">\[
+C_\mathrm{GG}= \frac{\partial Q_\mathrm{G}}{\partial V_\mathrm{G}}
+\]</span> with <span class="math inline">\(Q_\mathrm{G}\)</span> the charge at terminal G in response to either <span class="math inline">\(V_\mathrm{D}\)</span> or <span class="math inline">\(V_\mathrm{G}\)</span>. Note that in a MOSFET, generally <span class="math inline">\(C_{xy} \ne C_{yx}\)</span>!</p>
+</div>
+</div>
+</section>
+</section>
+<section id="conclusion" class="level2" data-number="2.2">
+<h2 data-number="2.2" class="anchored" data-anchor-id="conclusion"><span class="header-section-number">2.2</span> Conclusion</h2>
+<p>Congratulations for making it thus far! By now you should have a solid grasp of the tool handling of Xschem and ngspice, and you should be familiar with the large- and small-signal operation of both NMOS and PMOS, and the parameters describing these behaviors. If you feel you are not sufficiently fluent in these things, please go back to the beginning of <a href="#sec-mosfet" class="quarto-xref">Section&nbsp;2.1</a> and revisit the relevant sections, or dive into further reading about the MOSFET operation, like in <span class="citation" data-cites="Chenming_Hu_2010">(<a href="#ref-Chenming_Hu_2010" role="doc-biblioref">Hu 2010</a>)</span>.</p>
+</section>
+</section>
+<section id="sec-gmid-method" class="level1" data-number="3">
+
+<p><em>Source: iic-jku "Analog (Integrated) Circuit Design" course materials (Institute for Integrated Circuits, Johannes Kepler University Linz), licensed Apache-2.0. https://github.com/iic-jku/analog-circuit-design</em></p>
+</body></html>

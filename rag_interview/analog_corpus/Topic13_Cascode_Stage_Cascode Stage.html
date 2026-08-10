@@ -1,0 +1,141 @@
+<html><head><title>9 Cascode Stage</title></head><body>
+<h1 data-number="9"><span class="header-section-number">9</span> Cascode Stage</h1>
+<p>As we have seen in <a href="#sec-basic-ota" class="quarto-xref">Section&nbsp;8</a>, the performance of the OTA is generally quite acceptable (see <a href="#tbl-voltage-buffer-spec" class="quarto-xref">Table&nbsp;2</a>), but we might want to aim for better output voltage accuracy. As our analysis has shown the output voltage tolerance is limited by the open-loop dc gain <span class="math inline">\(A_0\)</span> of the OTA (see <a href="#eq-voltage-buffer-tolerance" class="quarto-xref">Equation&nbsp;14</a>), which in turn is limited by the output conductance of <span class="math inline">\(M_2\)</span> and <span class="math inline">\(M_4\)</span> in <a href="#fig-basic-ota" class="quarto-xref">Figure&nbsp;32</a>, which is also confirmed by the analytical result in <a href="#eq-simple-ota-gain-dc" class="quarto-xref">Equation&nbsp;18</a>.</p>
+<p>During the sizing procedure, we have seen that the achievable <span class="math inline">\(g_\mathrm{m}/ g_\mathrm{ds}\)</span> ratio of a single MOSFET is limited, even if we increase <span class="math inline">\(L\)</span>. We are thus searching for a better option, and here (local) feedback in form of a <strong>cascode</strong> comes to help.</p>
+<p>For analysis of a cascode, we use the following single-transistor stage shown in <a href="#fig-cascode-transistor" class="quarto-xref">Figure&nbsp;42</a>.</p>
+<div id="cell-fig-cascode-transistor" class="cell" data-execution_count="32">
+<div class="cell-output cell-output-display">
+<div id="fig-cascode-transistor" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cascode-transistor-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-cascode-transistor-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-76" title="Figure&nbsp;42: A MOSFET cascode circuit."><img src="aicd_files/figure-html/fig-cascode-transistor-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cascode-transistor-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;42: A MOSFET cascode circuit.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>In order to derive the operation of the cascode analytically, we draw the small-signal equivalent circuit in <a href="#fig-cascode-small-signal" class="quarto-xref">Figure&nbsp;43</a>. We assume that <span class="math inline">\(V_\mathrm{B}\)</span> is a low-ohmic bias voltage, thus we replace it with ac ground. We further set <span class="math inline">\(g_\mathrm{mb}= 0\)</span> (and ignore a couple of capacitances for now).</p>
+<div id="cell-fig-cascode-small-signal" class="cell" data-execution_count="33">
+<div class="cell-output cell-output-display">
+<div id="fig-cascode-small-signal" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cascode-small-signal-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-cascode-small-signal-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-77" title="Figure&nbsp;43: The MOSFET cascode small-signal model."><img src="aicd_files/figure-html/fig-cascode-small-signal-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cascode-small-signal-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;43: The MOSFET cascode small-signal model.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Since the gate is assumed at a fixed potential, we can put <span class="math inline">\(C_\mathrm{gs}\)</span> in parallel with <span class="math inline">\(G_\mathrm{S}\)</span> as <span class="math inline">\(G_\mathrm{S}^{*} = G_\mathrm{S} + s C_\mathrm{gs}\)</span>, and we can put <span class="math inline">\(C_\mathrm{gd}\)</span> in parallel with <span class="math inline">\(G_\mathrm{D}\)</span> as <span class="math inline">\(G_\mathrm{D}^{*} = G_\mathrm{D} + s C_\mathrm{gd}\)</span>. As a result, we will disregard these capacitors for now, and just consider <span class="math inline">\(G_\mathrm{S}\)</span> and <span class="math inline">\(G_\mathrm{D}\)</span>.</p>
+<div id="cell-fig-cascode-small-signal-simplified" class="cell" data-execution_count="34">
+<div class="cell-output cell-output-display">
+<div id="fig-cascode-small-signal-simplified" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cascode-small-signal-simplified-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-cascode-small-signal-simplified-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-78" title="Figure&nbsp;44: The simplified MOSFET cascode small-signal model."><img src="aicd_files/figure-html/fig-cascode-small-signal-simplified-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cascode-small-signal-simplified-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;44: The simplified MOSFET cascode small-signal model.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<section id="cascode-output-impedance" class="level2" data-number="9.1">
+<h2 data-number="9.1" class="anchored" data-anchor-id="cascode-output-impedance"><span class="header-section-number">9.1</span> Cascode Output Impedance</h2>
+<p>As a first step, we want to calculate the output impedance at the drain of the MOSFET (i.e., looking into the drain). For this, we replace <span class="math inline">\(G_\mathrm{D}\)</span> with a current source. The resulting small-signal equivalent circuit is shown in <a href="#fig-cascode-small-signal-simplified-out" class="quarto-xref">Figure&nbsp;45</a>.</p>
+<div id="cell-fig-cascode-small-signal-simplified-out" class="cell" data-execution_count="35">
+<div class="cell-output cell-output-display">
+<div id="fig-cascode-small-signal-simplified-out" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cascode-small-signal-simplified-out-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-cascode-small-signal-simplified-out-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-79" title="Figure&nbsp;45: The simplified MOSFET cascode small-signal model for calculation of the output impedance."><img src="aicd_files/figure-html/fig-cascode-small-signal-simplified-out-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cascode-small-signal-simplified-out-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;45: The simplified MOSFET cascode small-signal model for calculation of the output impedance.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>We realize that <span class="math inline">\(I_\mathrm{out}\)</span> flows through <span class="math inline">\(G_\mathrm{S}\)</span> (as there is no other way to go) and drops <span class="math inline">\(V_\mathrm{gs}\)</span> (note the sign): <span class="math display">\[
+V_\mathrm{gs}= -\frac{I_\mathrm{out}}{G_\mathrm{S}}
+\]</span></p>
+<p>Further, <span class="math inline">\(V_\mathrm{out} = -V_\mathrm{gs}+ V_\mathrm{ds}\)</span>. Calculating KCL at the output node results in <span class="math display">\[
+I_\mathrm{out} - g_\mathrm{m}V_\mathrm{gs}- g_\mathrm{ds}V_\mathrm{ds}= 0.
+\]</span></p>
+<p>Using the previously found identities, and after a bit of algebraic manipulations we arrive at <span id="eq-cascode-output"><span class="math display">\[
+g_\mathrm{out} = \frac{I_\mathrm{out}}{V_\mathrm{out}} = \frac{g_\mathrm{ds}}{1 + \frac{g_\mathrm{m}+ g_\mathrm{ds}}{G_\mathrm{S}}} = \frac{g_\mathrm{ds}\cdot G_\mathrm{S}}{G_\mathrm{S} + g_\mathrm{m}+ g_\mathrm{ds}}
+\tag{32}\]</span></span></p>
+<p>We find that if <span class="math inline">\(G_\mathrm{S} = 0\)</span> (<span class="math inline">\(R_\mathrm{S} \to \infty\)</span>) then <span class="math inline">\(g_\mathrm{out} = 0\)</span> (<span class="math inline">\(r_\mathrm{out} \to \infty\)</span>), and if <span class="math inline">\(G_\mathrm{S} \to \infty\)</span> (<span class="math inline">\(R_\mathrm{S} = 0\)</span>) then <span class="math inline">\(g_\mathrm{out} = g_\mathrm{ds}\)</span>.</p>
+<p>We can further calculate the benefits of a cascode if we assume we put a cascode on top of a common-source transistor stage (thus <span class="math inline">\(G_\mathrm{S} = g_\mathrm{ds}'\)</span>) and get <span id="eq-cs-cascode-output-impedance"><span class="math display">\[
+g_\mathrm{out} = \frac{g_\mathrm{ds}\cdot g_\mathrm{ds}'}{g_\mathrm{ds}' + g_\mathrm{m}+ g_\mathrm{ds}} \approx g_\mathrm{ds}' \frac{g_\mathrm{ds}}{g_\mathrm{m}}
+\tag{33}\]</span></span></p>
+<div class="callout callout-style-default callout-important callout-titled" title="Benefit of Cascode (Output)">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Benefit of Cascode (Output)
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The output impedance of the lower MOSFET (<span class="math inline">\(r_\mathrm{out} = 1 / g_\mathrm{ds}'\)</span>) is <strong>increased</strong> by the self-gain (<span class="math inline">\(g_\mathrm{m}/ g_\mathrm{ds}\)</span>) of the cascode transistor! This is a powerful technique to increase the output impedance of a transistor stage by cascoding, much better than increasing <span class="math inline">\(L\)</span>!</p>
+</div>
+</div>
+</section>
+<section id="cascode-input-impedance" class="level2" data-number="9.2">
+<h2 data-number="9.2" class="anchored" data-anchor-id="cascode-input-impedance"><span class="header-section-number">9.2</span> Cascode Input Impedance</h2>
+<p>To calculate the input impedance of a cascode (i.e., looking into the source) we replace <span class="math inline">\(G_\mathrm{S}\)</span> with a current source. The resulting small-signal equivalent circuit is shown in <a href="#fig-cascode-small-signal-simplified-in" class="quarto-xref">Figure&nbsp;46</a>.</p>
+<div id="cell-fig-cascode-small-signal-simplified-in" class="cell" data-execution_count="36">
+<div class="cell-output cell-output-display">
+<div id="fig-cascode-small-signal-simplified-in" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cascode-small-signal-simplified-in-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-cascode-small-signal-simplified-in-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-80" title="Figure&nbsp;46: The simplified MOSFET cascode small-signal model for calculation of the input impedance."><img src="aicd_files/figure-html/fig-cascode-small-signal-simplified-in-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cascode-small-signal-simplified-in-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;46: The simplified MOSFET cascode small-signal model for calculation of the input impedance.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>We note that <span class="math inline">\(V_\mathrm{gs}= -V_\mathrm{in}\)</span> and that <span class="math inline">\(I_\mathrm{in}\)</span> flows through <span class="math inline">\(G_\mathrm{D}\)</span> (again, there is no other way to go), resulting in <span class="math inline">\(V_\mathrm{D} = I_\mathrm{in} / G_\mathrm{D}\)</span>. Note that <span class="math inline">\(V_\mathrm{ds}=  V_\mathrm{D} - V_\mathrm{in}\)</span>. Formulating KCL at the input node results in <span class="math display">\[
+I_\mathrm{in} + g_\mathrm{ds}V_\mathrm{ds}+ g_\mathrm{m}V_\mathrm{gs}= 0.
+\]</span></p>
+<p>After some manipulation we find that <span id="eq-cascode-input"><span class="math display">\[
+g_\mathrm{in} = \frac{I_\mathrm{in}}{V_\mathrm{in}} = \frac{(g_\mathrm{m}+ g_\mathrm{ds}) \cdot G_\mathrm{D}}{g_\mathrm{ds}+ G_\mathrm{D}}.
+\tag{34}\]</span></span></p>
+<p>Setting <span class="math inline">\(G_\mathrm{D} = 0\)</span> (<span class="math inline">\(R_\mathrm{D} \to \infty\)</span>) results in <span class="math inline">\(g_\mathrm{in} = 0\)</span> (<span class="math inline">\(r_\mathrm{in} \to \infty\)</span>) as well, so the input impedance of the cascode becomes very large when the drain impedance is large.</p>
+<p>However, setting <span class="math inline">\(G_\mathrm{D} = \infty\)</span> (<span class="math inline">\(R_\mathrm{D} = 0\)</span>) results in the well-known result of</p>
+<p><span class="math display">\[
+g_\mathrm{in} = g_\mathrm{m}+ g_\mathrm{ds}\approx g_\mathrm{m},
+\]</span></p>
+<p>which means that the input impedance looking into a cascode is <span class="math inline">\(r_\mathrm{in}\approx g_\mathrm{m}^{-1}\)</span>.</p>
+<div class="callout callout-style-default callout-important callout-titled" title="Benefit of Cascode (Input)">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Benefit of Cascode (Input)
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>This has the practical benefit that a capacitance connected at this node results in a high-frequency pole, which is often not critical in terms of stability. Further, the voltage swing at a cascode input node is small due to the often small impedance, and this minimizes the Miller effect at connected inter-node capacitors (see <a href="#sec-miller-theorem" class="quarto-xref">Section&nbsp;17.1</a>).</p>
+</div>
+</div>
+</section>
+</section>
+<section id="sec-current-mirror-improved" class="level1" data-number="10">
+
+<p><em>Source: iic-jku "Analog (Integrated) Circuit Design" course materials (Institute for Integrated Circuits, Johannes Kepler University Linz), licensed Apache-2.0. https://github.com/iic-jku/analog-circuit-design</em></p>
+</body></html>

@@ -1,0 +1,98 @@
+<html><head><title>7 Differential Pair</title></head><body>
+<h1 data-number="7"><span class="header-section-number">7</span> Differential Pair</h1>
+<p>Like the current mirror in <a href="#sec-current-mirror" class="quarto-xref">Section&nbsp;6</a>, the <strong>differential pair</strong> is a ubiquitous building block often used in integrated circuit design <span class="citation" data-cites="Blumlein_1937">(<a href="#ref-Blumlein_1937" role="doc-biblioref">Blumlein 1937</a>)</span>. The fundamental structure is given in <a href="#fig-differential-pair" class="quarto-xref">Figure&nbsp;29</a>.</p>
+<div id="cell-fig-differential-pair" class="cell" data-execution_count="19">
+<div class="cell-output cell-output-display">
+<div id="fig-differential-pair" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-differential-pair-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-differential-pair-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-45" title="Figure&nbsp;29: A differential pair."><img src="aicd_files/figure-html/fig-differential-pair-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-differential-pair-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;29: A differential pair.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>In order to understand its operation it is instructive to separate the input condition into</p>
+<ol type="1">
+<li>a purely differential voltage, and</li>
+<li>a common-mode voltage,</li>
+</ol>
+<p>and see what the impact on the output currents is.</p>
+<section id="differential-operation-of-the-diffpair" class="level2" data-number="7.1">
+<h2 data-number="7.1" class="anchored" data-anchor-id="differential-operation-of-the-diffpair"><span class="header-section-number">7.1</span> Differential Operation of the Diffpair</h2>
+<p>For a differential mode of operation we assume that the input common-mode voltage is constant, i.e., <span class="math inline">\((V_\mathrm{in,p} + V_\mathrm{in,n})/2 = V_\mathrm{CM}\)</span>. The differential input voltage <span class="math inline">\(v_\mathrm{in} = V_\mathrm{in,p} - V_\mathrm{in,n}\)</span>, so that <span class="math display">\[
+V_\mathrm{in,p} = V_\mathrm{CM} + \frac{v_\mathrm{in}}{2}
+\]</span> and <span class="math display">\[
+V_\mathrm{in,n} = V_\mathrm{CM} - \frac{v_\mathrm{in}}{2}.
+\]</span></p>
+<p>For a small-signal differential drive the potential at the tail point stays constant and we can treat it as a virtual ground. The output current on each side is then given by (neglecting <span class="math inline">\(g_\mathrm{ds}\)</span> and <span class="math inline">\(g_\mathrm{mb}\)</span> of <span class="math inline">\(M_1\)</span> and <span class="math inline">\(M_2\)</span>) <span class="math display">\[
+I_\mathrm{out,p} = g_\mathrm{m1} \left( \frac{V_\mathrm{in}}{2} \right)
+\]</span> and <span class="math display">\[
+I_\mathrm{out,n} = g_\mathrm{m2} \left( -\frac{V_\mathrm{in}}{2} \right).
+\]</span></p>
+<p>Usually we assume symmetry in the differential pair, so <span class="math inline">\(g_\mathrm{m1} = g_\mathrm{m2} = g_\mathrm{m}\)</span>. The differential output current <span class="math inline">\(I_\mathrm{out}\)</span> is then given by <span id="eq-differential-pair-dm"><span class="math display">\[
+I_\mathrm{out} = I_\mathrm{out,p} - I_\mathrm{out,n} = g_\mathrm{m}V_\mathrm{in}
+\tag{12}\]</span></span></p>
+<p>We see in <a href="#eq-differential-pair-dm" class="quarto-xref">Equation&nbsp;12</a> that the differential output current is simply the differential input voltage multiplied by the <span class="math inline">\(g_\mathrm{m}\)</span> of the individual transistor. We also note that the bottom conductance <span class="math inline">\(g_\mathrm{tail}\)</span> plays no role for the small-signal differential operation.</p>
+</section>
+<section id="common-mode-operation-of-the-diffpair" class="level2" data-number="7.2">
+<h2 data-number="7.2" class="anchored" data-anchor-id="common-mode-operation-of-the-diffpair"><span class="header-section-number">7.2</span> Common-Mode Operation of the Diffpair</h2>
+<p>Usually, the source conductance <span class="math inline">\(g_\mathrm{tail}\)</span> is realized by a current source and ideally should be <span class="math inline">\(g_\mathrm{tail} = 0\)</span>. If this is the case, then the output currents are not a function of the common-mode input voltage (<span class="math inline">\(I_\mathrm{tail}\)</span> is set by the tail current source), and <span class="math display">\[
+I_\mathrm{out,p} = I_\mathrm{out,n} = I_\mathrm{out} = \frac{I_\mathrm{tail}}{2}.
+\]</span></p>
+<p>However, if we assume a realistic tail current source then <span class="math inline">\(g_\mathrm{tail} &gt; 0\)</span>. For analysis we can simply look at a half circuit since the circuit operation is symmetric. In order to simplify the analysis a bit we remove all capacitors from the MOSFET small-signal model and set <span class="math inline">\(g_\mathrm{ds}= g_\mathrm{mb}= 0\)</span>. We then arrive at the small-signal equivalent circuit shown in <a href="#fig-differential-pair-cm" class="quarto-xref">Figure&nbsp;30</a> (note that we set <span class="math inline">\(V_\mathrm{in,p} = V_\mathrm{in,n} = V_\mathrm{in}\)</span> and <span class="math inline">\(I_\mathrm{out,p} = I_\mathrm{out,n} = I_\mathrm{out}\)</span> under symmetry considerations). As both transistors inject their drain current into the shared tail node, the half circuit sees an effective tail conductance of <span class="math inline">\(g_\mathrm{tail}/2\)</span>.</p>
+<div id="cell-fig-differential-pair-cm" class="cell" data-execution_count="20">
+<div class="cell-output cell-output-display">
+<div id="fig-differential-pair-cm" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-differential-pair-cm-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-differential-pair-cm-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-46" title="Figure&nbsp;30: Small-signal model of the differential pair half-circuit in common-mode operation."><img src="aicd_files/figure-html/fig-differential-pair-cm-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-differential-pair-cm-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;30: Small-signal model of the differential pair half-circuit in common-mode operation.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Formulating KVL for the input-side loop we get <span class="math display">\[
+V_\mathrm{in} = V_\mathrm{gs}+ \frac{2 I_\mathrm{d}}{g_\mathrm{tail}}.
+\]</span></p>
+<p>With <span class="math inline">\(I_\mathrm{out} = I_\mathrm{d}= g_\mathrm{m}V_\mathrm{gs}\)</span> we arrive at <span id="eq-differential-pair-cm"><span class="math display">\[
+I_\mathrm{out} = \frac{g_\mathrm{m}\cdot g_\mathrm{tail}}{2 g_\mathrm{m}+ g_\mathrm{tail}} V_\mathrm{in}
+\tag{13}\]</span></span></p>
+<p>Interpreting <a href="#eq-differential-pair-cm" class="quarto-xref">Equation&nbsp;13</a> we can distinguish the following extreme cases:</p>
+<ol type="1">
+<li>If <span class="math inline">\(g_\mathrm{tail} = 0\)</span> (ideal tail current source) then <span class="math inline">\(I_\mathrm{out} = 0\)</span>, the common-mode voltage variation from the input is suppressed and does not show up at the common-mode output current (which is constant due to the ideal tail current source). This is usually the case that we want to achieve.</li>
+<li>If <span class="math inline">\(g_\mathrm{tail} \rightarrow \infty\)</span> then <span class="math inline">\(I_\mathrm{out} = g_\mathrm{m}V_\mathrm{in}\)</span>, which means the output current is a function of the MOSFET <span class="math inline">\(g_\mathrm{m}\)</span>. If everything is perfectly matched, then the differential output current is zero, but the common-mode output current changes according to the common-mode input voltage. In special cases this can be a wanted behavior, this configuration is called a “pseudo-differential pair.”</li>
+<li>For the typical case that <span class="math inline">\(g_\mathrm{m}\gg g_\mathrm{tail}\)</span> then <span class="math inline">\(I_\mathrm{out} \approx (g_\mathrm{tail}/2) V_\mathrm{in}\)</span>.</li>
+</ol>
+<p>Note that <a href="#eq-differential-pair-cm" class="quarto-xref">Equation&nbsp;13</a> is closely related to the general case of a degenerated common-source transistor stage (see <a href="#fig-common-source-degenerated" class="quarto-xref">Figure&nbsp;31</a>). The effective transconductance <span class="math inline">\(g_\mathrm{m}'\)</span> of a degenerated CS stage is given by</p>
+<p><span class="math display">\[
+g_\mathrm{m}' = \frac{I_\mathrm{out}}{V_\mathrm{in}} = \frac{1}{g_\mathrm{m}^{-1} + R_\mathrm{degen}}.
+\]</span></p>
+<p>For the differential-pair half circuit in common-mode operation, the effective source degeneration is <span class="math inline">\(R_\mathrm{degen} = 2/g_\mathrm{tail}\)</span>, yielding <a href="#eq-differential-pair-cm" class="quarto-xref">Equation&nbsp;13</a>.</p>
+<p>When no degeneration resistor is used, then <span class="math inline">\(g_\mathrm{m}' = g_\mathrm{m}\)</span>. If a degeneration of <span class="math inline">\(R_\mathrm{degen} \gg g_\mathrm{m}^{-1}\)</span> is used then <span class="math inline">\(g_\mathrm{m}' = 1 / R_\mathrm{degen}\)</span>. This result is worth memorizing.</p>
+<div id="cell-fig-common-source-degenerated" class="cell" data-execution_count="21">
+<div class="cell-output cell-output-display">
+<div id="fig-common-source-degenerated" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-common-source-degenerated-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="aicd_files/figure-html/fig-common-source-degenerated-output-1.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-47" title="Figure&nbsp;31: A MOSFET common-source amplifier with resistive degeneration."><img src="aicd_files/figure-html/fig-common-source-degenerated-output-1.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-common-source-degenerated-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;31: A MOSFET common-source amplifier with resistive degeneration.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="sec-basic-ota" class="level1" data-number="8">
+
+<p><em>Source: iic-jku "Analog (Integrated) Circuit Design" course materials (Institute for Integrated Circuits, Johannes Kepler University Linz), licensed Apache-2.0. https://github.com/iic-jku/analog-circuit-design</em></p>
+</body></html>
