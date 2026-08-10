@@ -2470,6 +2470,9 @@ JSON:"""
 
     if result["is_ai"]:
         log.warning(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
+        _terminate_for_ai_answer(
+            session["id"],
+            {"turn": turn_index, "score": round(result["score"], 4), "method": result["method"], "ts": time.time()})
 
 
 def generate_question(session, candidate_answer: str, no_response: bool = False) -> dict:
@@ -3227,6 +3230,23 @@ def _terminate_for_speaker_mismatch(session_id, entry):
     sessions[session_id] = latest
     log.warning(f"[Resemblyzer] {session_id[:8]} — MISMATCH #{count} at turn {entry.get('turn')} "
                 f"(score={entry.get('score')}) - INTERVIEW TERMINATED")
+    return count
+
+
+def _terminate_for_ai_answer(session_id, entry):
+    """Record an AI-generated-answer detection and end the interview — on the latest stored session."""
+    latest = sessions.get(session_id)
+    if latest is None:
+        return 0
+    count = latest.get("ai_answer_count", 0) + 1
+    latest["ai_answer_count"] = count
+    latest.setdefault("ai_answer_detections", []).append(entry)
+    latest["ai_answer_detected"] = True
+    if latest.get("phase") != "ended":
+        _end_interview(latest, reason="ai_answer_detected")
+    sessions[session_id] = latest
+    log.warning(f"[AI Detect] {session_id[:8]} — AI-GENERATED ANSWER #{count} at turn {entry.get('turn')} "
+                f"(score={entry.get('score')}, method={entry.get('method')}) - INTERVIEW TERMINATED")
     return count
 
 
@@ -4141,6 +4161,8 @@ def submit_answer(data: dict):
             message = "This interview has been ended."
             if end_reason == "speaker_verification_failed":
                 message = "Interview terminated — voice verification failed. Different speaker detected."
+            elif end_reason == "ai_answer_detected":
+                message = "Interview terminated — your answer was flagged as AI-generated."
             log.info(f"[Session {sid[:8]}] Detected termination by background thread (reason: {end_reason})")
             return {
                 "question": message,
@@ -4160,6 +4182,8 @@ def submit_answer(data: dict):
         message = "This interview has been ended."
         if end_reason == "speaker_verification_failed":
             message = "Interview terminated — voice verification failed. Different speaker detected."
+        elif end_reason == "ai_answer_detected":
+            message = "Interview terminated — your answer was flagged as AI-generated."
         return {
             "question": message,
             "question_type": "end", "turn": session["turn"], "phase": "ended",
@@ -4304,6 +4328,8 @@ def stream_answer(data: dict):
 
         def ended_stream():
             msg = "This interview has been ended."
+            if end_reason == "ai_answer_detected":
+                msg = "Interview terminated — your answer was flagged as AI-generated."
             yield f"data: {json.dumps({'type': 'text', 'content': msg, 'done': True, 'should_end': True})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'turn': turn, 'phase': 'ended', 'should_end': True, 'end_reason': end_reason})}\n\n"
         return StreamingResponse(ended_stream(), media_type="text/event-stream")
