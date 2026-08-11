@@ -278,15 +278,6 @@ body { font-family: 'Inter', sans-serif; }
           <p class="text-xs text-success font-semibold">Face Registered</p>
           <p class="text-[10px] text-text-tertiary mt-1" id="face-confidence-text"></p>
         </div>
-        <!-- Glasses mismatch warning -->
-        <div id="glasses-warning" class="hidden mt-3 p-3 rounded-lg border-2 border-amber-400 bg-amber-50 text-center">
-          <span class="material-symbols-outlined text-2xl text-amber-600 mb-1">warning</span>
-          <p class="text-xs font-semibold text-amber-700" id="glasses-warning-text"></p>
-          <p class="text-[10px] text-amber-600 mt-1">This ensures accurate face verification during the interview.</p>
-          <button onclick="captureFaceRef()" class="mt-2 px-4 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition-colors">
-            <span class="material-symbols-outlined text-sm align-middle mr-1">photo_camera</span>Re-capture Face
-          </button>
-        </div>
       </div>
     </div>
 
@@ -615,7 +606,7 @@ body { font-family: 'Inter', sans-serif; }
 </nav>
 
 <script>
-const S = { sessionId:null, resumeParsed:null, mediaStream:null, micPassed:false, camPassed:false, resumePassed:false, voicePassed:false, voiceBlob:null, voiceVerificationEnabled:true, facePassed:false, faceEnabled:true, faceRefB64:null, refWearingGlasses:false };
+const S = { sessionId:null, resumeParsed:null, mediaStream:null, micPassed:false, camPassed:false, resumePassed:false, voicePassed:false, voiceBlob:null, voiceVerificationEnabled:true, facePassed:false, faceEnabled:true, faceRefB64:null };
 
 function updateChecks() {
   const requiredChecks = [S.resumePassed, S.micPassed, S.camPassed];
@@ -1042,7 +1033,6 @@ async function startInterview() {
     // live camera against today's reference — not a stale DB reference by email.
     if (S.faceRefB64) {
       form.append('face_ref_b64', S.faceRefB64);
-      form.append('face_ref_glasses', S.refWearingGlasses ? '1' : '0');
     }
     const r = await fetch('/api/create-session', { method: 'POST', body: form });
     const d = await r.json();
@@ -1110,8 +1100,6 @@ async function captureFaceRef() {
     const d = await r.json();
     if (d.ok && d.face_registered) {
       S.faceRefB64 = imageB64;
-      S.refWearingGlasses = d.wearing_glasses || false;
-      hideGlassesWarning();
       markFacePassed(false);
     } else {
       btn.disabled = false;
@@ -1127,88 +1115,6 @@ async function captureFaceRef() {
     btn.innerHTML = '<span class="material-symbols-outlined text-sm align-middle mr-1">photo_camera</span>Retry Capture';
     alert('Face capture failed: ' + (e.message || e));
   }
-}
-
-// ── PRE-INTERVIEW GLASSES CHECK ──
-function scheduleGlassesCheck() {
-  // Wait for webcam to be ready, then check glasses mismatch
-  const check = setInterval(() => {
-    const video = document.getElementById('cam-preview');
-    if (video && video.srcObject && video.readyState >= 2) {
-      clearInterval(check);
-      setTimeout(() => checkGlassesMismatch(), 1500); // small delay for camera to settle
-    }
-  }, 500);
-  // Stop trying after 30 seconds
-  setTimeout(() => clearInterval(check), 30000);
-}
-
-async function checkGlassesMismatch() {
-  const video = document.getElementById('cam-preview');
-  if (!video || !video.srcObject || video.readyState < 2) return;
-
-  // Capture current webcam frame
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth || 640;
-  canvas.height = video.videoHeight || 480;
-  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-  const imageB64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-  const email = S.resumeParsed ? (S.resumeParsed.email || '') : '';
-  const sid = S.sessionId || '';
-
-  // If we have a session, use face/compare which now returns glasses_mismatch
-  if (sid) {
-    try {
-      const r = await fetch('/api/face/compare', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sid, image: imageB64 })
-      });
-      const d = await r.json();
-      if (d.glasses_mismatch) {
-        showGlassesWarning(d.glasses_mismatch);
-      }
-    } catch(e) { console.warn('[Glasses] compare check failed:', e); }
-  } else {
-    // No session yet — use detect_faces via register endpoint just to check
-    // We'll use a lightweight approach: compare stored state with a quick detect
-    try {
-      const r = await fetch('/api/face/detect-glasses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: imageB64 })
-      });
-      const d = await r.json();
-      if (d.ok) {
-        const liveGlasses = d.wearing_glasses;
-        if (S.refWearingGlasses && !liveGlasses) {
-          showGlassesWarning('registered_with_glasses');
-        } else if (!S.refWearingGlasses && liveGlasses) {
-          showGlassesWarning('registered_without_glasses');
-        }
-      }
-    } catch(e) { console.warn('[Glasses] detect check failed:', e); }
-  }
-}
-
-function showGlassesWarning(type) {
-  const warn = document.getElementById('glasses-warning');
-  const text = document.getElementById('glasses-warning-text');
-  if (type === 'registered_with_glasses') {
-    text.textContent = '⚠ You registered your face with glasses, but you are not wearing them now. Please wear your glasses for the interview.';
-  } else {
-    text.textContent = '⚠ You registered your face without glasses, but you are wearing them now. Please remove your glasses or re-capture your face with glasses.';
-  }
-  warn.classList.remove('hidden');
-  // Temporarily block start until resolved
-  S.facePassed = false;
-  updateChecks();
-}
-
-function hideGlassesWarning() {
-  document.getElementById('glasses-warning').classList.add('hidden');
-  S.facePassed = true;
-  updateChecks();
 }
 
 // ── REPORT CARD ──

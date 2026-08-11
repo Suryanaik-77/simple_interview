@@ -5216,39 +5216,15 @@ def face_compare(data: dict):
             similarity = 0.0
             matched = False
 
-        # Detect glasses on the live frame to check for glasses mismatch
-        glasses_mismatch = None
-        ref_glasses = session.get("face_ref_glasses", False)
-        try:
-            _dg_t0 = time.time()
-            detect_resp = rekognition_client.detect_faces(
-                Image={"Bytes": target_bytes},
-                Attributes=["ALL"]
-            )
-            session.setdefault("obs_log", []).append(
-                _obs_entry("Rekognition", "aws-rekognition-detect-faces",
-                           round((time.time() - _dg_t0) * 1000),
-                           cost_usd=_REKOGNITION_COST_PER_IMAGE))
-            live_faces = detect_resp.get("FaceDetails", [])
-            if live_faces:
-                live_glasses_info = live_faces[0].get("Eyeglasses", {})
-                live_wearing = live_glasses_info.get("Value", False) and live_glasses_info.get("Confidence", 0) > 80
-                if ref_glasses and not live_wearing:
-                    glasses_mismatch = "registered_with_glasses"
-                elif not ref_glasses and live_wearing:
-                    glasses_mismatch = "registered_without_glasses"
-        except Exception as ge:
-            log.error(f"[FaceCompare] Glasses detection on live frame failed: {ge}")
-
-        # Log anticheat event only if there's a problem (mismatch or glasses issue)
-        if not matched or glasses_mismatch:
+        # Log anticheat event only if there's a problem
+        if not matched:
             session.setdefault("anticheat_log", []).append({
                 "event_type": "face_comparison",
                 "turn": session.get("turn", 0),
                 "timestamp": time.time(),
-                "metadata": f"similarity={similarity:.1f}%, matched={matched}, glasses_mismatch={glasses_mismatch}",
+                "metadata": f"similarity={similarity:.1f}%, matched={matched}",
             })
-            log.warning(f"[FaceCompare] Session {sid[:8]}: ALERT — similarity={similarity:.1f}%, matched={matched}, glasses_mismatch={glasses_mismatch}")
+            log.warning(f"[FaceCompare] Session {sid[:8]}: ALERT — similarity={similarity:.1f}%, matched={matched}")
         sessions[sid] = session
 
         result = {
@@ -5258,8 +5234,6 @@ def face_compare(data: dict):
             "threshold": FACE_COMPARE_THRESHOLD,
             "faces_in_target": len(matches),
         }
-        if glasses_mismatch:
-            result["glasses_mismatch"] = glasses_mismatch
         return result
     except rekognition_client.exceptions.InvalidParameterException as e:
         # No face in source or target image
