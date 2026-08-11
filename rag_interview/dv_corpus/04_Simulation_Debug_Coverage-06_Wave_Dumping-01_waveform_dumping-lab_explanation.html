@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Waveform Dumping — Guided</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+<div class="header"><div class="header-content"><div class="lab-title">Waveform Dumping — Guided</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; Waveform Dumping</div><div class="meta-item">&#x1F527; VCS + $dumpvars (VCD)</div><div class="meta-item"><span class="badge badge-golden">Guided (Pass)</span></div></div></div></div>
+<div class="container">
+<div class="content-box">
+<div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Guided Walkthrough</div><span><span class="badge badge-golden">Golden</span></span></div><div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p>A self-checking counter that writes a real VCD waveform each run. It shows how to capture and read a waveform - the primary medium for functional debug - and keep the file manageable.</p></div></div><div class="section"><div class="section-title">&#x2699;&#xFE0F; How it runs</div><div class="section-content"><p>VCS simulates the design; the testbench calls <code>$dumpfile</code>/<code>$dumpvars</code> to record signal activity into <code>dump.vcd</code>, which you open in GTKWave, Verdi, or DVE. The run also self-checks so guided passes and buggy variants fail.</p></div></div><div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>Enable a VCD dump at runtime and confirm it was produced</li><li>Read a waveform to correlate a signal with its driver</li><li>Trace a functional or X bug in the waveform back to the RTL</li></ul></div></div><div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">$dumpfile</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">$dumpvars</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">VCD</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">GTKWave/Verdi</span></div></div><div class="section"><div class="section-title">&#x1F9F0; Tool &amp; files</div><div class="section-content"><p>Engine: <b>VCS</b>; waveform via <code>$dumpfile/$dumpvars</code> (VCD, viewable in GTKWave/Verdi/DVE). Files: <code>wave_dump.sv</code>, <code>tb_wave_dump.sv</code>, <code>run.sh</code>. This group dumps the entire hierarchy so any signal can be inspected after the run.</p></div></div></div>
+</div>
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Challenge UVM Scoreboard Ex2</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header"><div class="header-content"><div class="lab-title">Challenge UVM Scoreboard Ex2</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; UVM</div><div class="meta-item">&#x1F4CC; UVM Scoreboard</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Lab</span></div><div class="meta-item"><span class="badge badge-exercise">Buggy Exercise</span></div></div></div></div>
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F41E; Debugging Challenge</div><span><span class="badge badge-exercise">Buggy Exercise</span></span></div>
+<div class="section"><div class="section-title">&#x1F9ED; What this challenge is</div><div class="section-content"><p>Same DUT and stimulus setup, but the scoreboard keeps its expected value in a single scalar (<code>prev_expected</code>) and updates it in the wrong order relative to the compare.</p></div></div>
+<div class="section"><div class="section-title">&#x1F4A1; The concept being tested</div><div class="section-content"><p>Tests understanding that <code>write()</code> must compute and compare each transaction&#x27;s expected value entirely within that same callback — any cached/scalar state left over from the previous call introduces an off-by-one comparison.</p></div></div>
+</div>
+<div class="content-box">
+  <div class="section-title" style="font-size:1.3em;">&#x1F6E0;&#xFE0F; Debugging Guide</div><div style="background:#dc262611;border-left:4px solid #dc2626;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#dc2626;margin-bottom:6px;">&#x1F534; Symptom — what you see when you run it</div><div style="color:#444;"><p><code>report_phase</code> prints <code>TEST FAILED</code>; every transaction mismatches in a deterministic, systematic way (operand pairs are chosen with strictly increasing sums so the staleness is guaranteed to be visible).</p></div></div>
+<div class="section"><div class="section-title">&#x1F50E; How to investigate</div><div class="section-content"><ol style="padding-left:20px;color:#444;"><li style="margin-bottom:8px;">Run the simulation and observe that every single transaction mismatches, not just a random subset — this pattern suggests a structural/ordering bug rather than a one-off calculation error.</li><li style="margin-bottom:8px;">Open the scoreboard&#x27;s <code>write()</code> method and find the two key statements: the <code>compare</code>/<code>if (t.res !== prev_expected)</code> check and the <code>prev_expected = t.a + t.b</code> assignment.</li><li style="margin-bottom:8px;">Trace the order of execution: is <code>prev_expected</code> used in the compare before or after it gets updated for the current item&#x27;s operands?</li><li style="margin-bottom:8px;">Consider what value <code>prev_expected</code> actually holds at the moment of comparison — whose transaction does it belong to?</li></ol></div></div><div style="background:#0369a111;border-left:4px solid #0369a1;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#0369a1;margin-bottom:6px;">&#x1F9ED; Fix direction</div><div style="color:#444;"><p>Reorder <code>write()</code> so a local <code>expected</code> value is computed from THIS transaction&#x27;s operands (<code>t.a + t.b</code>) and compared immediately, rather than comparing against the stale <code>prev_expected</code> scalar left over from the prior call.</p></div></div><div style="background:#16a34a11;border-left:4px solid #16a34a;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#16a34a;margin-bottom:6px;">&#x2705; How to confirm your fix</div><div style="color:#444;"><p>Re-run the simulation: all 8 transactions should now be checked against their own operands, matching every time, with <code>report_phase</code> printing <code>TEST PASSED</code> and <code>UVM_ERROR : 0</code>.</p></div></div>
+</div>
+<div class="content-box">
+  <div class="example-card"><div class="example-title"><span class="badge badge-exercise">Challenge</span> Challenge UVM Scoreboard Ex2</div><div class="file-list"><span class="file-list-label">File to fix:</span><ul><li><code>buggy_scoreboard_ex2.sv</code></li></ul></div></div>
+</div>
+</div>
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Challenge — Request Never Granted (Ex1)</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+<div class="header"><div class="header-content"><div class="lab-title">Challenge — Request Never Granted (Ex1)</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; Vacuity Detection</div><div class="meta-item">&#x1F527; VCS -assert (SVA)</div><div class="meta-item"><span class="badge badge-exercise">Buggy Exercise</span></div></div></div></div>
+<div class="container">
+<div class="content-box">
+<div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F41E; Debugging Challenge</div><span><span class="badge badge-exercise">Bug</span></span></div><div class="section"><div class="section-title">&#x1F9ED; What this challenge is</div><div class="section-content"><p>The same SVA-checked handshake, but one planted bug in the design makes a bound assertion fire under VCS <code>-assert</code>. Read which property failed and fix the RTL.</p></div></div></div>
+<div class="content-box">
+<div class="section-title" style="font-size:1.3em;">&#x1F6E0;&#xFE0F; Debugging Guide</div><div style="background:#dc262611;border-left:4px solid #dc2626;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#dc2626;margin-bottom:6px;">&#x1F534; Symptom</div><div style="color:#444;"><p>VCS reports repeated FAIL: a_ack - the design drives gnt low forever, so every request goes ungranted.</p></div></div><div class="section"><div class="section-title">&#x1F50E; How to investigate</div><div class="section-content"><ol style="padding-left:20px;color:#444;"><li style="margin-bottom:8px;">Read the FAIL lines - a_ack fires one cycle after each request.</li><li style="margin-bottom:8px;">Open the design .sv and read the else branch of the clocked block.</li><li style="margin-bottom:8px;">Note gnt is tied to 0 instead of following req.</li></ol></div></div><div style="background:#0369a111;border-left:4px solid #0369a1;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#0369a1;margin-bottom:6px;">&#x1F9ED; Fix direction</div><div style="color:#444;"><p>Drive the grant from the request: change the else assignment to gnt &lt;= req;</p></div></div><div style="background:#16a34a11;border-left:4px solid #16a34a;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#16a34a;margin-bottom:6px;">&#x2705; Confirm</div><div style="color:#444;"><p>Re-run ./run.sh; a_ack no longer fires and the run ends with RESULT: TEST PASSED.</p></div></div><div class="content-box"><div class="example-card"><div class="example-title"><span class="badge badge-exercise">Challenge</span> Fix the design</div><div class="file-list"><span class="file-list-label">File to fix:</span><ul><li><code>adbg_vacuity.sv</code></li></ul><span class="file-list-label">Do not edit:</span><ul><li><code>adbg_vacuity_props.sv</code></li><li><code>tb_adbg_vacuity.sv</code></li></ul></div></div></div></div>
+</div>
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

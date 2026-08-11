@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>System Verilog Casting — Guided</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header"><div class="header-content"><div class="lab-title">System Verilog Casting — Guided</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; SystemVerilog</div><div class="meta-item">&#x1F4CC; System Verilog Casting</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Lab</span></div><div class="meta-item"><span class="badge badge-golden">Guided Example</span></div></div></div></div>
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Guided Walkthrough</div><span><span class="badge badge-golden">Golden Example</span></span></div>
+<div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p><code>19_SystemVerilog_Casting.sv</code> and its testbench <code>tb_19_SystemVerilog_Casting.sv</code> walk through the full range of SystemVerilog casts in one comprehensive demo: enum casting, packed-struct/bit-stream casting, signed vs. unsigned arithmetic casting, and class-hierarchy casting with <code>$cast</code>.</p></div></div>
+<div class="section"><div class="section-title">&#x1F4A1; The concept</div><div class="section-content"><p>The lab distinguishes two families of casts. Static casts (<code>type&#x27;(expr)</code>) are resolved at compile time — they reinterpret an expression&#x27;s bits as another type with no runtime check, which is exactly the tool needed to widen an 8-bit multiply into 16 bits before the multiplication happens, or to convert raw bits into an enum literal. Dynamic casts (<code>$cast(dest, src)</code>) are runtime, checked operations used for class handles: assigning a base-class handle to a derived-class variable is unsafe unless the actual object is genuinely of that derived type, so <code>$cast</code> verifies the type and returns a 0/1 status instead of corrupting the handle or crashing.</p></div></div>
+<div class="section"><div class="section-title">&#x2699;&#xFE0F; How it works</div><div class="section-content"><p>The DUT-side file defines two enums, <code>state_e</code> (a 3-bit encoded FSM enum) and <code>command_e</code> (a plain <code>int</code> enum), a packed struct <code>packet_t</code> (header/address/data/checksum) for bit-stream casting, and a class hierarchy <code>Animal</code> → <code>Dog</code>/<code>Cat</code> with a virtual <code>speak()</code> and <code>get_type()</code> for dynamic-cast demonstrations. The testbench <code>tb_19_SystemVerilog_Casting</code> instantiates five demo modules — <code>static_cast_demo</code>, <code>enum_cast_demo</code>, <code>bitstream_cast_demo</code>, <code>class_cast_demo</code>, and <code>special_casts_demo</code> — each of which runs its own casting scenarios in an <code>initial</code> block. After letting those run for <code>#100</code>, the top-level <code>initial</code> block calls <code>test_expression_casting()</code>, which shows the classic arithmetic-truncation bug: <code>result = a * b</code> on two <code>logic [7:0]</code> operands multiplies in 8-bit precision and truncates, whereas <code>result = 16&#x27;(a) * 16&#x27;(b)</code> static-casts each operand to 16 bits *before* multiplying, preserving full precision. The testbench then calls <code>test_array_casting()</code> and <code>test_union_casting()</code> before <code>print_summary()</code> and <code>$finish</code>.</p></div></div>
+<div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>How static cast <code>width&#x27;(expr)</code> changes the evaluation width of an expression before an operation, not just the result</li><li>How to use <code>$cast()</code> for both enum-from-bits validation and class-hierarchy downcasting, and why its return value must be checked</li><li>How bit-stream casting reinterprets a packed struct&#x27;s raw bits (e.g. <code>packet_t</code>) as a flat vector and vice versa</li><li>The difference between compile-time (static) and runtime (dynamic) casting, and when each is appropriate</li></ul></div></div>
+<div class="section"><div class="section-title">&#x26A0;&#xFE0F; Common mistakes</div><div class="section-content"><ul class="objectives-list"><li>Forgetting to cast operands before an arithmetic operation (e.g. <code>a * b</code> instead of <code>16&#x27;(a) * 16&#x27;(b)</code>), so truncation happens inside the operation rather than after it</li><li>Using a plain assignment or static cast for class handles instead of <code>$cast</code>, so an invalid downcast silently produces a null/garbage handle instead of a checkable failure</li></ul></div></div>
+<div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">state_e / command_e enum casting</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">packet_t packed-struct bit-stream cast</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">16&#x27;(expr) static width cast</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">$cast() on Animal/Dog/Cat handles</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">test_expression_casting arithmetic cast</span></div></div>
+</div>
+<div class="category-header">&#x1F4D7; Reference Implementation</div>
+<div class="content-box">
+  <div class="example-card"><div class="example-title"><span class="badge badge-golden">Golden</span> System Verilog Casting — Guided</div><div class="file-list"><span class="file-list-label">Source files:</span><ul><li><code>19_SystemVerilog_Casting.sv</code></li><li><code>tb_19_SystemVerilog_Casting.sv</code></li></ul></div></div>
+</div>
+</div>
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

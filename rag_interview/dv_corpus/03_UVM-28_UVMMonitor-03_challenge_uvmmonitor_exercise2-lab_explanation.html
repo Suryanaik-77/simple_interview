@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Challenge UVM Monitor Ex2</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header"><div class="header-content"><div class="lab-title">Challenge UVM Monitor Ex2</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; UVM</div><div class="meta-item">&#x1F4CC; UVM Monitor</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Lab</span></div><div class="meta-item"><span class="badge badge-exercise">Buggy Exercise</span></div></div></div></div>
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F41E; Debugging Challenge</div><span><span class="badge badge-exercise">Buggy Exercise</span></span></div>
+<div class="section"><div class="section-title">&#x1F9ED; What this challenge is</div><div class="section-content"><p>A single-file lab where the monitor publishes a transaction on every cycle <code>valid_in</code> is high instead of waiting for <code>valid_out</code>.</p></div></div>
+<div class="section"><div class="section-title">&#x1F4A1; The concept being tested</div><div class="section-content"><p>Tests whether the learner understands pipeline timing: <code>add_dut</code> registers <code>sum</code> and <code>valid_out</code> one clock after <code>a</code>, <code>b</code>, and <code>valid_in</code> are presented, so a monitor sampling on the input-side handshake captures a stale (previous-cycle, or reset-value) <code>sum</code> instead of the result for the transaction it thinks it&#x27;s observing.</p></div></div>
+</div>
+<div class="content-box">
+  <div class="section-title" style="font-size:1.3em;">&#x1F6E0;&#xFE0F; Debugging Guide</div><div style="background:#dc262611;border-left:4px solid #dc2626;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#dc2626;margin-bottom:6px;">&#x1F534; Symptom — what you see when you run it</div><div style="color:#444;"><p>Every published <code>add_item</code> pairs the current cycle&#x27;s <code>a</code>/<code>b</code> with a <code>sum</code> that doesn&#x27;t equal <code>a+b</code> — the self-check&#x27;s expected-value comparison fails, and because <code>add_item</code> has a <code>c_nonzero</code> constraint forcing <code>b &gt; 0</code>, even the very first observed transaction is guaranteed to mismatch (the sampled <code>sum</code> is still its reset value of 0).</p></div></div>
+<div class="section"><div class="section-title">&#x1F50E; How to investigate</div><div class="section-content"><ol style="padding-left:20px;color:#444;"><li style="margin-bottom:8px;">Locate the <code>if (vif.valid_in)</code> condition in the monitor&#x27;s run_phase and note which signal it gates transaction capture on.</li><li style="margin-bottom:8px;">Compare that against <code>add_dut</code>&#x27;s <code>always_ff</code> block in the same file: <code>sum</code> and <code>valid_out</code> are assigned from <code>a</code>/<code>b</code>/<code>valid_in</code> one clock edge later, not the same edge.</li><li style="margin-bottom:8px;">Trace a single item through the pipeline by hand: on the cycle the driver presents <code>a</code>, <code>b</code>, <code>valid_in</code>, what does <code>intf.sum</code> actually hold at that moment versus one cycle later?</li><li style="margin-bottom:8px;">Note the <code>c_nonzero</code> constraint on <code>add_item</code> (<code>b &gt; 0</code>) and consider why it guarantees the very first sampled transaction will mismatch if sampling happens too early.</li></ol></div></div><div style="background:#0369a111;border-left:4px solid #0369a1;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#0369a1;margin-bottom:6px;">&#x1F9ED; Fix direction</div><div style="color:#444;"><p>In the monitor&#x27;s run_phase, change the sampling condition from <code>if (vif.valid_in)</code> to <code>if (vif.valid_out)</code> so the transaction is only captured once the DUT has actually registered and asserted the result as valid.</p></div></div><div style="background:#16a34a11;border-left:4px solid #16a34a;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#16a34a;margin-bottom:6px;">&#x2705; How to confirm your fix</div><div style="color:#444;"><p>Rerun the simulation and verify every observed transaction&#x27;s <code>sum</code> equals its <code>a + b</code>, with no mismatch errors reported, including for the first item in the sequence.</p></div></div>
+</div>
+<div class="content-box">
+  <div class="example-card"><div class="example-title"><span class="badge badge-exercise">Challenge</span> Challenge UVM Monitor Ex2</div><div class="file-list"><span class="file-list-label">File to fix:</span><ul><li><code>buggy_monitor_ex2.sv</code></li></ul></div></div>
+</div>
+</div>
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

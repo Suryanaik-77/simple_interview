@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Challenge UVM Environment Ex2</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header"><div class="header-content"><div class="lab-title">Challenge UVM Environment Ex2</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; UVM</div><div class="meta-item">&#x1F4CC; UVM Environment</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Lab</span></div><div class="meta-item"><span class="badge badge-exercise">Buggy Exercise</span></div></div></div></div>
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F41E; Debugging Challenge</div><span><span class="badge badge-exercise">Buggy Exercise</span></span></div>
+<div class="section"><div class="section-title">&#x1F9ED; What this challenge is</div><div class="section-content"><p>A <code>my_env</code> whose <code>build_phase</code> sets <code>agt.is_active = UVM_PASSIVE</code> right after creating the agent, so the agent silently builds only a monitor — no sequencer, no driver.</p></div></div>
+<div class="section"><div class="section-title">&#x1F4A1; The concept being tested</div><div class="section-content"><p>This tests the learner&#x27;s understanding of the <code>is_active</code> configuration knob on <code>uvm_agent</code>: an agent configured <code>UVM_PASSIVE</code> only instantiates its monitor in its own <code>build_phase</code>, omitting the sequencer and driver entirely, which means it can observe but never drive stimulus.</p></div></div>
+</div>
+<div class="content-box">
+  <div class="section-title" style="font-size:1.3em;">&#x1F6E0;&#xFE0F; Debugging Guide</div><div style="background:#dc262611;border-left:4px solid #dc2626;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#dc2626;margin-bottom:6px;">&#x1F534; Symptom — what you see when you run it</div><div style="color:#444;"><p>The test guards against a null-handle fatal by checking <code>env.agt.sqr</code> for null before calling <code>seq.start()</code>, so the simulation terminates cleanly and quickly — but the scoreboard checks 0 transactions instead of the expected 8, because no stimulus was ever generated or driven to the DUT.</p></div></div>
+<div class="section"><div class="section-title">&#x1F50E; How to investigate</div><div class="section-content"><ol style="padding-left:20px;color:#444;"><li style="margin-bottom:8px;">Find where <code>my_env::build_phase</code> sets <code>agt.is_active</code> immediately after <code>agt = my_agent::type_id::create(...)</code>.</li><li style="margin-bottom:8px;">Recall what <code>UVM_PASSIVE</code> means inside an agent&#x27;s own <code>build_phase</code> — which sub-components get skipped?</li><li style="margin-bottom:8px;">Check the test: notice it explicitly null-checks <code>env.agt.sqr</code> before starting the sequence — why would that handle be null in this configuration?</li><li style="margin-bottom:8px;">Confirm the scoreboard connection itself (<code>connect_phase</code>) is intact — the bug is upstream of connection, in agent configuration.</li></ol></div></div><div style="background:#0369a111;border-left:4px solid #0369a1;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#0369a1;margin-bottom:6px;">&#x1F9ED; Fix direction</div><div style="color:#444;"><p>In <code>my_env::build_phase</code>, change <code>agt.is_active = UVM_PASSIVE;</code> to <code>agt.is_active = UVM_ACTIVE;</code> so the agent builds its sequencer and driver and can actually drive the <code>add_sequence</code> stimulus.</p></div></div><div style="background:#16a34a11;border-left:4px solid #16a34a;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#16a34a;margin-bottom:6px;">&#x2705; How to confirm your fix</div><div style="color:#444;"><p>Re-run the simulation: <code>env.agt.sqr</code> should no longer be null, the sequence should start and complete, and the scoreboard should report all 8 transactions checked.</p></div></div>
+</div>
+<div class="content-box">
+  <div class="example-card"><div class="example-title"><span class="badge badge-exercise">Challenge</span> Challenge UVM Environment Ex2</div><div class="file-list"><span class="file-list-label">File to fix:</span><ul><li><code>buggy_env_ex2.sv</code></li></ul></div></div>
+</div>
+</div>
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

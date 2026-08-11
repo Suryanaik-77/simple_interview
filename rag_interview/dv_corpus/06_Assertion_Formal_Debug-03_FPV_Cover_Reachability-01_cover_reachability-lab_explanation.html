@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Cover Reachability — Guided (Covered)</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+<div class="header"><div class="header-content"><div class="lab-title">Cover Reachability — Guided (Covered)</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; Formal Verification</div><div class="meta-item">&#x1F4CC; Cover Reachability</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Formal</span></div><div class="meta-item"><span class="badge badge-golden">Guided (Proven)</span></div></div></div></div>
+<div class="container">
+<div class="content-box">
+<div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Formal Walkthrough</div><span><span class="badge badge-golden">Proven</span></span></div><div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p>A counter for which formal proves the target scenario count==10 is reachable, producing a witness trace. It shows how cover properties validate that the environment still exercises the behaviour you meant to verify.</p></div></div><div class="section"><div class="section-title">&#x1F4A1; The concept</div><div class="section-content"><p>A cover property asks the tool to find at least one trace reaching a target condition. A hit yields a witness; a miss means the scenario is unreachable - often a sign of dead code or an over-strong assumption that accidentally forbids it.</p></div></div><div class="section"><div class="section-title">&#x1F527; The property under proof</div><div class="section-content"><p>The cover property asks formal to prove the scenario count==10 is reachable; a hit produces a witness trace, a miss (unreachable) means dead logic or an over-constrained environment.</p><pre style="background:#0d1117;color:#c9d1d9;padding:12px 14px;border-radius:8px;overflow:auto;font-size:.82em;line-height:1.4;">cover property (count == 10);   // must be reachable - JasperGold finds a witness trace</pre></div></div><div class="section"><div class="section-title">&#x2699;&#xFE0F; The formal flow</div><div class="section-content"><p>run.sh calls JasperGold on prove.tcl: analyze, elaborate, clock, reset, prove -all. The cover is reported covered with a witness trace.</p><pre style="background:#0d1117;color:#c9d1d9;padding:12px 14px;border-radius:8px;overflow:auto;font-size:.82em;line-height:1.4;">jg -batch -tcl prove.tcl
+  analyze -sv fpv_cover.sv fpv_cover_props.sv
+  elaborate -top fpv_cover
+  clock clk ; reset rst ; prove -all</pre></div></div><div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>Explain what a cover witness trace proves</li><li>Recognize an unreachable cover as a red flag for dead code or over-constraint</li><li>Separate cover properties from functional-coverage percentages</li></ul></div></div><div class="section"><div class="section-title">&#x1F9F0; Tool &amp; files</div><div class="section-content"><p>Engine: <b>JasperGold</b> (Synopsys VC Formal via <code>./run.sh vcf</code>). Files: <code>fpv_cover.sv</code> (design), <code>fpv_cover_props.sv</code> (SVA, bound), <code>prove.tcl</code>, <code>run.sh</code>.</p></div></div><div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">cover property</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">reachability</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">witness trace</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">JasperGold</span></div></div></div>
+</div>
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

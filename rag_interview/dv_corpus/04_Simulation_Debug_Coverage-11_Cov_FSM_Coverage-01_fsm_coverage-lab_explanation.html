@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>FSM Coverage — Guided</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+<div class="header"><div class="header-content"><div class="lab-title">FSM Coverage — Guided</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; FSM Coverage</div><div class="meta-item">&#x1F527; VCS -cm + URG</div><div class="meta-item"><span class="badge badge-golden">Guided (Pass)</span></div></div></div></div>
+<div class="container">
+<div class="content-box">
+<div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Guided Walkthrough</div><span><span class="badge badge-golden">Golden</span></span></div><div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p>A design exercised so that VCS structural coverage (<code>-cm line+branch+fsm</code>) reaches the goal. The coverage SCORE reported by <b>urg</b> is the pass/fail verdict - a hole drops it below the goal.</p></div></div><div class="section"><div class="section-title">&#x2699;&#xFE0F; How it runs</div><div class="section-content"><p>VCS compiles and simulates with <code>-cm</code> to record coverage into <code>simv.vdb</code>; <b>urg</b> then generates <code>urgReport/dashboard.txt</code>. run.sh parses the overall SCORE and compares it to the 80.00% goal.</p></div></div><div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>Collect structural coverage with VCS -cm</li><li>Generate and read a urg coverage report</li><li>Recognize a coverage hole and decide fix-vs-exclude</li></ul></div></div><div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">-cm fsm</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">urg</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">state coverage</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">transition arc</span></div></div><div class="section"><div class="section-title">&#x1F9F0; Tool &amp; files</div><div class="section-content"><p>Engine: <b>VCS</b> <code>-cm line+branch+fsm</code> + <b>urg</b> report. Files: <code>cov_fsm.sv</code>, <code>tb_cov_fsm.sv</code>, <code>run.sh</code>. The overall coverage SCORE from urg is the verdict; run <code>make report</code> to see <code>urgReport/dashboard.txt</code>.</p></div></div></div>
+</div>
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

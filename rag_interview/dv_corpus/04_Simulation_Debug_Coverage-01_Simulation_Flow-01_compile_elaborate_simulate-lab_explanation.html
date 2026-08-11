@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Compile Elaborate Simulate — Guided</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header"><div class="header-content"><div class="lab-title">Compile Elaborate Simulate — Guided</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; Simulation Flow</div><div class="meta-item">&#x1F4CC; Compile Elaborate Simulate</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Lab</span></div><div class="meta-item"><span class="badge badge-golden">Guided Example</span></div></div></div></div>
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Guided Walkthrough</div><span><span class="badge badge-golden">Golden Example</span></span></div>
+<div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p>This lab walks through the three stages every RTL simulation goes through — <strong>compile</strong>, <strong>elaborate</strong>, and <strong>simulate</strong> — using a small, deterministic device-under-test: <code>counter_flow</code>, a 4-bit synchronous up-counter. A self-checking testbench, <code>tb_counter_flow</code>, drives it and confirms every count against a reference model, so the focus stays on the <em>flow</em> and its controls rather than on complex logic.</p></div></div>
+<div class="section"><div class="section-title">&#x1F4A1; The concept</div><div class="section-content"><p>A simulator turns source into results in stages. <strong>Compilation</strong> parses each <code>.v</code>/<code>.sv</code> file into an internal representation and reports syntax errors. <strong>Elaboration</strong> builds the design hierarchy — instantiating modules, resolving port connections, and sizing nets — producing a runnable model (VCS emits the <code>simv</code> binary here). <strong>Simulation</strong> then executes that model over time, evaluating events and running the testbench. VCS folds compile+elaborate into the single <code>vcs</code> command that produces <code>simv</code>; running <code>./simv</code> is the separate simulate stage. Xcelium's <code>xrun</code> performs all three in one invocation. Runtime behaviour is tuned with <strong>plusargs</strong> — here <code>+NUM_CYCLES=&lt;n&gt;</code> sets the run length without recompiling.</p></div></div>
+<div class="section"><div class="section-title">&#x2699;&#xFE0F; How it works</div><div class="section-content"><p><code>counter_flow</code> resets synchronously to 0 (reset has priority), counts up by one only while <code>en</code> is high, and holds otherwise, wrapping naturally at 4 bits. The testbench builds an identical <code>ref_count</code> reference model, holds reset for two clocks, then drives a deterministic enable pattern (high except every 4th cycle) for <code>NUM_CYCLES</code> cycles. One delta after each rising edge it compares <code>count</code> against <code>ref_count</code>; a mismatch prints a line beginning <code>FAIL:</code>, and a clean run prints <code>RESULT: TEST PASSED</code>. That single, greppable verdict line is what <code>common/evaluate.mk</code> reads to decide PASS/FAIL. Run it with <code>./run.sh vcs</code> (or <code>make</code>), and try <code>NUM_CYCLES=40 ./run.sh vcs</code> to see the plusarg change the run length.</p></div></div>
+<div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>The distinct roles of the compile, elaborate, and simulate stages and where each error surfaces</li><li>How VCS (two-step: <code>vcs</code> then <code>./simv</code>) and Xcelium (single-step <code>xrun</code>) map onto those stages</li><li>Passing runtime configuration into a simulation with plusargs (<code>+NUM_CYCLES</code>) instead of recompiling</li><li>Why a self-checking testbench prints one machine-readable verdict line that a verify flow can score</li></ul></div></div>
+<div class="section"><div class="section-title">&#x26A0;&#xFE0F; Common mistakes</div><div class="section-content"><ul class="objectives-list"><li>Confusing a compile error (bad syntax, caught by <code>vcs</code>) with an elaboration error (unconnected/misnamed port, caught while building <code>simv</code>)</li><li>Editing the source but re-running the old <code>simv</code> without recompiling, so the change never takes effect</li><li>Expecting a plusarg to work when the testbench never reads it via <code>$value$plusargs</code></li></ul></div></div>
+<div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">vcs / simv</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">xrun</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">$value$plusargs</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">reference model</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">$finish</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">self-checking testbench</span></div></div>
+</div>
+<div class="category-header">&#x1F4D7; Reference Implementation</div>
+<div class="content-box">
+  <div class="example-card"><div class="example-title"><span class="badge badge-golden">Golden</span> Compile Elaborate Simulate — Guided</div><div class="file-list"><span class="file-list-label">Source files:</span><ul><li><code>counter_flow.v</code></li><li><code>tb_counter_flow.v</code></li></ul></div></div>
+</div>
+</div>
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Challenge — Dead Branch</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+<div class="header"><div class="header-content"><div class="lab-title">Challenge — Dead Branch</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; Code Coverage</div><div class="meta-item">&#x1F527; VCS -cm + URG</div><div class="meta-item"><span class="badge badge-exercise">Buggy Exercise</span></div></div></div></div>
+<div class="container">
+<div class="content-box">
+<div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F41E; Debugging Challenge</div><span><span class="badge badge-exercise">Bug</span></span></div><div class="section"><div class="section-title">&#x1F9ED; What this challenge is</div><div class="section-content"><p>The same design and stimulus, but one bug leaves a construct unexercised, so the urg coverage SCORE falls below the goal. Read the report, find the hole, and fix the RTL so it is reachable.</p></div></div></div>
+<div class="content-box">
+<div class="section-title" style="font-size:1.3em;">&#x1F6E0;&#xFE0F; Debugging Guide</div><div style="background:#dc262611;border-left:4px solid #dc2626;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#dc2626;margin-bottom:6px;">&#x1F534; Symptom</div><div style="color:#444;"><p>urg reports overall coverage below 100% - the sel==1 branch is never taken, so branch coverage has a hole.</p></div></div><div class="section"><div class="section-title">&#x1F50E; How to investigate</div><div class="section-content"><ol style="padding-left:20px;color:#444;"><li style="margin-bottom:8px;">Run make report and read urgReport/dashboard.txt.</li><li style="margin-bottom:8px;">Find the branch with 0 hits in the design.</li><li style="margin-bottom:8px;">See the sel==1 arm is gated by a constant-false condition.</li></ol></div></div><div style="background:#0369a111;border-left:4px solid #0369a1;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#0369a1;margin-bottom:6px;">&#x1F9ED; Fix direction</div><div style="color:#444;"><p>Remove the always-false term so the branch is reachable: else if (sel == 2'd1) y &lt;= b;</p></div></div><div style="background:#16a34a11;border-left:4px solid #16a34a;border-radius:8px;padding:14px 18px;margin:14px 0;"><div style="font-weight:700;color:#16a34a;margin-bottom:6px;">&#x2705; Confirm</div><div style="color:#444;"><p>Re-run ./run.sh; coverage returns to 100% and the run ends with RESULT: TEST PASSED.</p></div></div><div class="content-box"><div class="example-card"><div class="example-title"><span class="badge badge-exercise">Challenge</span> Close the coverage hole</div><div class="file-list"><span class="file-list-label">File to fix:</span><ul><li><code>cov_code.sv</code></li></ul><span class="file-list-label">Do not edit:</span><ul><li><code>tb_cov_code.sv</code></li></ul></div></div></div></div>
+</div>
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

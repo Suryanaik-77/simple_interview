@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>UVM Subscriber — Guided</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header"><div class="header-content"><div class="lab-title">UVM Subscriber — Guided</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; UVM</div><div class="meta-item">&#x1F4CC; UVM Subscriber</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Lab</span></div><div class="meta-item"><span class="badge badge-golden">Guided Example</span></div></div></div></div>
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Guided Walkthrough</div><span><span class="badge badge-golden">Golden Example</span></span></div>
+<div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p>The reference lab builds an <code>env</code> that instantiates a <code>my_agent</code> (with <code>driver</code>, <code>sequencer</code>, <code>monitor</code>) and three independent subscribers — <code>func_cov</code>, <code>scoreboard</code>, and <code>statistics</code> — all fed from the same monitor <code>analysis_port</code> to demonstrate the one-to-many broadcast pattern.</p></div></div>
+<div class="section"><div class="section-title">&#x1F4A1; The concept</div><div class="section-content"><p>TLM analysis ports decouple producers from consumers: a <code>uvm_analysis_port</code> can be <code>connect()</code>-ed to any number of <code>analysis_export</code>s, and calling <code>write()</code> on the port invokes <code>write()</code> on every connected subscriber in the order they were connected. This means the monitor never needs to know how many things are watching, and each subscriber (<code>func_cov</code>, <code>scoreboard</code>, <code>statistics</code>) implements its own <code>write()</code> to do its own job — sampling a covergroup, checking a result, or tallying counts — completely independently of the others.</p></div></div>
+<div class="section"><div class="section-title">&#x2699;&#xFE0F; How it works</div><div class="section-content"><p><code>my_agent::build_phase</code> creates <code>drv</code> (a <code>driver</code> extending <code>uvm_driver #(seq_item)</code>), <code>seqr</code>, and <code>mon</code> as an active agent, then <code>connect_phase</code> wires <code>drv.seq_item_port</code> to <code>seqr.seq_item_export</code> so the driver can pull sequence items. <code>driver::run_phase</code> loops forever calling <code>seq_item_port.get_next_item(req)</code>, driving it in <code>drive_item()</code> (logging addr/data/write/burst_type and consuming <code>#10</code>), then <code>seq_item_port.item_done()</code>. At the <code>env</code> level, <code>env::build_phase</code> creates <code>agt</code> (<code>my_agent</code>) plus the three subscribers <code>fc</code> (<code>func_cov</code>), <code>sb</code> (<code>scoreboard</code>), and <code>stats</code> (<code>statistics</code>). <code>env::connect_phase</code> then connects the agent&#x27;s monitor analysis port to all three subscribers&#x27; <code>analysis_export</code>s, so a single <code>mon.analysis_port.write(txn)</code> call fans out to all three <code>write()</code> implementations simultaneously — illustrating the broadcast architecture called out in the file&#x27;s header comment.</p></div></div>
+<div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>How to declare and instantiate <code>uvm_subscriber #(T)</code> components and override their <code>write(T t)</code> method</li><li>How <code>uvm_analysis_port.connect()</code> fans a single publisher out to multiple <code>analysis_export</code> consumers</li><li>How to wire agent-to-environment analysis connections inside <code>connect_phase</code> rather than <code>build_phase</code></li><li>Why passive analysis components (coverage/scoreboard/statistics) stay decoupled from the driver/sequencer path</li></ul></div></div>
+<div class="section"><div class="section-title">&#x26A0;&#xFE0F; Common mistakes</div><div class="section-content"><ul class="objectives-list"><li>Forgetting to call <code>connect()</code> on the analysis port in <code>connect_phase</code>, so the subscriber&#x27;s <code>write()</code> is never invoked even though it compiles and elaborates cleanly</li><li>Doing analysis-port <code>connect()</code> calls in <code>build_phase</code> instead of <code>connect_phase</code>, before the target components&#x27; exports exist/are ready to bind</li></ul></div></div>
+<div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">uvm_subscriber</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">uvm_analysis_port</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">analysis_export</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">connect_phase</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">TLM broadcast connect</span></div></div>
+</div>
+<div class="category-header">&#x1F4D7; Reference Implementation</div>
+<div class="content-box">
+  <div class="example-card"><div class="example-title"><span class="badge badge-golden">Golden</span> UVM Subscriber — Guided</div><div class="file-list"><span class="file-list-label">Source files:</span><ul><li><code>agent.sv</code></li><li><code>driver.sv</code></li><li><code>env.sv</code></li><li><code>monitor.sv</code></li><li><code>scoreboard.sv</code></li><li><code>seq_item.sv</code></li><li><code>sequence.sv</code></li><li><code>sequencer.sv</code></li><li><code>statistics.sv</code></li><li><code>subscriber.sv</code></li><li><code>subscriber_pkg.sv</code></li><li><code>tb_top.sv</code></li><li><code>test.sv</code></li></ul></div></div>
+</div>
+</div>
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

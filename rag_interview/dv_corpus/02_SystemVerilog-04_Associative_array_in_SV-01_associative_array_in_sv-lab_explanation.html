@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Associative Array In SV — Guided</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header"><div class="header-content"><div class="lab-title">Associative Array In SV — Guided</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; SystemVerilog</div><div class="meta-item">&#x1F4CC; Associative Array In SV</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Lab</span></div><div class="meta-item"><span class="badge badge-golden">Guided Example</span></div></div></div></div>
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Guided Walkthrough</div><span><span class="badge badge-golden">Golden Example</span></span></div>
+<div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p>The reference lab (<code>Associative_array_in_SV.sv</code> with its testbench <code>tb_Associative_array_in_SV.sv</code>) walks through declaring associative arrays with several different index types inside a single class and shows how sparse entries are written and displayed.</p></div></div>
+<div class="section"><div class="section-title">&#x1F4A1; The concept</div><div class="section-content"><p>An associative array is declared as <code>data_type array_name [index_type]</code>, where <code>index_type</code> can be an integral type (<code>int</code>), a <code>string</code>, a packed vector (like <code>addr_t</code>), or the wildcard <code>*</code> which accepts any integral index type at elaboration time. Unlike a fixed-size array, no storage exists until a key is assigned, which is what makes indices like <code>10000</code> or <code>-50</code> legal without allocating a huge array. Built-in methods <code>exists()</code>, <code>delete()</code>, <code>num()</code>, and the iteration pair <code>first()/next()</code> (and <code>last()/prev()</code>) let you query and walk the sparse contents safely instead of guessing which keys are populated.</p></div></div>
+<div class="section"><div class="section-title">&#x2699;&#xFE0F; How it works</div><div class="section-content"><p>The <code>assoc_array_pkg</code> package defines <code>addr_t</code>/<code>data_t</code> typedefs and a <code>transaction_t</code> struct (<code>addr</code>, <code>data</code>, <code>id</code>, <code>name</code>). The <code>AssocArrayDemo</code> class then declares five associative arrays covering the main index styles: <code>mem_int[int]</code> for a sparse integer-indexed memory, <code>config_str[string]</code> as a string-keyed lookup table, <code>memory[addr_t]</code> as a bit-vector-indexed memory model, <code>generic_mem[*]</code> using the wildcard index, and <code>txn_table[int]</code> storing a <code>transaction_t</code> struct per entry. The method <code>demo_int_index()</code> demonstrates sparse storage concretely by writing <code>mem_int[0]</code>, <code>mem_int[100]</code>, <code>mem_int[10000]</code>, and <code>mem_int[-50]</code> — showing that negative and far-apart indices are all valid and each <code>$display</code> reads the value straight back. In the testbench <code>tb_Associative_array_in_SV</code>, the DUT <code>assoc_memory_model</code> (parameterized by <code>ADDR_WIDTH</code>/<code>DATA_WIDTH</code>) is instantiated alongside its own set of associative arrays — <code>aa_int[int]</code>, <code>aa_str_idx[string]</code>, <code>aa_logic[logic[15:0]]</code>, and <code>aa_wildcard[*]</code> — used to exercise the same index-type variety against a clocked, reset-driven environment.</p></div></div>
+<div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>Declaring associative arrays with int, string, bit-vector, and wildcard <code>[*]</code> index types</li><li>Understanding that associative arrays only allocate storage for keys actually written (sparse semantics)</li><li>Storing structs (like <code>transaction_t</code>) as associative array values</li><li>Reading back entries safely and recognizing how index type constrains what can be used as a key</li></ul></div></div>
+<div class="section"><div class="section-title">&#x26A0;&#xFE0F; Common mistakes</div><div class="section-content"><ul class="objectives-list"><li>Assuming an associative array preserves insertion order — iteration order via <code>first()/next()</code> follows key ordering (numeric/string sort), not the order entries were written</li><li>Reading a key that was never written and not realizing the read can implicitly create a default-valued entry if not guarded with <code>exists()</code> first</li></ul></div></div>
+<div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">associative array declaration</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">wildcard index `[*]`</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">struct-valued associative array</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">sparse indexing (negative/large keys)</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">bit-vector index type</span></div></div>
+</div>
+<div class="category-header">&#x1F4D7; Reference Implementation</div>
+<div class="content-box">
+  <div class="example-card"><div class="example-title"><span class="badge badge-golden">Golden</span> Associative Array In SV — Guided</div><div class="file-list"><span class="file-list-label">Source files:</span><ul><li><code>Associative_array_in_SV.sv</code></li><li><code>tb_Associative_array_in_SV.sv</code></li></ul></div></div>
+</div>
+</div>
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

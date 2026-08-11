@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Class Assignment In Sv — SystemVerilog Classes</title>
+  <link rel="stylesheet" href="../../../../common/styles.css">
+  <link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header">
+  <div class="header-content">
+    <div class="lab-title">Class Assignment In Sv</div>
+    <div class="lab-meta">
+      <div class="meta-item">&#x1F4DA; SystemVerilog</div>
+      <div class="meta-item">&#x1F4CC; SystemVerilog Classes</div>
+      <div class="meta-item">
+        &#x26A1; <span style="background:#007bff;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Intermediate</span>
+      </div>
+      <div class="meta-item"><span class="badge badge-golden">Guided Example</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header">
+    <div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Lab Overview</div>
+    <span><span class="badge badge-golden">Guided Example</span></span>
+  </div>
+
+  <div class="section">
+    <div class="section-content"><p>Demonstrates the critical distinction between handle assignment and object copying in SystemVerilog classes. Shows that class variables are handles (references) rather than objects, so assignment creates aliases to the same object rather than independent copies, requiring explicit copy methods to create separate instances.</p></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F3AF; What You'll Learn</div>
+    <div class="section-content"><ul class="objectives-list"><li>Class variables in SystemVerilog are handles (references), not objects</li><li>Handle assignment creates aliases pointing to the same object in memory</li><li>Modifications through one handle affect all handles to that object</li><li>Explicit copy methods must be implemented to create independent object instances</li><li>Difference between shallow reference semantics and deep copy semantics</li></ul></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F527; Key Constructs</div>
+    <div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">function</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">Handle vs Object distinction</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">Pass-by-reference semantics</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">Object aliasing</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">Memory sharing in class instances</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">Copy constructor pattern in SystemVerilog</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">Reference equality vs value equality</span></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F9F1; Class: <code>variables</code></div>
+    <div class="section-content">
+      <p style="color:#666;font-size:.9em;">Open the source file to study the class definition.</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F9F1; Class: <code>Transaction</code></div>
+    <div class="section-content">
+      <p style="color:#666;font-size:.9em;">Open the source file to study the class definition.</p>
+    </div>
+  </div>
+</div>
+
+<div class="category-header">&#x1F4D7; Reference Implementation</div>
+<div class="content-box">
+  <div class="example-card">
+    <div class="example-title"><span class="badge badge-golden">Guided</span> Class Assignment In Sv</div>
+    <p style="color:#666;margin-bottom:10px;">
+      Correct reference implementation. Open and study the source files to understand
+      the expected coding pattern and behaviour.
+    </p>
+    <div class="file-list"><span class="file-list-label">Source files:</span><ul><li><code>Class_assignment_in_SV.sv</code></li><li><code>tb_Class_assignment_in_SV.sv</code></li></ul></div>
+  </div>
+</div>
+
+<div class="category-header">&#x1F9E0; Knowledge Check</div>
+<div class="content-box">
+  <div class="quiz-container">
+
+    <div class="quiz-question">
+      <h3>Q1: What is the result of calling a virtual method through a base-class handle that points to a derived object?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">The base-class method executes</li>
+        <li data-correct="true">The derived-class method executes (runtime dispatch)</li>
+        <li data-correct="false">Compile error — cannot call via base handle</li>
+        <li data-correct="false">Behaviour is undefined</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>Virtual methods use <strong>dynamic dispatch</strong>: the actual type of the object (not the handle) determines which method runs. This is the key mechanism behind polymorphism.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q2: When does a shallow copy differ from a deep copy for a class object?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">When the object has only integer fields</li>
+        <li data-correct="true">When the object contains handles to other objects</li>
+        <li data-correct="false">When the class uses the virtual keyword</li>
+        <li data-correct="false">Shallow and deep copy are always identical for classes</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>A shallow copy duplicates the handle values, so both copies reference the <em>same</em> sub-objects. A deep copy recursively allocates new sub-objects. Bugs arise when one copy mutates a shared sub-object.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q3: A class has a static property. How many copies of it exist across all instances?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">One per instance</li>
+        <li data-correct="true">One shared across all instances</li>
+        <li data-correct="false">One per file</li>
+        <li data-correct="false">Zero — static properties are compile-time only</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>Static class properties are shared across all instances (like C++ static members). Modifying the property in one instance changes it for all.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q4: What is &lt;code&gt;this&lt;/code&gt; inside a class method?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">A copy of the current object</li>
+        <li data-correct="true">A handle to the current object instance</li>
+        <li data-correct="false">A pointer to the parent class</li>
+        <li data-correct="false">A reference to the class type</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p><code>this</code> is an implicit handle to the object on which the method was invoked. It is the same type as the class and is used to disambiguate member names.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q5: What happens if you call &lt;code&gt;new()&lt;/code&gt; on a class variable that already holds an object?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">Compile error</li>
+        <li data-correct="false">The old object is automatically destroyed and a new one allocated</li>
+        <li data-correct="true">The variable is overwritten; the old object may be garbage-collected if no other handles exist</li>
+        <li data-correct="false">The new object is discarded; the original is retained</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>SV uses reference counting / garbage collection. Reassigning the handle drops the reference; if no other handle points to the old object it becomes eligible for collection. There is no explicit destructor call.</p></div>
+    </div>
+  </div>
+</div>
+</div><!-- /.container -->
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

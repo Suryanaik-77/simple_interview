@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>If Statement In SV — Guided</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header"><div class="header-content"><div class="lab-title">If Statement In SV — Guided</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; SystemVerilog</div><div class="meta-item">&#x1F4CC; If Statement In SV</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Lab</span></div><div class="meta-item"><span class="badge badge-golden">Guided Example</span></div></div></div></div>
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Guided Walkthrough</div><span><span class="badge badge-golden">Golden Example</span></span></div>
+<div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p>If_statement_in_SV.sv defines the if_statement_demo module, which shows the same input pair (a, b, sel, enable) driving four different if-based computations, and tb_If_statement_in_SV.sv exercises each of them with dedicated test tasks.</p></div></div>
+<div class="section"><div class="section-title">&#x1F4A1; The concept</div><div class="section-content"><p>An if statement evaluates a condition and executes exactly one branch; chaining conditions with else if creates a priority order where the first true condition wins and later conditions are never checked. Nested ifs let a decision depend on the outcome of an outer decision. The unique/priority keywords tell the simulator (and synthesis tool) that the listed conditions are meant to be mutually exclusive or exhaustive, so it can flag violations and infer a parallel mux instead of a priority encoder.</p></div></div>
+<div class="section"><div class="section-title">&#x2699;&#xFE0F; How it works</div><div class="section-content"><p>In <code>if_statement_demo</code>, <code>basic_result</code> is a plain if-else on <code>enable</code>: true adds <code>a + b</code>, false forces <code>8&#x27;h00</code>. <code>chain_result</code> uses an if-else-if chain keyed on <code>sel</code> (2&#x27;b00/01/10 pick <code>a</code>, <code>b</code>, or <code>a+b</code>, with a final else doing <code>a-b</code>) to show priority selection across more than two cases. <code>nested_result</code> nests ifs inside the <code>enable</code> branch: first checking <code>sel[1]</code>, then <code>sel[0]</code> within it, to combine <code>a</code>/<code>b</code> with <code>&amp;</code>, <code>|</code>, or <code>^</code> depending on which inner branch is taken. The testbench <code>tb_If_statement_in_SV</code> drives these through tasks <code>test_basic()</code>, <code>test_chain()</code>, <code>test_unique_priority()</code>, and <code>test_state_machine()</code>, toggling <code>enable</code>, <code>sel</code>, and <code>a</code>/<code>b</code> on <code>@(posedge clk)</code> and printing the sampled <code>result</code> each time.</p></div></div>
+<div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>Writing if-else if chains to encode priority among mutually exclusive selector values</li><li>Modeling nested conditional logic correctly inside an always_comb block</li><li>Understanding how unique if / priority if change simulation checking and synthesis inference versus a plain if</li><li>Structuring clocked testbench tasks that drive DUT inputs and sample outputs after <code>@(posedge clk)</code></li></ul></div></div>
+<div class="section"><div class="section-title">&#x26A0;&#xFE0F; Common mistakes</div><div class="section-content"><ul class="objectives-list"><li>Forgetting the final else in an always_comb if-chain, which infers an unintended latch for the output</li><li>Using several independent if blocks instead of an else-if chain, so a later condition silently overwrites a result set by an earlier one</li></ul></div></div>
+<div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">if-else</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">if-else if chain</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">nested if</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">unique if</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">priority if</span></div></div>
+</div>
+<div class="category-header">&#x1F4D7; Reference Implementation</div>
+<div class="content-box">
+  <div class="example-card"><div class="example-title"><span class="badge badge-golden">Golden</span> If Statement In SV — Guided</div><div class="file-list"><span class="file-list-label">Source files:</span><ul><li><code>If_statement_in_SV.sv</code></li><li><code>tb_If_statement_in_SV.sv</code></li></ul></div></div>
+</div>
+</div>
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

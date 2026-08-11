@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Challenge Explicit Bin Creation Ex2 — Functional Coverage</title>
+  <link rel="stylesheet" href="../../../../common/styles.css">
+  <link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header">
+  <div class="header-content">
+    <div class="lab-title">Challenge Explicit Bin Creation Ex2</div>
+    <div class="lab-meta">
+      <div class="meta-item">&#x1F4DA; SystemVerilog</div>
+      <div class="meta-item">&#x1F4CC; Functional Coverage</div>
+      <div class="meta-item">
+        &#x26A1; <span style="background:#007bff;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Intermediate</span>
+      </div>
+      <div class="meta-item"><span class="badge badge-exercise">Challenge Exercise</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header">
+    <div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Lab Overview</div>
+    <span><span class="badge badge-exercise">Challenge Exercise</span></span>
+  </div>
+
+  <div class="section">
+    <div class="section-content"><p>This exercise demonstrates a mismatch between declared coverpoint bins and actual stimulus values. The cp_channel coverpoint declares bins for values {4,5,6,7}, but the testbench only drives channel with values {0,1,2,3}, resulting in 0% coverage for that coverpoint and failing to meet the overall 80% coverage goal.</p></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F527; Key Constructs</div>
+    <div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">always_ff (sequential)</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">covergroup</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">coverpoint</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">function</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">continuous assignment</span></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F50C; Module: <code>buggy_explicit_bin_creation_ex2</code></div>
+    <div class="section-content">
+      <p style="margin-bottom:8px;color:#666;font-size:.9em;">Ports:</p>
+      <ul style="list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:6px;"><li><code>clk</code></li><li><code>rst</code></li><li><code>data</code></li><li><code>channel</code></li><li><code>strobe</code></li><li><code>latched</code></li></ul>
+    </div>
+  </div>
+</div>
+
+<div class="category-header">&#x1F41B; Challenge Exercise</div>
+<div class="content-box">
+  <div class="hint-box">
+    <h4>&#x1F50D; Debug Strategy</h4>
+    <ol style="margin-top:10px;padding-left:22px;line-height:2.2;"><li>Observe which values are actually driven on the channel input in the testbench stimulus loop</li><li>Compare the range of driven values (0–3) against the bins declared in cp_channel (4–7)</li><li>Check the final coverage report to see that cp_channel remains at 0% while other coverpoints accumulate coverage</li></ol>
+  </div>
+  <div class="hint-box" style="margin-top:0;"><h4>&#x1F4A1; Why It Matters</h4><p style="margin-top:8px;">Bin declaration mismatches are a common coverage issue in real designs. Engineers may declare bins based on specification while the testbench exercises a different range, leading to false coverage metrics and undetected design gaps. Careful alignment between stimulus and coverpoint definitions is essential for meaningful functional coverage.</p></div>
+</div>
+
+<div class="content-box">
+  <div class="example-card exercise">
+    <div class="example-title"><span class="badge badge-exercise">Challenge Exercise</span> Challenge Explicit Bin Creation Ex2</div>
+    <p style="margin-top:6px;"><span style="background:#fff3cd;color:#856404;padding:2px 10px;border-radius:10px;font-size:.88em;font-weight:600;">Bug Category: Port Mismatch</span></p>
+    <p style="color:#666;margin-bottom:12px;">
+      This exercise contains intentional bugs. Find and fix them so the simulation passes.
+    </p>
+    <div class="validation-box">
+      <h4>&#x2705; Success Criteria</h4>
+      <ul style="margin-top:8px;padding-left:22px;">
+        <li>Simulation compiles without errors</li>
+        <li>All test cases report <strong>PASS</strong></li>
+        <li>No unresolved X/Z on critical outputs</li>
+      </ul>
+    </div>
+    <div class="file-list"><span class="file-list-label">Source files:</span><ul><li><code>buggy_explicit_bin_creation_ex2.sv</code></li><li><code>tb_buggy_explicit_bin_creation_ex2.sv</code></li></ul></div>
+  </div>
+</div>
+
+<div class="category-header">&#x1F9E0; Knowledge Check</div>
+<div class="content-box">
+  <div class="quiz-container">
+
+    <div class="quiz-question">
+      <h3>Q1: A coverpoint has 8 bins. After simulation, 6 are hit. What is the coverage percentage?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">60%</li>
+        <li data-correct="true">75%</li>
+        <li data-correct="false">87.5%</li>
+        <li data-correct="false">100%</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>Coverage = (bins hit) / (total bins) = 6/8 = 75%.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q2: What is the purpose of a &lt;code&gt;cross&lt;/code&gt; in a covergroup?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">To measure transitions between states</li>
+        <li data-correct="true">To measure all combinations of two or more coverpoints</li>
+        <li data-correct="false">To define illegal bins</li>
+        <li data-correct="false">To weight bins by frequency</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p><code>cross</code> creates a Cartesian product of the specified coverpoints, measuring how many of the combined value pairs were observed.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q3: You define &lt;code&gt;bins b = {5}&lt;/code&gt; and &lt;code&gt;ignore_bins ig = {5}&lt;/code&gt;. Which takes priority?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">bins b — explicit bins always win</li>
+        <li data-correct="true">ignore_bins ig — ignore/illegal bins override regular bins</li>
+        <li data-correct="false">The last declaration wins</li>
+        <li data-correct="false">Compile error — conflict is illegal</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p><code>ignore_bins</code> and <code>illegal_bins</code> take priority over regular bins. The value 5 will be excluded from coverage counting.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q4: A coverpoint variable transitions 0→1→0→1. How many bins does &lt;code&gt;bins t = (0 =&gt; 1)&lt;/code&gt; count?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">1</li>
+        <li data-correct="true">2</li>
+        <li data-correct="false">3</li>
+        <li data-correct="false">4</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>The transition 0→1 occurs twice in the sequence. Each occurrence increments the bin hit count; a transition bin is considered 'covered' after the first hit.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q5: When must &lt;code&gt;sample()&lt;/code&gt; be called on a covergroup that uses explicit sampling?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">Only at the end of simulation</li>
+        <li data-correct="false">Exactly at every clock edge</li>
+        <li data-correct="true">At the points in your test where you want coverage data captured</li>
+        <li data-correct="false">It is called automatically — explicit sampling is a no-op</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>When a covergroup uses explicit <code>sample()</code>, coverage is only recorded at the moments you invoke it. If you never call <code>sample()</code>, coverage stays at 0 regardless of signal values.</p></div>
+    </div>
+  </div>
+</div>
+</div><!-- /.container -->
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Challenge Parameters Example Ex1 — Data Types</title>
+  <link rel="stylesheet" href="../../../../common/styles.css">
+  <link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header">
+  <div class="header-content">
+    <div class="lab-title">Challenge Parameters Example Ex1</div>
+    <div class="lab-meta">
+      <div class="meta-item">&#x1F4DA; Verilog</div>
+      <div class="meta-item">&#x1F4CC; Data Types</div>
+      <div class="meta-item">
+        &#x26A1; <span style="background:#28a745;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Beginner</span>
+      </div>
+      <div class="meta-item"><span class="badge badge-per_leaf">Per-Leaf Exercise</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header">
+    <div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Lab Overview</div>
+    <span><span class="badge badge-per_leaf">Per-Leaf Exercise</span></span>
+  </div>
+
+  <div class="section">
+    <div class="section-content"><p>A configurable timer and watchdog system using parameters for width, divisor, and timeout values. The exercise contains bugs in parameter usage, bit-width handling, and incomplete initialization logic that students must identify and fix.</p></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F3AF; Focus Area</div>
+    <div class="section-content">
+      <p>This exercise specifically targets: <strong>Parameterized Timer &amp; Watchdog</strong></p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F527; Key Constructs</div>
+    <div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">always block</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">parameter/localParam</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">task</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">continuous assignment</span></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F50C; Module: <code>prescaler</code></div>
+    <div class="section-content">
+      <p style="margin-bottom:8px;color:#666;font-size:.9em;">Ports:</p>
+      <ul style="list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:6px;"><li><code>clk</code></li><li><code>reset</code></li><li><code>tick</code></li></ul>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F50C; Module: <code>configurable_timer</code></div>
+    <div class="section-content">
+      <p style="margin-bottom:8px;color:#666;font-size:.9em;">Ports:</p>
+      <ul style="list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:6px;"><li><code>clk</code></li><li><code>reset</code></li><li><code>enable</code></li><li><code>tick</code></li><li><code>wire</code></li><li><code>load</code></li><li><code>reg</code></li><li><code>expired</code></li></ul>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F50C; Module: <code>watchdog</code></div>
+    <div class="section-content">
+      <p style="margin-bottom:8px;color:#666;font-size:.9em;">Ports:</p>
+      <ul style="list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:6px;"><li><code>clk</code></li><li><code>reset</code></li><li><code>kick</code></li><li><code>timeout_flag</code></li><li><code>reset_out</code></li></ul>
+    </div>
+  </div>
+</div>
+
+<div class="category-header">&#x1F41B; Challenge Exercise</div>
+<div class="content-box">
+  <div class="hint-box">
+    <h4>&#x1F50D; Debug Strategy</h4>
+    <ol style="margin-top:10px;padding-left:22px;line-height:2.2;"><li>The configurable_timer module's reset block appears incomplete—check for missing assignment statements after the ternary operator</li><li>Review the prescaler's MAX_VAL calculation: does DIVISOR-1 match the intended overflow behavior for a counter that increments from 0?</li><li>Verify that bit-width conversions are correct when assigning RELOAD_VAL (a parameter) to count (a WIDTH-bit register)</li><li>The testbench references timer_system_top but only prescaler and configurable_timer are defined—check for missing top-level module</li></ol>
+  </div>
+  <div class="hint-box" style="margin-top:0;"><h4>&#x1F4A1; Why It Matters</h4><p style="margin-top:8px;">Parameter misuse and incomplete initialization are common sources of bugs in synthesizable designs. Incorrect prescaler overflow logic and improper bit-width handling lead to timing errors and unexpected behavior in real-world verification and silicon.</p></div>
+</div>
+
+<div class="content-box">
+  <div class="example-card per_leaf">
+    <div class="example-title"><span class="badge badge-per_leaf">Per-Leaf Exercise</span> Challenge Parameters Example Ex1</div>
+    <p style="margin-top:6px;"><span style="background:#fff3cd;color:#856404;padding:2px 10px;border-radius:10px;font-size:.88em;font-weight:600;">Bug Category: Syntax Error | Port Mismatch | Off-by-One</span></p>
+    <p style="color:#666;margin-bottom:12px;">
+      This exercise contains intentional bugs. Find and fix them so the simulation passes.
+    </p>
+    <div class="validation-box">
+      <h4>&#x2705; Success Criteria</h4>
+      <ul style="margin-top:8px;padding-left:22px;">
+        <li>Simulation compiles without errors</li>
+        <li>All test cases report <strong>PASS</strong></li>
+        <li>No unresolved X/Z on critical outputs</li>
+      </ul>
+    </div>
+    <div class="file-list"><span class="file-list-label">Source files:</span><ul><li><code>parameters_ex1.v</code></li><li><code>tb_parameters_ex1.v</code></li></ul></div>
+  </div>
+</div>
+
+<div class="category-header">&#x1F9E0; Knowledge Check</div>
+<div class="content-box">
+  <div class="quiz-container">
+
+    <div class="quiz-question">
+      <h3>Q1: What is the 4-state value of an undriven &lt;code&gt;wire&lt;/code&gt;?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">0</li>
+        <li data-correct="false">1</li>
+        <li data-correct="false">x</li>
+        <li data-correct="true">z</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>An undriven net defaults to <strong>z</strong> (high-impedance) in Verilog. The value <strong>x</strong> appears when a net is multiply driven with conflicting values.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q2: Which SV type is a 2-state equivalent of &lt;code&gt;reg&lt;/code&gt;?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">logic</li>
+        <li data-correct="true">bit</li>
+        <li data-correct="false">integer</li>
+        <li data-correct="false">byte</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p><code>bit</code> is a 2-state (0/1 only) single-bit variable. <code>logic</code> is 4-state like <code>reg</code> but resolves drive conflicts.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q3: A &lt;code&gt;logic [3:0]&lt;/code&gt; variable is left uninitialized in an always_comb block. What is its value?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">4'b0000</li>
+        <li data-correct="true">4'bxxxx</li>
+        <li data-correct="false">4'bzzzz</li>
+        <li data-correct="false">Undefined — compile error</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>Uninitialized 4-state variables hold <strong>x</strong>. This is a common source of simulation mismatches — always assign a default inside always_comb.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q4: What happens when you assign -1 to a &lt;code&gt;logic [7:0]&lt;/code&gt; variable?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">Compile error</li>
+        <li data-correct="false">8'b00000000</li>
+        <li data-correct="true">8'b11111111</li>
+        <li data-correct="false">8'bxxxxxxxx</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>Signed integer -1 in two's complement is all 1s. When assigned to an unsigned 8-bit vector it becomes <code>8'hFF</code>.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q5: Which declaration correctly defines a 32-bit signed variable in SystemVerilog?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">reg signed [31:0] a</li>
+        <li data-correct="false">logic signed [31:0] a</li>
+        <li data-correct="false">int a</li>
+        <li data-correct="true">Both B and C</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>Both <code>logic signed [31:0]</code> and <code>int</code> (which is implicitly 32-bit signed) are correct. <code>reg signed [31:0]</code> is also valid Verilog but <code>reg</code> is deprecated in SV.</p></div>
+    </div>
+  </div>
+</div>
+</div><!-- /.container -->
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

@@ -119,6 +119,17 @@ def _find_section_heading(section_html):
             text = re.sub(r'^[?\s]+|[?\s]+$', '', text).strip()
             if text:
                 return text
+    # Some lab pages (e.g. AllHTMLFiles) label sections with a title div
+    # instead of a heading tag. Fall back to those, in order of preference.
+    for cls in ["section-title", "category-header", "example-title"]:
+        m = re.search(rf'<div\s+class\s*=\s*["\']{cls}["\'][^>]*>(.*?)</div>',
+                       section_html, re.DOTALL | re.IGNORECASE)
+        if m:
+            text = re.sub(r"\s+", " ", _html_to_text(m.group(1))).strip()
+            text = re.sub(r'[\U0001f300-\U0001f9ff☀-➿✀-➿]', '', text).strip()
+            text = re.sub(r'^[?\s]+|[?\s]+$', '', text).strip()
+            if text:
+                return text
     return None
 
 

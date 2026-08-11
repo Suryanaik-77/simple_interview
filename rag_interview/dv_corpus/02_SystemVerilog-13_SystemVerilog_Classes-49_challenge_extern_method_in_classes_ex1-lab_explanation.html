@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Challenge Extern Method In Classes Ex1 — SystemVerilog Classes</title>
+  <link rel="stylesheet" href="../../../../common/styles.css">
+  <link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<div class="header">
+  <div class="header-content">
+    <div class="lab-title">Challenge Extern Method In Classes Ex1</div>
+    <div class="lab-meta">
+      <div class="meta-item">&#x1F4DA; SystemVerilog</div>
+      <div class="meta-item">&#x1F4CC; SystemVerilog Classes</div>
+      <div class="meta-item">
+        &#x26A1; <span style="background:#007bff;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Intermediate</span>
+      </div>
+      <div class="meta-item"><span class="badge badge-exercise">Challenge Exercise</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+<div class="content-box">
+  <div class="test-case-header">
+    <div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Lab Overview</div>
+    <span><span class="badge badge-exercise">Challenge Exercise</span></span>
+  </div>
+
+  <div class="section">
+    <div class="section-content"><p>A FIFO queue implementation using SystemVerilog extern methods with multiple bugs in pointer arithmetic and boundary conditions. The write pointer modulo uses (depth+1) instead of depth, and the is_full() condition incorrectly checks (count&gt;=depth-1) instead of (count&gt;=depth), causing incorrect full/empty detection and pointer wraparound behavior.</p></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F3AF; Focus Area</div>
+    <div class="section-content">
+      <p>This exercise specifically targets: <strong>FIFO</strong></p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F527; Key Constructs</div>
+    <div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">function</span></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#x1F9F1; Class: <code>FIFO</code></div>
+    <div class="section-content">
+      <p style="color:#666;font-size:.9em;">Open the source file to study the class definition.</p>
+    </div>
+  </div>
+</div>
+
+<div class="category-header">&#x1F41B; Challenge Exercise</div>
+<div class="content-box">
+  <div class="hint-box">
+    <h4>&#x1F50D; Debug Strategy</h4>
+    <ol style="margin-top:10px;padding-left:22px;line-height:2.2;"><li>Observe the write_data() function: wr_ptr is wrapped as (wr_ptr+1)%(depth+1), but read_data() uses (rd_ptr+1)%depth—these have different modulo divisors</li><li>Check the is_full() condition: it returns true when count &gt;= depth-1, but a FIFO should be full when count == depth</li><li>Trace through Test 7: after writing 4 items to a depth-4 FIFO, check what the actual count value is and compare against the expected full condition</li></ol>
+  </div>
+  <div class="hint-box" style="margin-top:0;"><h4>&#x1F4A1; Why It Matters</h4><p style="margin-top:8px;">Extern methods are a cornerstone of OOP in SystemVerilog, and pointer/counter management bugs in circular buffers are extremely common in RTL and testbench code. Mismatched modulo operations between write and read pointers lead to silent data corruption and hard-to-debug test failures in production.</p></div>
+</div>
+
+<div class="content-box">
+  <div class="example-card exercise">
+    <div class="example-title"><span class="badge badge-exercise">Challenge Exercise</span> Challenge Extern Method In Classes Ex1</div>
+    <p style="margin-top:6px;"><span style="background:#fff3cd;color:#856404;padding:2px 10px;border-radius:10px;font-size:.88em;font-weight:600;">Bug Category: Logic Error</span></p>
+    <p style="color:#666;margin-bottom:12px;">
+      This exercise contains intentional bugs. Find and fix them so the simulation passes.
+    </p>
+    <div class="validation-box">
+      <h4>&#x2705; Success Criteria</h4>
+      <ul style="margin-top:8px;padding-left:22px;">
+        <li>Simulation compiles without errors</li>
+        <li>All test cases report <strong>PASS</strong></li>
+        <li>No unresolved X/Z on critical outputs</li>
+      </ul>
+    </div>
+    <div class="file-list"><span class="file-list-label">Source files:</span><ul><li><code>buggy_extern_fifo.sv</code></li><li><code>tb_buggy_extern_fifo.sv</code></li></ul></div>
+  </div>
+</div>
+
+<div class="category-header">&#x1F9E0; Knowledge Check</div>
+<div class="content-box">
+  <div class="quiz-container">
+
+    <div class="quiz-question">
+      <h3>Q1: What is the result of calling a virtual method through a base-class handle that points to a derived object?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">The base-class method executes</li>
+        <li data-correct="true">The derived-class method executes (runtime dispatch)</li>
+        <li data-correct="false">Compile error — cannot call via base handle</li>
+        <li data-correct="false">Behaviour is undefined</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>Virtual methods use <strong>dynamic dispatch</strong>: the actual type of the object (not the handle) determines which method runs. This is the key mechanism behind polymorphism.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q2: When does a shallow copy differ from a deep copy for a class object?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">When the object has only integer fields</li>
+        <li data-correct="true">When the object contains handles to other objects</li>
+        <li data-correct="false">When the class uses the virtual keyword</li>
+        <li data-correct="false">Shallow and deep copy are always identical for classes</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>A shallow copy duplicates the handle values, so both copies reference the <em>same</em> sub-objects. A deep copy recursively allocates new sub-objects. Bugs arise when one copy mutates a shared sub-object.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q3: A class has a static property. How many copies of it exist across all instances?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">One per instance</li>
+        <li data-correct="true">One shared across all instances</li>
+        <li data-correct="false">One per file</li>
+        <li data-correct="false">Zero — static properties are compile-time only</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>Static class properties are shared across all instances (like C++ static members). Modifying the property in one instance changes it for all.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q4: What is &lt;code&gt;this&lt;/code&gt; inside a class method?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">A copy of the current object</li>
+        <li data-correct="true">A handle to the current object instance</li>
+        <li data-correct="false">A pointer to the parent class</li>
+        <li data-correct="false">A reference to the class type</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p><code>this</code> is an implicit handle to the object on which the method was invoked. It is the same type as the class and is used to disambiguate member names.</p></div>
+    </div>
+
+    <div class="quiz-question">
+      <h3>Q5: What happens if you call &lt;code&gt;new()&lt;/code&gt; on a class variable that already holds an object?</h3>
+      <ul class="quiz-options">
+        <li data-correct="false">Compile error</li>
+        <li data-correct="false">The old object is automatically destroyed and a new one allocated</li>
+        <li data-correct="true">The variable is overwritten; the old object may be garbage-collected if no other handles exist</li>
+        <li data-correct="false">The new object is discarded; the original is retained</li>
+      </ul>
+      <button class="btn btn-primary" onclick="checkAnswer(this)" style="margin-top:10px;">Check Answer</button>
+      <div class="feedback"></div>
+      <div class="answer"><p>SV uses reference counting / garbage collection. Reassigning the handle drops the reference; if no other handle points to the old object it becomes eligible for collection. There is no explicit destructor call.</p></div>
+    </div>
+  </div>
+</div>
+</div><!-- /.container -->
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Seed Sweeps — Guided</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+<div class="header"><div class="header-content"><div class="lab-title">Seed Sweeps — Guided</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; Seed Sweeps</div><div class="meta-item">&#x1F527; seed-sweep regression (bash + VCS)</div><div class="meta-item"><span class="badge badge-golden">Guided (Pass)</span></div></div></div></div>
+<div class="container">
+<div class="content-box">
+<div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Guided Walkthrough</div><span><span class="badge badge-golden">Golden</span></span></div><div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p>A seeded random test driven as a regression: run.sh compiles once and launches a sweep of eight random seeds over one build, then aggregates each run's verdict into a single pass/fail. It shows how a nightly regression is structured and scored.</p></div></div><div class="section"><div class="section-title">&#x2699;&#xFE0F; How it runs</div><div class="section-content"><p>The testbench reads <code>+SEED</code>, seeds <code>$urandom</code>, and self-checks against a reference. run.sh loops the seeds over one <code>simv</code>, greps each run's verdict, writes <code>regr.log</code>, and reports the roll-up. Guided passes every seed.</p></div></div><div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>Reuse one build across many seeded runs</li><li>Aggregate per-run verdicts into a regression summary</li><li>Reproduce a failing seed for triage</li></ul></div></div><div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">seed sweep</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">+ntb_random_seed</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">$urandom</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">aggregation</span></div></div><div class="section"><div class="section-title">&#x1F9F0; Tool &amp; files</div><div class="section-content"><p>Engine: <b>bash regression harness</b> driving <b>VCS</b> (compile once, run many seeds). Files: <code>reg_seedsweep.sv</code>, <code>tb_reg_seedsweep.sv</code>, <code>run.sh</code> (the harness), <code>regr.log</code> (per-run CSV). This group runs a sweep of eight random seeds over one build.</p></div></div></div>
+</div>
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>

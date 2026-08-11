@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Assume Guarantee — Guided (Proven)</title>
+<link rel="stylesheet" href="../../../../common/styles.css">
+<link rel="stylesheet" href="../../../../common/lab_explanation.css">
+</head>
+<body>
+<div class="scroll-progress" id="scrollProgress"></div>
+<div class="header"><div class="header-content"><div class="lab-title">Assume Guarantee — Guided (Proven)</div><div class="lab-meta"><div class="meta-item">&#x1F4DA; Formal Verification</div><div class="meta-item">&#x1F4CC; Assume Guarantee</div><div class="meta-item">&#x26A1; <span style="background:#6f42c1;color:#fff;padding:2px 8px;border-radius:8px;font-size:.85em;">Formal</span></div><div class="meta-item"><span class="badge badge-golden">Guided (Proven)</span></div></div></div></div>
+<div class="container">
+<div class="content-box">
+<div class="test-case-header"><div class="section-title" style="margin:0;font-size:1.5em;">&#x1F4D6; Formal Walkthrough</div><span><span class="badge badge-golden">Proven</span></span></div><div class="section"><div class="section-title">&#x1F9ED; What this lab is</div><div class="section-content"><p>A small accumulator whose output bound (count never exceeds 10) can be proven by formal only because an assumption constrains its input step. It shows how assume and assert split a proof into environment and guarantee.</p></div></div><div class="section"><div class="section-title">&#x1F4A1; The concept</div><div class="section-content"><p>In formal, assume properties constrain the environment (legal inputs) while assert properties are the guarantees the tool must prove for all reachable states. Here assume(step&lt;=1) is exactly what makes the guarantee assert(count&lt;=10) provable - drop it and step could be 3, overshooting the bound.</p></div></div><div class="section"><div class="section-title">&#x1F527; The property under proof</div><div class="section-content"><p>The guarantee assert (count never exceeds 10) is provable only because the environment assumption constrains step to at most 1.</p><pre style="background:#0d1117;color:#c9d1d9;padding:12px 14px;border-radius:8px;overflow:auto;font-size:.82em;line-height:1.4;">assume property (step &lt;= 1);
+assert property (count &lt;= 10);   // holds only under the assume</pre></div></div><div class="section"><div class="section-title">&#x2699;&#xFE0F; The formal flow</div><div class="section-content"><p>run.sh calls JasperGold in batch on prove.tcl, which analyzes the design plus the bound property file, elaborates, declares the clock and reset, and proves all properties unbounded.</p><pre style="background:#0d1117;color:#c9d1d9;padding:12px 14px;border-radius:8px;overflow:auto;font-size:.82em;line-height:1.4;">jg -batch -tcl prove.tcl
+  analyze -sv fpv_assume.sv fpv_assume_props.sv
+  elaborate -top fpv_assume
+  clock clk ; reset rst ; prove -all</pre></div></div><div class="section"><div class="section-title">&#x1F3AF; What you'll learn</div><div class="section-content"><ul class="objectives-list"><li>Distinguish an assume (input constraint) from an assert (guarantee)</li><li>See how an over-strong or missing assume changes what is provable</li><li>Read a JasperGold proven/cex result and map it to the property</li></ul></div></div><div class="section"><div class="section-title">&#x1F9F0; Tool &amp; files</div><div class="section-content"><p>Engine: <b>JasperGold</b> (Synopsys VC Formal via <code>./run.sh vcf</code>). Files: <code>fpv_assume.sv</code> (design), <code>fpv_assume_props.sv</code> (SVA, bound), <code>prove.tcl</code>, <code>run.sh</code>.</p></div></div><div class="section"><div class="section-title">&#x1F527; Key constructs</div><div class="section-content"><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">assume property</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">assert property</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">assume-guarantee</span><span style="display:inline-block;background:#e7f3ff;color:#1a56db;padding:3px 10px;border-radius:12px;font-size:.83em;margin:3px;">JasperGold</span></div></div></div>
+</div>
+
+<script src="../../../../common/interactive.js"></script>
+</body>
+</html>
