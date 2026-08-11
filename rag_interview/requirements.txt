@@ -1,9 +1,0 @@
-# Standalone RAG app (independent of the main interview platform).
-# All of these are already present in the parent project's environment.
-fastapi
-uvicorn[standard]
-jinja2
-openai
-numpy
-python-dotenv
-langchain-text-splitters
