@@ -3192,6 +3192,7 @@ import random as _random
 
 SPEAKER_VERIFY_THRESHOLD = 0.75  # Resemblyzer cosine similarity threshold
 SPEAKER_MIN_AUDIO_SEC = 3.0     # Minimum audio length for reliable embedding
+SPEAKER_MAX_AUDIO_SEC = 10.0    # Cap how much audio gets embedded per turn
 
 
 def _patch_session(session_id, updates=None, pops=()):
@@ -3261,6 +3262,13 @@ def _compute_speaker_embedding(audio_bytes):
         if duration_sec < SPEAKER_MIN_AUDIO_SEC:
             log.info(f"[SpeakerVerify] Skipping short audio ({duration_sec:.1f}s < {SPEAKER_MIN_AUDIO_SEC}s)")
             return None
+        # Cap how much audio actually gets embedded — the first
+        # SPEAKER_MAX_AUDIO_SEC seconds is plenty for a reliable voiceprint,
+        # and keeps embedding time/cost independent of how long the
+        # candidate's answer runs.
+        max_samples = int(SPEAKER_MAX_AUDIO_SEC * 16000)
+        if len(np_audio) > max_samples:
+            np_audio = np_audio[:max_samples]
         encoder = _get_resemblyzer_encoder()
         processed = preprocess_wav(np_audio)
         embedding = encoder.embed_utterance(processed)
