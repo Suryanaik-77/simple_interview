@@ -1855,7 +1855,7 @@ Test whether the candidate has genuinely improved or just memorized answers from
             "about interface usage, do NOT ask about interface advantages. One question per core concept. "
             "You may drill deeper on the candidate's MOST RECENT answer, but never re-open an earlier "
             "topic you already moved on from. Every new top-level question MUST be about a topic, "
-            "project, tool, or concept that does NOT appear anywhere in this list:\n{asked_lines}")
+            f"project, tool, or concept that does NOT appear anywhere in this list:\n{asked_lines}")
 
     # ── Resume-project rotation ───────────────────────────────────────────
     # Data-driven balance using the candidate's OWN project names (not a
