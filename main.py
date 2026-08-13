@@ -3109,11 +3109,10 @@ def _stale_session_sweeper():
                     # data is already parsed in the filter loop above
                     turns = data.get("turn", 0)
                     name = data.get("resume", {}).get("candidate_name", "?")
-                    runtime_min = round((current_time - data.get("started_at", current_time)) / 60, 1)
-                    data["phase"] = "ended"
-                    data["end_reason"] = "stale_timeout"
+                    _end_interview(data, reason="stale_timeout")
                     database.save_active_session(sid, data)
-                    log.info(f"[StaleSweep] Ended {sid[:8]} ({name}, turn {turns}, runtime {runtime_min}min)")
+                    log.info(f"[StaleSweep] Ended {sid[:8]} ({name}, turn {turns}, "
+                             f"runtime {data['duration_minutes']}min)")
                     # Trigger evaluation if enough turns
                     if turns >= MIN_ANSWERS_FOR_EVAL:
                         threading.Thread(target=evaluate_interview, args=(data,), daemon=True).start()
@@ -5687,9 +5686,13 @@ def admin_sessions(_=Depends(require_admin)):
             else:
                 trajectory = "stable"
         
-        # Calculate duration
+        # Calculate duration. Only fall back to "now" for sessions that are
+        # actually still running -- a session already marked "ended" with no
+        # ended_at recorded (e.g. an old stale-sweep bug) has no real end time
+        # to compute against, so leave it unknown rather than showing
+        # "time since it started, as of whenever this page happened to load".
         duration_minutes = s.get("duration_minutes")
-        if duration_minutes is None and s.get("started_at"):
+        if duration_minutes is None and s.get("started_at") and s.get("phase") != "ended":
             end_time = s.get("ended_at", time.time())
             duration_minutes = round((end_time - s["started_at"]) / 60, 2)
 
