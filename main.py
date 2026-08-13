@@ -2470,7 +2470,7 @@ JSON:"""
 
     if result["is_ai"]:
         log.warning(f"[AI Detect] WARNING: AI-generated answer detected at turn {turn_index} (score={result['score']:.2f}, method={result['method']})")
-        _terminate_for_ai_answer(
+        _flag_ai_answer(
             session["id"],
             {"turn": turn_index, "score": round(result["score"], 4), "method": result["method"], "ts": time.time()})
 
@@ -3233,8 +3233,10 @@ def _terminate_for_speaker_mismatch(session_id, entry):
     return count
 
 
-def _terminate_for_ai_answer(session_id, entry):
-    """Record an AI-generated-answer detection and end the interview — on the latest stored session."""
+def _flag_ai_answer(session_id, entry):
+    """Record an AI-generated-answer detection for admin review. Does NOT end
+    the interview (unlike speaker mismatch) -- flagged only, so a false
+    positive doesn't cut off a legitimate candidate."""
     latest = sessions.get(session_id)
     if latest is None:
         return 0
@@ -3242,11 +3244,9 @@ def _terminate_for_ai_answer(session_id, entry):
     latest["ai_answer_count"] = count
     latest.setdefault("ai_answer_detections", []).append(entry)
     latest["ai_answer_detected"] = True
-    if latest.get("phase") != "ended":
-        _end_interview(latest, reason="ai_answer_detected")
     sessions[session_id] = latest
     log.warning(f"[AI Detect] {session_id[:8]} — AI-GENERATED ANSWER #{count} at turn {entry.get('turn')} "
-                f"(score={entry.get('score')}, method={entry.get('method')}) - INTERVIEW TERMINATED")
+                f"(score={entry.get('score')}, method={entry.get('method')}) - flagged, interview continues")
     return count
 
 
