@@ -5659,17 +5659,24 @@ def admin_sessions(_=Depends(require_admin)):
         resume = s.get("resume", {})
         evaluation = s.get("evaluation") or {}
         overall_score = evaluation.get("overall_score")
-        
-        avg_score = None
-        if isinstance(overall_score, (int, float)):
-            avg_score = int(overall_score * 10)
-            
-        anticheat_log = s.get("anticheat_log", [])
-        signal_count = len(anticheat_log)
-        
+
         # Calculate trajectory dynamically if not set
         pq_by_num = _build_pq_by_num(evaluation)
         scores = [item.get("score") for item in (evaluation.get("per_question", []) or []) if isinstance(item.get("score"), (int, float))]
+
+        # Prefer the mean of the granular per-question scores over the LLM's
+        # single top-level "overall_score" integer -- the latter is a coarse
+        # 0-10 gut call that only ever lands on multiples of 10 once scaled
+        # (60, 40, 50, ...). Averaging several per-question 0-10 scores gives
+        # a real, evidence-grounded decimal (e.g. 65, 43, 66).
+        avg_score = None
+        if scores:
+            avg_score = round(sum(scores) / len(scores) * 10, 1)
+        elif isinstance(overall_score, (int, float)):
+            avg_score = int(overall_score * 10)
+
+        anticheat_log = s.get("anticheat_log", [])
+        signal_count = len(anticheat_log)
         trajectory = s.get("trajectory", "stable")
         if trajectory == "unknown" or not trajectory:
             if len(scores) >= 2:
