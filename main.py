@@ -301,72 +301,103 @@ if not database.is_available():
     log.info(f"[History] Loaded {sum(len(v) for v in candidate_history.values())} sessions for {len(candidate_history)} candidates")
 
 
+# Design Verification topics
+_DV_TOPIC_KEYWORDS = {
+    "covergroup": "Functional Coverage",
+    "coverage": "Functional Coverage",
+    "mailbox": "Communication",
+    "queue": "Data Structures",
+    "scoreboard": "Verification Components",
+    "interface": "Interfaces",
+    "constraint": "Constrained Random",
+    "random": "Constrained Random",
+    "sequence": "UVM Sequences",
+    "sequencer": "UVM Sequencer",
+    "uvm": "UVM Framework",
+    "assertion": "Assertions",
+    "sva": "SystemVerilog Assertions",
+    "clock domain": "Clock Domain Crossing",
+    "cdc": "Clock Domain Crossing",
+    "phase": "UVM Phases",
+    "testbench": "Testbench Architecture",
+    "fifo": "FIFO Design",
+    "alu": "ALU Design",
+}
+
+# Physical Design topics
+_PD_TOPIC_KEYWORDS = {
+    "floorplan": "Floorplanning",
+    "placement": "Placement",
+    "cts": "Clock Tree Synthesis",
+    "clock tree": "Clock Tree Synthesis",
+    "routing": "Routing",
+    "sta": "Static Timing Analysis",
+    "timing": "Timing Analysis",
+    "setup": "Timing Constraints",
+    "hold": "Timing Constraints",
+    "power": "Power Optimization",
+    "ir drop": "IR Drop",
+    "lvs": "LVS Checking",
+    "drc": "DRC Rules",
+}
+
+# Analog topics
+_ANALOG_TOPIC_KEYWORDS = {
+    "opamp": "Opamp Design",
+    "comparator": "Comparator Design",
+    "bandgap": "Bandgap Reference",
+    "pll": "PLL Design",
+    "adc": "ADC Design",
+    "dac": "DAC Design",
+}
+
+_ALL_TOPIC_KEYWORDS = {**_DV_TOPIC_KEYWORDS, **_PD_TOPIC_KEYWORDS, **_ANALOG_TOPIC_KEYWORDS}
+_ALL_TOPIC_LABELS = sorted(set(_ALL_TOPIC_KEYWORDS.values()))
+
+
 def _extract_topic_from_question(question: str) -> str:
-    """Extract topic from question text using keyword matching."""
+    """Extract topic from question text using keyword matching.
+    Fallback for when the LLM classifier (_classify_topic_dynamic) is
+    unavailable -- prone to false matches on substrings (e.g. "clock"
+    inside "clock domain crossing"), which is why it's not the primary path."""
     if not question:
         return ""
-
     q = question.lower()
-
-    # Design Verification topics
-    dv_topics = {
-        "covergroup": "Functional Coverage",
-        "coverage": "Functional Coverage",
-        "mailbox": "Communication",
-        "queue": "Data Structures",
-        "scoreboard": "Verification Components",
-        "interface": "Interfaces",
-        "constraint": "Constrained Random",
-        "random": "Constrained Random",
-        "sequence": "UVM Sequences",
-        "sequencer": "UVM Sequencer",
-        "uvm": "UVM Framework",
-        "assertion": "Assertions",
-        "sva": "SystemVerilog Assertions",
-        "clock domain": "Clock Domain Crossing",
-        "cdc": "Clock Domain Crossing",
-        "phase": "UVM Phases",
-        "testbench": "Testbench Architecture",
-        "fifo": "FIFO Design",
-        "alu": "ALU Design",
-    }
-
-    # Physical Design topics
-    pd_topics = {
-        "floorplan": "Floorplanning",
-        "placement": "Placement",
-        "cts": "Clock Tree Synthesis",
-        "clock tree": "Clock Tree Synthesis",
-        "routing": "Routing",
-        "sta": "Static Timing Analysis",
-        "timing": "Timing Analysis",
-        "setup": "Timing Constraints",
-        "hold": "Timing Constraints",
-        "power": "Power Optimization",
-        "ir drop": "IR Drop",
-        "lvs": "LVS Checking",
-        "drc": "DRC Rules",
-    }
-
-    # Analog topics
-    analog_topics = {
-        "opamp": "Opamp Design",
-        "comparator": "Comparator Design",
-        "bandgap": "Bandgap Reference",
-        "pll": "PLL Design",
-        "adc": "ADC Design",
-        "dac": "DAC Design",
-    }
-
-    # Combine all topics
-    all_topics = {**dv_topics, **pd_topics, **analog_topics}
-
-    # Find matching topic
-    for keyword, topic in all_topics.items():
+    for keyword, topic in _ALL_TOPIC_KEYWORDS.items():
         if keyword in q:
             return topic
-
     return "General"
+
+
+def _classify_topic_dynamic(question: str) -> str:
+    """Classify a question's VLSI/DV/analog topic with gpt-5-nano, constrained
+    to the app's existing topic taxonomy so labels stay consistent with the
+    per-topic breakdown the eval LLM already produces. Falls back to keyword
+    matching only if the API call fails."""
+    if not question:
+        return ""
+    try:
+        topic_list = ", ".join(_ALL_TOPIC_LABELS)
+        text, _usage = call_llm(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Classify the following VLSI/chip-design interview question into "
+                        "exactly one topic from this list: " + topic_list + ", General. "
+                        "Reply with ONLY the topic label, nothing else."
+                    ),
+                },
+                {"role": "user", "content": question},
+            ],
+            model_id="gpt-5-nano",
+            max_tokens=20,
+        )
+        label = text.strip().strip('"').strip(".")
+        return label if label else _extract_topic_from_question(question)
+    except Exception as e:
+        log.warning(f"[Topic Classify] gpt-5-nano call failed, falling back to keyword match: {e}")
+        return _extract_topic_from_question(question)
 
 
 def save_candidate_session(session):
@@ -490,6 +521,7 @@ async def login(data: dict):
 _LLM_PRICING = {
     "gpt-4o-mini":                              (0.15, 0.60),
     "gpt-4.1-mini":                             (0.40, 1.60),
+    "gpt-5-nano":                                (0.05, 0.40),
     "us.anthropic.claude-haiku-4-5-20251001-v1:0": (1.00, 5.00),
     "grok-4-1-fast-non-reasoning":              (0.20, 0.50),
     "us.meta.llama4-maverick-17b-instruct-v1:0":(0.17, 0.17),
@@ -708,10 +740,21 @@ def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
                        "cost_usd": _calc_llm_cost(model, in_tok, out_tok, cr, cc)}
 
     # OpenAI (default)
-    resp = openai_client.chat.completions.create(
-        model=model, messages=messages,
-        temperature=temperature, max_tokens=max_tokens,
-    )
+    # gpt-5 family only supports default temperature, uses
+    # max_completion_tokens instead of max_tokens, and -- being a reasoning
+    # model -- burns the token budget on hidden reasoning tokens before any
+    # visible output unless reasoning_effort is capped down.
+    if model.startswith("gpt-5"):
+        resp = openai_client.chat.completions.create(
+            model=model, messages=messages,
+            max_completion_tokens=max(max_tokens, 60),
+            reasoning_effort="minimal",
+        )
+    else:
+        resp = openai_client.chat.completions.create(
+            model=model, messages=messages,
+            temperature=temperature, max_tokens=max_tokens,
+        )
     text = resp.choices[0].message.content.strip()
     in_tok = resp.usage.prompt_tokens if resp.usage else input_est
     out_tok = resp.usage.completion_tokens if resp.usage else _estimate_tokens(text, model)
@@ -5809,27 +5852,19 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
         evaluation["per_question"] = _enforce_followup_grouping(session, evaluation["per_question"])
     pq_by_num = _build_pq_by_num(evaluation)
 
-    def _get_question_topic(q: str) -> str:
-        q = q.lower()
-        mapping = {
-            "floorplan": "Floorplanning",
-            "placement": "Placement",
-            "cts": "Clock Tree Synthesis",
-            "clock": "Clock Tree Synthesis",
-            "routing": "Routing",
-            "sta": "Static Timing Analysis",
-            "timing": "Timing Closure",
-            "crosstalk": "Crosstalk & Noise",
-            "noise": "Crosstalk & Noise",
-            "ir drop": "IR Drop",
-            "lvs": "LVS Checking",
-            "drc": "DRC Rules",
-            "synthesis": "Logic Synthesis",
-        }
-        for k, v in mapping.items():
-            if k in q:
-                return v
-        return "General VLSI"
+    topic_cache_dirty = False
+
+    def _get_question_topic(entry: dict) -> str:
+        """Classify via gpt-5-nano, caching the result onto the conversation
+        entry so repeat page loads don't re-call the LLM for the same question."""
+        nonlocal topic_cache_dirty
+        cached = entry.get("topic")
+        if cached:
+            return cached
+        topic = _classify_topic_dynamic(entry.get("question", ""))
+        entry["topic"] = topic
+        topic_cache_dirty = True
+        return topic
 
     # Build set of follow-up question numbers and their parent mappings
     followup_nums = set()
@@ -5888,7 +5923,7 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             "question": entry.get("question", ""),
             "answer": entry.get("answer", ""),
             "question_type": "technical" if has_q else "interview",
-            "topic": _get_question_topic(entry.get("question", "")) if has_q else "",
+            "topic": _get_question_topic(entry) if has_q else "",
             "difficulty": difficulty,
             "score": (pq or {}).get("score", ""),
             "quality": "graded" if pq else "",
@@ -5905,6 +5940,9 @@ def admin_session_detail(sid: str, _=Depends(require_admin)):
             "is_followup": qnum in followup_nums,
             "followup_of": qnum_to_turn.get(parent_qnum) if parent_qnum else None,
         })
+
+    if topic_cache_dirty:
+        sessions[sid] = session
 
     # Calculate trajectory (use per_question directly to avoid duplicates from follow-up mapping)
     scores = [item.get("score") for item in (evaluation.get("per_question", []) or []) if isinstance(item.get("score"), (int, float))]
