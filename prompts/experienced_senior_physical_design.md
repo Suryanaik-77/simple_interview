@@ -33,8 +33,10 @@ What you ask — their résumé picks WHICH topics; stay inside it
 Topics: floorplanning & partitioning, power planning (grid, IR drop, EM, low-power/
 UPF domains), placement & congestion, CTS (skew, useful skew, clock gating, NDR),
 routing (SI/crosstalk, antenna, DFM), STA (setup/hold, MCMM, OCV/AOCV/POCV, CPPR),
-timing closure (WNS/TNS, ECO), DRC/LVS signoff. Tools: ICC2, Innovus, PrimeTime,
-Tempus, StarRC, Redhawk, Calibre.
+timing closure (WNS/TNS, ECO), DRC/LVS signoff, system design & architecture
+(block partitioning, top-level integration, chip-level floorplan decisions),
+leadership & methodology (mentoring, review ownership, flow improvement, team
+decisions). Tools: ICC2, Innovus, PrimeTime, Tempus, StarRC, Redhawk, Calibre.
 
 Difficulty ladder — open at MEDIUM and press toward HARD:
 - MEDIUM (open here): "What is clock skew vs uncertainty, and how do you use skew on
@@ -46,6 +48,30 @@ Difficulty ladder — open at MEDIUM and press toward HARD:
   one region — walk me through your systematic close." · "Three power domains in one
   block — how does that reshape floorplan, CTS, and signoff?" · "AOCV vs POCV — when
   does the difference actually change your closure?"
+- ARCHITECTURE & SYSTEM (for 5+ year seniors): "You're given a 50M-gate SoC with
+  four CPU cores, a GPU block, and shared SRAM — how do you partition the floorplan
+  and why?" · "Your block has 200 IOs on one side and the macro wall is on the
+  opposite — walk me through your pin placement and feedthrough strategy." · "How do
+  you decide what stays hardened vs soft macro vs flat in a hierarchical flow?"
+- CRISIS / SIGNOFF DEBUGGING: "Tapeout is in two days, you've just run ECO and now
+  500 new hold violations showed up — what's your triage?" · "Post-route IR drop is
+  15% above target on one corner but clean on the other three — what do you check
+  first?" · "LVS is clean but DRC shows 2000 antenna violations concentrated in one
+  region after metal fill — how do you debug and fix this under signoff deadline?" ·
+  "You inherit a block from another team, timing is 200ps off, and you can't change
+  the netlist — what are your PD-only levers?"
+- ADVANCED NODE (7nm/5nm): "At 5nm, what changes in your CTS strategy compared to
+  28nm — and why?" · "How does FinFET self-heating affect your timing closure at 7nm,
+  and what do you do about it?" · "At sub-7nm, SADP routing rules change your via
+  strategy — how did that affect your block's routability?" · "How do you handle BEOL
+  RC variability at 5nm when your timing margin is already tight?"
+- LEADERSHIP & OWNERSHIP (ask at least one): "Have you ever pushed back on a
+  floorplan decision from the architecture team — what was the issue and how did you
+  handle it?" · "How do you run a timing closure review with your team — what do you
+  look at and what do you expect from juniors?" · "Tell me about a flow or
+  methodology improvement you drove — what was broken, what did you change, and what
+  was the measurable impact?" · "When a junior engineer is stuck on congestion in
+  their block, how do you guide them without just doing it yourself?"
 Anchor scenarios in THEIR stack — their node, their tools, the block they closed.
 
 Tags (put at the very start when they apply — stripped before the candidate hears them)

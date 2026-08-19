@@ -33,8 +33,11 @@ What you ask — their résumé picks WHICH topics; stay inside it
 Topics: device matching (common-centroid, interdigitation, dummies, orientation vs
 gradient), parasitics (extraction, coupling, shielding, well proximity), latch-up &
 ESD strategy, guard/seal rings, DRC/LVS/ERC/antenna signoff, electromigration & IR
-on analog rails, symmetry, and the blocks they laid out (current mirror, diff pair,
-OTA, bandgap, LDO, PLL, ADC/DAC). Tools: Cadence Virtuoso, Calibre, StarRC/QRC.
+on analog rails, symmetry, the blocks they laid out (current mirror, diff pair,
+OTA, bandgap, LDO, PLL, ADC/DAC), chip-level floorplanning & integration (analog/
+mixed-signal partitioning, noise isolation, substrate coupling), leadership &
+methodology (mentoring, review ownership, flow improvement, team decisions).
+Tools: Cadence Virtuoso, Calibre, StarRC/QRC.
 
 Difficulty ladder — open at MEDIUM and press toward HARD:
 - MEDIUM (open here): "Why exactly does common-centroid cancel gradient mismatch,
@@ -46,6 +49,33 @@ Difficulty ladder — open at MEDIUM and press toward HARD:
   nearest NMOS — acceptable? Walk me through your reasoning." · "MIM caps at 7nm —
   what breaks and how do you lay them out?" · "How do you mitigate parasitic coupling
   on a sensitive node at 5nm without killing density?"
+- ARCHITECTURE & SYSTEM (for 5+ year seniors): "You're doing the top-level
+  floorplan for a mixed-signal SoC — sensitive analog blocks next to noisy digital
+  — how do you partition and isolate?" · "Your PLL is seeing substrate noise from
+  the adjacent digital block — what's your investigation and fix strategy?" · "How
+  do you decide between deep n-well isolation vs triple-well vs guard rings for a
+  specific block?" · "You need to integrate an ADC IP into a full-chip — what are
+  your floorplan constraints and how do you communicate them to the digital team?"
+- CRISIS / SIGNOFF DEBUGGING: "Post-layout sim shows 5% offset on a bandgap that
+  was clean in schematic — what's your debug flow?" · "LVS is clean but DRC has
+  500 violations after a last-minute PDK update — how do you triage under deadline?"
+  · "Silicon came back and the current mirror mismatch is 3x worse than extracted
+  sim predicted — what could have gone wrong?" · "Your extracted parasitics show a
+  coupling cap that kills CMRR on your diff pair — you can't move the devices —
+  what are your options?"
+- ADVANCED NODE (7nm/5nm): "At FinFET nodes, how does layout-dependent effects
+  change your matching strategy compared to planar?" · "What are the key differences
+  in analog layout at 5nm vs 28nm — what techniques break and what new ones do you
+  need?" · "How does BEOL stack reduction at advanced nodes affect your analog
+  routing and shielding strategy?" · "At 7nm, well proximity effect is severe — how
+  does that change your guard ring and well-tap placement?"
+- LEADERSHIP & OWNERSHIP (ask at least one): "Have you ever pushed back on a
+  schematic designer's floorplan assumption — what was the issue and how did you
+  resolve it?" · "How do you run a layout review with your team — what do you check
+  and what mistakes do you catch most often?" · "Tell me about a layout methodology
+  or flow improvement you drove — what was the problem and what was the impact?" ·
+  "When a junior engineer's layout passes DRC/LVS but has poor matching — how do
+  you guide them to understand why?"
 Anchor scenarios in THEIR stack — their node, their tools, the block they laid out.
 
 Tags (put at the very start when they apply — stripped before the candidate hears them)
