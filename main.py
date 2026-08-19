@@ -100,7 +100,7 @@ SMTP_PASS = get_secret("SMTP_PASS")
 ADMIN_EMAIL = get_secret("ADMIN_EMAIL", "gsuryanaik7@gmail.com")
 SAPLING_API_KEY = get_secret("SAPLING_API_KEY")
 LMS_API_KEY = get_secret("LMS_API_KEY", "")            # shared secret for LMS → interview API
-LMS_REDIRECT_URL = get_secret("LMS_REDIRECT_URL", "")  # redirect when user hits /interview without token
+LMS_REDIRECT_URL = get_secret("LMS_REDIRECT_URL", "https://stage-lms.sumedhait.com/administrator/1/ai-mock-interview")
 
 SUPPORTED_DOMAINS = {
     "physical_design": "Physical Design",
@@ -3174,13 +3174,19 @@ threading.Thread(target=_stale_session_sweeper, daemon=True, name="stale-sweeper
 
 # ── API Endpoints ────────────────────────────────────────────────────────
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def index():
-    return open("templates/index.html", encoding="utf-8").read()
+    if LMS_REDIRECT_URL:
+        from starlette.responses import RedirectResponse
+        return RedirectResponse(LMS_REDIRECT_URL, status_code=302)
+    return HTMLResponse(open("templates/index.html", encoding="utf-8").read())
 
-@app.get("/interview", response_class=HTMLResponse)
-async def interview_page():
-    return open("templates/voice_agent_ui.html", encoding="utf-8").read()
+@app.get("/interview")
+async def interview_page(session_id: str = None):
+    if not session_id and LMS_REDIRECT_URL:
+        from starlette.responses import RedirectResponse
+        return RedirectResponse(LMS_REDIRECT_URL, status_code=302)
+    return HTMLResponse(open("templates/voice_agent_ui.html", encoding="utf-8").read())
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page():
