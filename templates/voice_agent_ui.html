@@ -3245,11 +3245,8 @@
         async function compareFace() {
             if (!sessionOn || interviewEnded || faceCompareBusy) return;
             if (!sessionId) return;
-            // Only capture when the face is present and pointed at the camera --
-            // a frame taken mid-head-turn is a bad reference and just produces a
-            // false mismatch warning.
-            if (!latestResult.present || latestResult.headTurned) {
-                console.log('[FaceCompare] Skipped -- face not pointed at camera');
+            if (latestResult.present && latestResult.headTurned) {
+                console.log('[FaceCompare] Skipped -- head turned away');
                 return;
             }
             const imageB64 = captureFrameAsBase64();
