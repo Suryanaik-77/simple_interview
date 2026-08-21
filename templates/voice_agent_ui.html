@@ -751,8 +751,8 @@
         let noFaceCount = 0;
         let cameraWarnings = 0;
         let detecting = false;
-        const CHECK_INTERVAL = 1500;      // Check every 1.5 seconds
-        const NO_FACE_LIMIT = 2;          // 2 consecutive checks (3 seconds) = warning
+        const CHECK_INTERVAL = 1000;      // Check every 1 second
+        const NO_FACE_LIMIT = 2;          // 2 consecutive checks (2 seconds) = warning
 
         // Eye looking away detection (eyes fixed left/right while head straight)
         let eyeReadCount = 0;
@@ -1030,8 +1030,13 @@
                 console.log(`[FaceDetection] ${issueType} (${noFaceCount}/${NO_FACE_LIMIT})`);
 
                 if (noFaceCount >= NO_FACE_LIMIT) {
-                    cameraWarnings++;
                     const antiCheatTag = frameCovered ? 'camera_covered' : (cameraPhysicallyOff ? 'camera_off' : 'user_not_in_front');
+                    if (interviewPaused && (pauseReason === 'camera_covered' || pauseReason === 'camera_off' || pauseReason === 'user_not_in_front')) {
+                        noFaceCount = 0;
+                        detecting = false;
+                        return;
+                    }
+                    cameraWarnings++;
                     sendAntiCheat(antiCheatTag, `warnings:${cameraWarnings}`);
 
                     if (cameraWarnings < 3) {
@@ -1064,6 +1069,11 @@
                 console.log(`[EyeGaze] Eyes reading ${eyeDirection} (${eyeReadCount}/${EYE_READ_LIMIT})`);
 
                 if (eyeReadCount >= EYE_READ_LIMIT) {
+                    if (interviewPaused && pauseReason === 'eye_away') {
+                        eyeReadCount = 0;
+                        detecting = false;
+                        return;
+                    }
                     eyeReadWarnings++;
                     sendAntiCheat('eye_away', `warnings:${eyeReadWarnings},direction:${eyeDirection}`);
 
