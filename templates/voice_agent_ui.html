@@ -3277,9 +3277,13 @@
     // FACE COMPARISON (AWS Rekognition — every 60 seconds)
     // ════════════════════════════════════════════════════════════
     (function initFaceComparison() {
-        const COMPARE_INTERVAL = 60000; // 60 seconds
+        const COMPARE_INTERVAL = 60000; // 60 seconds normal
+        const RECHECK_INTERVAL = 5000;  // 5 seconds during mismatch re-checks
+        const RECHECK_LIMIT = 2;        // 2 re-checks after initial mismatch
         let faceCompareWarnings = 0;
         let faceCompareBusy = false;
+        let recheckCount = 0;
+        let recheckTimer = null;
 
         function captureFrameAsBase64() {
             const video = document.getElementById('cam-video');
@@ -3289,12 +3293,16 @@
             canvas.height = video.videoHeight || 240;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            // Get JPEG base64 (strip data:image/jpeg;base64, prefix)
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             return dataUrl.split(',')[1];
         }
 
-        async function compareFace() {
+        function stopRecheck() {
+            if (recheckTimer) { clearInterval(recheckTimer); recheckTimer = null; }
+            recheckCount = 0;
+        }
+
+        async function compareFace(isRecheck) {
             if (!sessionOn || interviewEnded || faceCompareBusy) return;
             if (!sessionId) return;
             if (latestResult.present && latestResult.headTurned) {
@@ -3316,19 +3324,28 @@
 
                 if (d.matched) {
                     console.log(`[FaceCompare] Match OK — similarity=${d.similarity}%`);
-                    faceCompareWarnings = 0;
+                    stopRecheck();
+                    if (interviewPaused && pauseReason === 'face_mismatch') {
+                        resumeInterview();
+                    }
                 } else {
                     faceCompareWarnings++;
                     console.warn(`[FaceCompare] MISMATCH — similarity=${d.similarity}%, warning ${faceCompareWarnings}`);
-                    sendAntiCheat('face_mismatch', `similarity:${d.similarity},warning:${faceCompareWarnings}`);
+                    sendAntiCheat('face_mismatch', `similarity:${d.similarity},warning:${faceCompareWarnings},recheck:${isRecheck ? recheckCount : 0}`);
 
-                    if (faceCompareWarnings >= 2) {
-                        sendAntiCheat('face_mismatch_termination', `mismatches:${faceCompareWarnings}`);
-                        endSessionWithReason('face_mismatch', 'Interview ended — face identity mismatch detected. A different person was identified on camera.');
+                    if (isRecheck) {
+                        recheckCount++;
+                        if (recheckCount >= RECHECK_LIMIT) {
+                            stopRecheck();
+                            sendAntiCheat('face_mismatch_termination', `mismatches:${faceCompareWarnings}`);
+                            endSessionWithReason('face_mismatch', 'Interview ended — face identity mismatch detected. A different person was identified on camera.');
+                        }
                     } else {
                         pauseInterview('face_mismatch',
-                            'Face identity mismatch detected.<br>Please ensure the same person who registered is taking the interview.<br><span style="color:#ef4444;font-weight:600;">Warning ' + faceCompareWarnings + ' of 1 — next mismatch will end the interview.</span>',
-                            'Next mismatch will end the interview.');
+                            'Face identity mismatch detected.<br>Re-verifying your identity...<br><span style="color:#ef4444;font-weight:600;">Please look at the camera. Interview will end if mismatch persists.</span>',
+                            '');
+                        recheckCount = 0;
+                        recheckTimer = setInterval(() => compareFace(true), RECHECK_INTERVAL);
                     }
                 }
             } catch(e) {
@@ -3337,8 +3354,7 @@
             faceCompareBusy = false;
         }
 
-        // Start periodic comparison after interview begins
-        setInterval(compareFace, COMPARE_INTERVAL);
+        setInterval(() => compareFace(false), COMPARE_INTERVAL);
     })();
 
     // Send anti-cheat event to server
