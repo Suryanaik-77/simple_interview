@@ -3322,13 +3322,13 @@
                     console.warn(`[FaceCompare] MISMATCH — similarity=${d.similarity}%, warning ${faceCompareWarnings}`);
                     sendAntiCheat('face_mismatch', `similarity:${d.similarity},warning:${faceCompareWarnings}`);
 
-                    if (faceCompareWarnings >= 3) {
+                    if (faceCompareWarnings >= 2) {
                         sendAntiCheat('face_mismatch_termination', `mismatches:${faceCompareWarnings}`);
                         endSessionWithReason('face_mismatch', 'Interview ended — face identity mismatch detected. A different person was identified on camera.');
                     } else {
                         pauseInterview('face_mismatch',
-                            'Face identity mismatch detected.<br>Please ensure the same person who registered is taking the interview.<br><span style="color:#ef4444;font-weight:600;">Warning ' + faceCompareWarnings + ' of 3</span>',
-                            faceCompareWarnings >= 2 ? 'Next mismatch will end the interview.' : '');
+                            'Face identity mismatch detected.<br>Please ensure the same person who registered is taking the interview.<br><span style="color:#ef4444;font-weight:600;">Warning ' + faceCompareWarnings + ' of 1 — next mismatch will end the interview.</span>',
+                            'Next mismatch will end the interview.');
                     }
                 }
             } catch(e) {
