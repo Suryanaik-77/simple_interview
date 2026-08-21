@@ -1805,6 +1805,37 @@
         setOrb('idle');
     }
 
+    function endSessionWithReason(reason, message) {
+        interviewEnded = true;
+        sessionOn = false;
+        releaseMic();
+        if (ticker) { clearInterval(ticker); ticker = null; }
+        forceStopAllAudio();
+        if (sessionId) {
+            const payload = JSON.stringify({ session_id: sessionId });
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/end-session', new Blob([payload], { type: 'application/json' }));
+            } else {
+                fetch('/api/end-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {});
+            }
+        }
+        setOrb('idle');
+        document.getElementById('status-dot').classList.remove('live');
+        document.getElementById('status-txt').textContent = 'ended';
+        document.getElementById('live-badge').textContent = 'terminated';
+        document.getElementById('live-badge').classList.remove('active');
+        document.getElementById('main-btn').textContent = 'go back';
+        document.getElementById('main-btn').style.background = '#c33';
+        document.getElementById('main-btn').style.borderColor = '#c33';
+        document.getElementById('main-btn').style.color = '#fff';
+        document.getElementById('main-btn').classList.remove('primary');
+        document.getElementById('main-label').textContent = 'Interview Terminated';
+        document.getElementById('sub-label').textContent = 'Reason: ' + reason.replace(/_/g, ' ');
+        document.getElementById('footer-tag').textContent = 'terminated';
+        document.getElementById('question-text').textContent = message;
+        autoFetchReport();
+    }
+
     // End session with a custom message
     function endSessionWithMessage(message) {
         interviewEnded = true;
@@ -2399,10 +2430,16 @@
                         doneData = evt;
                         if (evt.should_end) {
                             streamDone = true;
+                            const endReason = evt.end_reason || '';
+                            const isMismatch = evt.speaker_mismatch || endReason === 'speaker_verification_failed';
                             const waitEnd = setInterval(() => {
                                 if (!audioPlaying && audioQueue.length === 0) {
                                     clearInterval(waitEnd);
-                                    endSession();
+                                    if (isMismatch) {
+                                        endSessionWithReason('voice_mismatch', 'Interview ended — voice identity mismatch detected. A different speaker was identified.');
+                                    } else {
+                                        endSession();
+                                    }
                                 }
                             }, 100);
                             break;
@@ -3272,7 +3309,7 @@
 
                     if (faceCompareWarnings >= 3) {
                         sendAntiCheat('face_mismatch_termination', `mismatches:${faceCompareWarnings}`);
-                        endSessionWithMessage('Interview ended — face identity mismatch detected.');
+                        endSessionWithReason('face_mismatch', 'Interview ended — face identity mismatch detected. A different person was identified on camera.');
                     } else {
                         pauseInterview('face_mismatch',
                             'Face identity mismatch detected.<br>Please ensure the same person who registered is taking the interview.<br><span style="color:#ef4444;font-weight:600;">Warning ' + faceCompareWarnings + ' of 3</span>',
