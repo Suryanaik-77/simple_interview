@@ -1581,10 +1581,21 @@
 
         // ── Face gate ──────────────────────────────────────────────────────
         // Capture a live webcam frame so the server can verify the candidate's
-        // identity BEFORE any question is asked. Wait for the camera AND face
-        // detection to be ready — first load can take 8-10s for camera warmup
-        // plus MediaPipe model loading.
+        // identity BEFORE any question is asked. On first page load the camera
+        // stream and MediaPipe model are both cold — getUserMedia, model download,
+        // and video readyState >= 2 can each take several seconds. We wait for the
+        // camera hardware first, then for face detection to confirm a face, then
+        // fall back to a raw capture if MediaPipe is still loading.
         document.getElementById('question-text').textContent = 'Waiting for camera... please look at the screen.';
+        const camVideo = document.getElementById('cam-video');
+
+        // Phase 1: wait for camera stream to be ready (readyState >= 2)
+        for (let i = 0; i < 60; i++) {   // up to ~15s
+            if (camVideo && camVideo.srcObject && camVideo.readyState >= 2) break;
+            await new Promise(r => setTimeout(r, 250));
+        }
+
+        // Phase 2: wait for FaceMesh to detect a face, then capture
         let faceImage = null;
         for (let i = 0; i < 40 && !faceImage; i++) {   // up to ~10s
             if (latestResult.present) {
@@ -1592,8 +1603,10 @@
             }
             if (!faceImage) await new Promise(r => setTimeout(r, 250));
         }
+
+        // Phase 3: fallback — capture raw frame even without face detection
         if (!faceImage) {
-            for (let i = 0; i < 12 && !faceImage; i++) {   // 3s more without face check
+            for (let i = 0; i < 12 && !faceImage; i++) {   // 3s more
                 faceImage = captureCamFrameB64();
                 if (!faceImage) await new Promise(r => setTimeout(r, 250));
             }
