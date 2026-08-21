@@ -1581,12 +1581,22 @@
 
         // ── Face gate ──────────────────────────────────────────────────────
         // Capture a live webcam frame so the server can verify the candidate's
-        // identity BEFORE any question is asked. Wait briefly for the camera to
-        // come up (it starts async on page load).
+        // identity BEFORE any question is asked. Wait for the camera AND face
+        // detection to be ready — first load can take 8-10s for camera warmup
+        // plus MediaPipe model loading.
+        document.getElementById('question-text').textContent = 'Waiting for camera... please look at the screen.';
         let faceImage = null;
-        for (let i = 0; i < 20 && !faceImage; i++) {   // up to ~5s
-            faceImage = captureCamFrameB64();
+        for (let i = 0; i < 40 && !faceImage; i++) {   // up to ~10s
+            if (latestResult.present) {
+                faceImage = captureCamFrameB64();
+            }
             if (!faceImage) await new Promise(r => setTimeout(r, 250));
+        }
+        if (!faceImage) {
+            for (let i = 0; i < 12 && !faceImage; i++) {   // 3s more without face check
+                faceImage = captureCamFrameB64();
+                if (!faceImage) await new Promise(r => setTimeout(r, 250));
+            }
         }
 
         try {
