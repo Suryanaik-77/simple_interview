@@ -2377,7 +2377,7 @@
             audioPlaying = false;
             currentAudio = null;
             if (audioQueue.length > 0) playNextChunk();
-            else if (streamDone) onStreamComplete();
+            else if (streamDone && !interviewEnded) onStreamComplete();
         }
 
         let _wasPausePrompt = false;
@@ -2487,7 +2487,7 @@
         }
 
         streamDone = true;
-        if (audioQueue.length === 0 && !audioPlaying) onStreamComplete();
+        if (!interviewEnded && audioQueue.length === 0 && !audioPlaying) onStreamComplete();
     }
 
     // Main button click handler
