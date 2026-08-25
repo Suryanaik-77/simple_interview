@@ -4008,30 +4008,13 @@ def start_interview(data: dict):
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
 
-    # ── Domain-mismatch gate ────────────────────────────────────────────────
-    # If the candidate's résumé specialization clearly differs from this interview's
-    # role domain, end at the very start — no questions, and no need to run the face
-    # gate on someone we're turning away. A report record explains why.
+    # ── Domain auto-correct from resume ─────────────────────────────────────
     mismatch = _domain_mismatch(session)
     if mismatch:
         cand, role = mismatch
-        closing = _domain_mismatch_closing(cand, role)
-        _end_interview(session, reason="domain_mismatch")
-        session["domain_mismatch"] = {"candidate": cand, "role": role}
-        log.info(f"[DomainGate] Session {sid[:8]}: ended at start — résumé={cand} vs role={role}")
-        _record_mismatch_evaluation(session, cand, role)
-        audio, tts_ms = synthesize_speech(closing)
-        tts_provider = RUNTIME_CONFIG.get("tts_provider", "deepgram")
-        session.setdefault("obs_log", []).append(
-            _obs_entry("TTS_greeting", tts_provider, tts_ms, "success" if audio else "failure",
-                       chars=len(closing), cost_usd=_calc_tts_cost(tts_provider, len(closing))))
-        sessions[sid] = session
-        return {
-            "question": closing, "question_type": "greeting", "turn": 0,
-            "phase": "ended", "audio": audio, "difficulty": "basic",
-            "should_end": True, "resume": session.get("resume", {}),
-            "timing": {"tts_ms": tts_ms},
-        }
+        log.info(f"[DomainGate] Session {sid[:8]}: résumé={cand} vs LMS={role} — switching to résumé domain")
+        session["resume"]["domain"] = cand
+        session.setdefault("resume", {}).pop("candidate_domain", None)
 
     # Reloading an ended session must not revive it. The client already refuses to
     # call this when phase == "ended", but the stale sweeper can end a session while
