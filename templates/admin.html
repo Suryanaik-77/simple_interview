@@ -347,6 +347,12 @@ textarea::placeholder{color:var(--t4)}
       Voice Config
     </div>
     <div class="sb-div"></div>
+    <div class="sb-grp">Users</div>
+    <div class="sb-lnk" id="nav-credits" onclick="showSection('credits',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="18"/></svg>
+      User Credits
+    </div>
+    <div class="sb-div"></div>
     <div class="sb-lnk" onclick="window.open('/interview','_blank')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
       Interview Agent ↗
@@ -1035,6 +1041,28 @@ textarea::placeholder{color:var(--t4)}
     </div>
   </div>
 
+  <!-- ── USER CREDITS ── -->
+  <div class="section" id="sec-credits">
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-label">Total users</div><div class="stat-val" id="cr-total">—</div><div class="stat-sub">With quota</div></div>
+      <div class="stat-card"><div class="stat-label">Low credit</div><div class="stat-val" id="cr-low" style="color:var(--amber)">—</div><div class="stat-sub">&lt; 30 min left</div></div>
+      <div class="stat-card"><div class="stat-label">Exhausted</div><div class="stat-val" id="cr-exhausted" style="color:var(--red)">—</div><div class="stat-sub">0 min remaining</div></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="sec-label" style="margin:0">All user credits</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="cr-search" placeholder="Search email..." style="padding:7px 12px;border:1px solid var(--b);border-radius:7px;font-size:12px;background:var(--off);color:var(--t);outline:none;width:220px" oninput="filterCredits()">
+        <button class="btn" onclick="loadCredits()">Refresh</button>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Email</th><th>Used (min)</th><th>Limit (min)</th><th>Remaining (min)</th><th>Status</th><th>Last Interview</th><th>Actions</th></tr></thead>
+        <tbody id="credits-tbody"><tr><td colspan="7" class="loading-txt"><div class="spinner"></div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
 </div><!-- /main -->
 </div><!-- /shell -->
 </div><!-- /platform-view -->
@@ -1199,7 +1227,7 @@ document.getElementById('ln-pass').addEventListener('keydown', e => { if(e.key==
 // ════════════════════════════════════════════════════════
 // NAVIGATION
 // ════════════════════════════════════════════════════════
-const SECTION_TITLES = { sessions:'Sessions', anticheat:'Anti-Cheat Monitor', observability:'Observability', review:'Expert Review', llmconfig:'LLM Configuration', acconfig:'Anti-Cheat Configuration', playground:'Prompt Playground', voiceconfig:'Voice Configuration' };
+const SECTION_TITLES = { sessions:'Sessions', anticheat:'Anti-Cheat Monitor', observability:'Observability', review:'Expert Review', llmconfig:'LLM Configuration', acconfig:'Anti-Cheat Configuration', playground:'Prompt Playground', voiceconfig:'Voice Configuration', credits:'User Credits' };
 
 function showSection(id, el) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('on'));
@@ -1214,6 +1242,7 @@ function showSection(id, el) {
   if (id === 'llmconfig')   loadLlmConfig();
   if (id === 'acconfig')   loadAcConfig();
   if (id === 'voiceconfig') { onProviderChange(); loadVoiceLibrary(); loadTtsStatus(); loadSttConfig(); }
+  if (id === 'credits')    loadCredits();
 }
 
 // ── PROMPT PLAYGROUND ────────────────────────────────────
@@ -3423,6 +3452,89 @@ function toast(msg, type='ok') {
     }
   } catch(e) {} // not logged in, show login screen
 })();
+
+// ── USER CREDITS ─────────────────────────────────────────
+let _creditsData = [];
+
+async function loadCredits() {
+  const tb = document.getElementById('credits-tbody');
+  tb.innerHTML = '<tr><td colspan="7" class="loading-txt"><div class="spinner"></div></td></tr>';
+  try {
+    const r = await fetch('/api/admin/quota-list?limit=500', {credentials:'include'});
+    const d = await r.json();
+    _creditsData = d.quotas || [];
+    renderCredits(_creditsData);
+  } catch(e) {
+    tb.innerHTML = '<tr><td colspan="7" class="loading-txt">Failed to load</td></tr>';
+  }
+}
+
+function renderCredits(list) {
+  const tb = document.getElementById('credits-tbody');
+  document.getElementById('cr-total').textContent = list.length;
+  document.getElementById('cr-low').textContent = list.filter(q => q.remaining_minutes > 0 && q.remaining_minutes < 30).length;
+  document.getElementById('cr-exhausted').textContent = list.filter(q => q.remaining_minutes <= 0).length;
+
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="7" class="loading-txt">No users found</td></tr>'; return; }
+  tb.innerHTML = list.map(q => {
+    const used = q.total_minutes_used?.toFixed(1) || '0.0';
+    const limit = q.quota_limit_minutes?.toFixed(0) || '180';
+    const rem = q.remaining_minutes?.toFixed(1) || '0.0';
+    const pct = q.quota_limit_minutes ? ((q.remaining_minutes / q.quota_limit_minutes) * 100) : 0;
+    let status, stColor;
+    if (q.remaining_minutes <= 0) { status = 'Exhausted'; stColor = 'var(--red)'; }
+    else if (q.remaining_minutes < 30) { status = 'Low'; stColor = 'var(--amber)'; }
+    else { status = 'Active'; stColor = 'var(--green)'; }
+    const lastInt = q.last_interview_at ? new Date(q.last_interview_at).toLocaleDateString() : '—';
+    return `<tr>
+      <td style="font-weight:500">${q.email}</td>
+      <td>${used}</td>
+      <td>${limit}</td>
+      <td><span style="color:${stColor};font-weight:600">${rem}</span>
+        <div style="margin-top:4px;height:4px;background:var(--b);border-radius:2px;width:80px">
+          <div style="height:100%;width:${Math.max(0,Math.min(100,pct))}%;background:${stColor};border-radius:2px"></div>
+        </div>
+      </td>
+      <td><span style="color:${stColor};font-weight:500;font-size:11px">${status}</span></td>
+      <td style="font-size:11px;color:var(--t3)">${lastInt}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn" style="font-size:10px;padding:4px 10px" onclick="resetQuota('${q.email}')">Reset</button>
+          <button class="btn" style="font-size:10px;padding:4px 10px" onclick="setQuotaLimit('${q.email}', ${q.quota_limit_minutes})">Set Limit</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function filterCredits() {
+  const q = document.getElementById('cr-search').value.toLowerCase();
+  const filtered = q ? _creditsData.filter(u => u.email.toLowerCase().includes(q)) : _creditsData;
+  renderCredits(filtered);
+}
+
+async function resetQuota(email) {
+  if (!confirm('Reset quota usage to 0 for ' + email + '?')) return;
+  try {
+    const r = await fetch('/api/admin/quota-reset', {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify({email})});
+    const d = await r.json();
+    if (d.status === 'success') { loadCredits(); }
+    else alert(d.detail || 'Failed');
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function setQuotaLimit(email, currentLimit) {
+  const val = prompt('Set quota limit (minutes) for ' + email + ':', currentLimit);
+  if (val === null) return;
+  const mins = parseFloat(val);
+  if (isNaN(mins) || mins < 0) { alert('Invalid number'); return; }
+  try {
+    const r = await fetch('/api/admin/quota-set-limit', {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify({email, limit_minutes: mins})});
+    const d = await r.json();
+    if (d.status === 'success') { loadCredits(); }
+    else alert(d.detail || 'Failed');
+  } catch(e) { alert('Error: ' + e.message); }
+}
 
 </script>
 </body>
