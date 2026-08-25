@@ -3176,10 +3176,14 @@ threading.Thread(target=_stale_session_sweeper, daemon=True, name="stale-sweeper
 
 @app.get("/")
 async def index():
-    return HTMLResponse(open("templates/index.html", encoding="utf-8").read())
+    from starlette.responses import RedirectResponse
+    return RedirectResponse(LMS_REDIRECT_URL)
 
 @app.get("/interview")
 async def interview_page(session_id: str = None):
+    if not session_id:
+        from starlette.responses import RedirectResponse
+        return RedirectResponse(LMS_REDIRECT_URL)
     return HTMLResponse(open("templates/voice_agent_ui.html", encoding="utf-8").read())
 
 @app.get("/admin", response_class=HTMLResponse)
