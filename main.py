@@ -2797,12 +2797,15 @@ TECHNICAL QUESTIONS - PER-QUESTION SCORING SCALE (enforce these thresholds):
 - 1-2: WRONG answer, confused explanation, contradictory statements, or major conceptual errors.
 - 0: No answer, completely off-topic, or nonsensical response.
 
-CRITICAL — Apply these rules strictly:
-- WRONG/REVERSED concepts (e.g., "immediate assertions take delay, concurrent don't" when it's the opposite) → score 1-2, NOT 3-4
-- CONFUSED/CONTRADICTORY explanations → score 1-2, NOT 3-4
-- OFF-TOPIC or blank answers → score 0-1, NOT 3-4
+CRITICAL — Apply these rules strictly (score MUST match the description, not default to 5):
+- NONSENSICAL, gibberish, or non-English noise → score 0, NEVER above 1
+- OFF-TOPIC, blank, or "I don't know" answers → score 0-1, NEVER above 2
+- WRONG/REVERSED concepts (e.g., "immediate assertions take delay, concurrent don't" when it's the opposite) → score 1-2, NEVER above 3
+- CONFUSED/CONTRADICTORY explanations → score 1-2, NEVER above 3
+- INCORRECT answer (factually wrong, even if confident) → score 1-2, NEVER 5+
 - SUPERFICIAL without wrong information (names concept but no depth) → score 3-4
 - CORRECT but basic/textbook → score 5-6
+- A score of 5+ means the answer is FACTUALLY CORRECT. If the core answer is wrong, nonsensical, or missing, the score MUST be below 5.
 
 - HONESTY / NOT-APPLICABLE (apply strictly): If the candidate truthfully says they did NOT encounter or use something (e.g. "I didn't face metastability", "we didn't use that technique"), do NOT penalize them for it. A truthful "I didn't work on that" is honest self-awareness and should NOT lower the score. Score ONLY on what they claim to have done or know. You MAY still expect them to explain techniques THEY brought up (e.g., if they say "I used gray-code pointers", it's fair to want why).
 - EARNED CREDIT: Score what the candidate DID demonstrate well, not what they omitted. A strong answer with depth on the key aspects of a question scores well even if it doesn't cover every possible angle. A weak answer covers vocabulary without lived detail.

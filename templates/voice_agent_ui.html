@@ -2080,6 +2080,7 @@
         if (interviewEnded || interviewPaused) return;
         _abortRecording = true;
         stopRecording();
+        _chunkTurnId++;
         _accumulatedTranscript = '';
         _answerStartTime = 0;
         _noAnswerNudged = false;
@@ -2111,6 +2112,7 @@
     let _lastSttMs = 0;
     let _pendingChunkSTTs = [];  // Array of in-flight chunk transcription Promises
     let _answerStartTime = 0;   // Wall-clock of first recording in this answer (survives restarts)
+    let _chunkTurnId = 0;       // Incremented each turn so late-resolving chunk STTs are discarded
 
     async function sendAudioForTranscription() {
         if (interviewEnded) return;
@@ -2155,9 +2157,11 @@
                 } else {
                     if (!interviewEnded) startRecording();           // 30s case: zero-gap restart
                 }
+                const chunkTurn = _chunkTurnId;
                 const chunkPromise = fetch('/api/transcribe', { method: 'POST', body: form })
                     .then(r => r.json())
                     .then(td => {
+                        if (chunkTurn !== _chunkTurnId) return;
                         const txt = (td.transcript || '').trim();
                         if (txt) _accumulatedTranscript += (_accumulatedTranscript ? ' ' : '') + txt;
                     })
@@ -2209,6 +2213,7 @@
             }
 
             const answerDur = _answerStartTime ? (Date.now() - _answerStartTime) / 1000 : dur;
+            _chunkTurnId++;
             await submitFinalAnswerAndStream(finalText, answerDur);
             _accumulatedTranscript = '';
             _answerStartTime = 0;
@@ -2318,6 +2323,7 @@
                 return;
             }
             const dur = _answerStartTime ? (Date.now() - _answerStartTime) / 1000 : (Date.now() - recordingStartTime) / 1000;
+            _chunkTurnId++;
             await submitFinalAnswerAndStream(finalText, dur);
             _accumulatedTranscript = '';
             _answerStartTime = 0;
