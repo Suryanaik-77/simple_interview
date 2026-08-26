@@ -2197,11 +2197,16 @@ def _get_topics_covered(session) -> list[str]:
 
 
 SESSION_MAX_DURATION_SEC = int(os.getenv("SESSION_MAX_DURATION_SEC", "3600"))  # 1 hour
+NO_RESPONSE_TIMEOUT_SEC = int(os.getenv("NO_RESPONSE_TIMEOUT_SEC", "300"))    # 5 minutes
 
 def _should_end_interview(session) -> tuple[bool, str]:
     started = session.get("started_at", 0)
     if started and (time.time() - started) > SESSION_MAX_DURATION_SEC:
         return True, "We've run out of time. Thank you for your time."
+    if started and not session.get("first_real_answer_at"):
+        elapsed = time.time() - started
+        if elapsed > NO_RESPONSE_TIMEOUT_SEC:
+            return True, "It looks like you haven't been able to respond. The interview will end now. You can retry when you're ready."
     return False, ""
 
 
@@ -2551,6 +2556,8 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         else:
             session["conversation"][-1]["answer"] = candidate_answer
         if not no_response:
+            if not session.get("first_real_answer_at"):
+                session["first_real_answer_at"] = time.time()
             turn_idx = len(session["conversation"]) - 1
             threading.Thread(target=detect_ai_answer, args=(session["conversation"][-1]["answer"], session, turn_idx), daemon=True).start()
 
@@ -4385,6 +4392,8 @@ def stream_answer(data: dict):
                 session["conversation"][-1]["answer"] += " " + answer
             else:
                 session["conversation"][-1]["answer"] = answer
+            if answer.strip() and not session.get("first_real_answer_at"):
+                session["first_real_answer_at"] = time.time()
             turn_idx = len(session["conversation"]) - 1
             threading.Thread(target=detect_ai_answer, args=(session["conversation"][-1]["answer"], session, turn_idx), daemon=True).start()
 
