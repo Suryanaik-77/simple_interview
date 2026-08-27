@@ -1611,17 +1611,16 @@
                 body: JSON.stringify({ session_id: sessionId, face_image: faceImage })
             });
 
-            // Server blocked the start on face verification — do NOT begin.
+            // Face verification failed — auto-refresh after a short delay
             if (r.status === 403 || r.status === 422 || r.status === 428) {
                 const err = await r.json().catch(() => ({}));
                 const msg = err.detail || 'Face verification failed.';
                 setOrb('idle');
                 sessionOn = false;
-                document.getElementById('live-badge').textContent = 'verification failed';
-                document.getElementById('footer-tag').textContent = 'face verification failed';
                 document.getElementById('question-text').textContent =
-                    msg + ' Make sure the registered candidate is clearly visible on camera, then reload this page to try again.';
+                    msg + ' Retrying in 5 seconds...';
                 sendAntiCheat('face_gate_blocked', `status:${r.status}`);
+                setTimeout(() => location.reload(), 5000);
                 return;
             }
 
@@ -3327,25 +3326,31 @@
                 if (d.matched) {
                     console.log(`[FaceCompare] Match OK — similarity=${d.similarity}%`);
                     stopRecheck();
-                    if (interviewPaused && pauseReason === 'face_mismatch') {
+                    if (interviewPaused && (pauseReason === 'face_mismatch' || pauseReason === 'no_face_detected')) {
                         resumeInterview();
                     }
                 } else {
+                    const noFace = d.error === 'no_face_detected';
+                    const eventType = noFace ? 'no_face_detected' : 'face_mismatch';
                     faceCompareWarnings++;
-                    console.warn(`[FaceCompare] MISMATCH — similarity=${d.similarity}%, warning ${faceCompareWarnings}`);
-                    sendAntiCheat('face_mismatch', `similarity:${d.similarity},warning:${faceCompareWarnings},recheck:${isRecheck ? recheckCount : 0}`);
+                    console.warn(`[FaceCompare] ${noFace ? 'NO FACE' : 'MISMATCH'} — similarity=${d.similarity}%, warning ${faceCompareWarnings}`);
+                    sendAntiCheat(eventType, `similarity:${d.similarity},warning:${faceCompareWarnings},recheck:${isRecheck ? recheckCount : 0}`);
 
                     if (isRecheck) {
                         recheckCount++;
                         if (recheckCount >= RECHECK_LIMIT) {
                             stopRecheck();
-                            sendAntiCheat('face_mismatch_termination', `mismatches:${faceCompareWarnings}`);
-                            endSessionWithReason('face_mismatch', 'Interview ended — face identity mismatch detected. A different person was identified on camera.');
+                            sendAntiCheat(eventType + '_termination', `mismatches:${faceCompareWarnings}`);
+                            const endMsg = noFace
+                                ? 'Interview ended — no face detected on camera. Please ensure your face is visible.'
+                                : 'Interview ended — face identity mismatch detected. A different person was identified on camera.';
+                            endSessionWithReason(eventType, endMsg);
                         }
                     } else {
-                        pauseInterview('face_mismatch',
-                            'Face identity mismatch detected.<br>Re-verifying your identity...<br><span style="color:#ef4444;font-weight:600;">Please look at the camera. Interview will end if mismatch persists.</span>',
-                            '');
+                        const pauseMsg = noFace
+                            ? 'No face detected on camera.<br>Re-checking...<br><span style="color:#ef4444;font-weight:600;">Please look at the camera. Interview will end if no face is detected.</span>'
+                            : 'Face identity mismatch detected.<br>Re-verifying your identity...<br><span style="color:#ef4444;font-weight:600;">Please look at the camera. Interview will end if mismatch persists.</span>';
+                        pauseInterview(eventType, pauseMsg, '');
                         recheckCount = 0;
                         recheckTimer = setInterval(() => compareFace(true), RECHECK_INTERVAL);
                     }
