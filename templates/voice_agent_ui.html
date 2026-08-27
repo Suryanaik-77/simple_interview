@@ -3311,10 +3311,6 @@
         async function compareFace(isRecheck) {
             if (!sessionOn || interviewEnded || faceCompareBusy) return;
             if (!sessionId) return;
-            if (latestResult.present && latestResult.headTurned) {
-                console.log('[FaceCompare] Skipped -- head turned away');
-                return;
-            }
             const imageB64 = captureFrameAsBase64();
             if (!imageB64) return;
 
