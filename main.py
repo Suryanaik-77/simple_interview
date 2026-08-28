@@ -3410,11 +3410,9 @@ def _should_run_speaker_check(session, turn):
     """
     if not RUNTIME_CONFIG.get("voice_verification_enabled", True):
         return False
-    if turn <= 1:
-        return True
     if session.get("phase") == "ended":
         return False
-    return _random.random() < 0.4
+    return True
 
 
 @app.get("/health")
