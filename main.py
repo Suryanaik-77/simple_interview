@@ -4016,6 +4016,23 @@ def start_interview(data: dict):
     session = sessions.get(sid)
     if not session: raise HTTPException(404, "Session not found")
 
+    # ── Non-VLSI resume gate ─────────────────────────────────────────────────
+    resume_data = session.get("resume", {})
+    detected_domain = resume_data.get("candidate_domain") or resume_data.get("domain", "")
+    if detected_domain not in SUPPORTED_DOMAINS:
+        log.info(f"[DomainGate] Session {sid[:8]}: resume domain='{detected_domain}' is not a supported VLSI domain — blocking")
+        closing = ("Your resume does not appear to be related to VLSI or the assigned interview domain. "
+                    "Please upload a VLSI-related resume and try again.")
+        session["phase"] = "ended"
+        session["end_reason"] = "non_vlsi_resume"
+        audio, _ = synthesize_speech(closing)
+        return {
+            "question": closing, "question_type": "ended",
+            "turn": 0, "phase": "ended", "audio": audio,
+            "difficulty": "basic", "should_end": True,
+            "resume": resume_data, "timing": {"tts_ms": 0},
+        }
+
     # ── Domain auto-correct from resume ─────────────────────────────────────
     mismatch = _domain_mismatch(session)
     if mismatch:
