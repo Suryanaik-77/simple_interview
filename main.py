@@ -1172,13 +1172,17 @@ def parse_resume(resume_text: str) -> dict:
     if not resume_text or len(resume_text.strip()) < 20:
         return {}
     today_str = datetime.now().strftime("%B %Y")
-    prompt = f"""Extract from this resume. Return ONLY valid JSON:
-{{"candidate_name":"","email":"","phone":"","level":"fresh_graduate|trained_fresher|experienced_junior|experienced_senior",
+    prompt = f"""Extract from this document. Return ONLY valid JSON:
+{{"is_resume":true,"candidate_name":"","email":"","phone":"","level":"fresh_graduate|trained_fresher|experienced_junior|experienced_senior",
 "years_experience":0,"skills":[],"tools":[],"key_projects":[{{"name":"project name","description":"1-2 sentence summary of what was done, role, node, challenges"}}],"domain":"","education":""}}
 
 Today's date: {today_str}
 
 Rules:
+- is_resume: true ONLY if this document is an actual resume/CV. Set false if it is a payslip,
+  salary slip, offer letter, invoice, ID card, certificate, mark sheet, bank statement,
+  or any other non-resume document. If false, still extract candidate_name if visible,
+  but leave all other fields empty/default.
 - email: extract email address if present, empty string if not found
 - phone: extract phone number if present, empty string if not found
 
@@ -3576,6 +3580,9 @@ async def lms_launch(
         raise HTTPException(400, "Could not extract text from resume.")
 
     parsed = parse_resume(text)
+    if not parsed.get("is_resume", True) is True:
+        log.warning(f"[LMS] Document rejected — not a resume (name={name}, email={email})")
+        raise HTTPException(400, "The uploaded document is not a resume. Please upload a valid resume/CV.")
     parsed["candidate_name"] = name
     parsed["email"] = email
     # Capture the candidate's OWN detected specialization BEFORE the LMS role domain
@@ -3888,6 +3895,9 @@ def parse_resume_endpoint(file: UploadFile = File(...)):
         return {"is_vlsi_suitable": False, "rejection_reason": "Could not read resume file."}
 
     parsed = parse_resume(text)
+    if not parsed.get("is_resume", True) is True:
+        log.warning(f"[Resume] Document rejected — not a resume")
+        return JSONResponse({"is_vlsi_suitable": False, "rejection_reason": "The uploaded document is not a resume. Please upload a valid resume/CV."})
     parsed["is_vlsi_suitable"] = True
     parsed["resume_text"] = text[:3000]
     return JSONResponse(parsed)
