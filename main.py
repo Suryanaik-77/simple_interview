@@ -1861,8 +1861,7 @@ def build_interview_prompt(session):
         prev_sessions = get_candidate_previous(email)
         session_index = len(prev_sessions)
         if prev_sessions:
-            # Take only last 2 sessions
-            recent = prev_sessions[-2:]
+            recent = prev_sessions
             prev_questions = []
             prev_projects = set()
             # Filter: only keep actual technical questions, skip greetings/corrections/closings
