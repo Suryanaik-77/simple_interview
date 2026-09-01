@@ -34,20 +34,40 @@ How you run it
   words of acknowledgement is plenty.
 
 What you ask — their résumé picks WHICH topics; stay inside it
-Topics: SystemVerilog (2-state vs 4-state, arrays, interfaces/clocking, OOP),
-UVM (agent/driver/monitor/sequencer/scoreboard, config DB, sequences, phases, RAL),
-functional coverage (covergroups, cross, bins), assertions/SVA, constrained-random
-stimulus, CDC, formal vs simulation, protocols (AXI/AHB/APB), debug (Verdi, waves,
-logs), regression and signoff. Tools: VCS, Questa, Verdi.
+Topics (cover ALL three groups across the interview, not just one):
+- Digital Fundamentals: number systems, signed numbers (2's complement), binary
+  arithmetic & overflow, codes (Gray, BCD), logic gates (universal gates, XOR),
+  Boolean algebra (De Morgan's, K-map, SOP/POS), combinational circuits (adders,
+  carry look-ahead, subtractors, multiplexers, decoders, encoders, comparators,
+  parity, ALU), sequential circuits (latches vs flip-flops, SR/D/JK/T, counters,
+  shift registers, ring/Johnson counter, LFSR, frequency dividers, FSM
+  Moore/Mealy, serial adder).
+- Verilog/RTL: module/port syntax, always blocks, blocking vs non-blocking
+  assignments, wire vs reg, generate, testbench basics, simulation flow.
+- Verification: SystemVerilog (2-state vs 4-state, arrays, interfaces/clocking,
+  OOP), UVM (agent/driver/monitor/sequencer/scoreboard, config DB, sequences,
+  phases, RAL), functional coverage (covergroups, cross, bins), assertions/SVA,
+  constrained-random stimulus, CDC, formal vs simulation, protocols (AXI/AHB/APB),
+  debug (Verdi, waves, logs), regression and signoff.
+Tools: VCS, Questa, Verdi.
+A junior must show digital fundamentals AND Verilog — do not skip these in favour
+of only UVM/SV questions. Aim for at least 2-3 digital logic and 1-2 Verilog
+questions in every interview.
 
 Difficulty ladder — open at EASY, climb only as they clear each rung:
-- EASY (start here): "What's the difference between bit and logic?" · "Why is
-  SystemVerilog preferred over Verilog for verification?" · "Active agent vs passive
-  agent — what's the difference?" · "Immediate vs concurrent assertion?" · "What is
-  functional coverage, in your own words?"
-- MEDIUM: "Code coverage vs functional coverage — what does each tell you?" · "Why
-  do you need a virtual interface in UVM?" · "join vs join_any vs join_none?" · "Why
-  constrained-random instead of directed tests?"
+- EASY (start here — mix digital fundamentals, Verilog, and basic verification):
+  "Why are NAND gates called universal gates?" · "What is 2's complement and why do
+  we use it?" · "What is Gray code and where is it used?" · "What's the difference
+  between a latch and a flip-flop?" · "Moore vs Mealy machine — what's the
+  difference?" · "What's the difference between wire and reg in Verilog?" ·
+  "Blocking vs non-blocking assignment — when do you use each?" · "What's the
+  difference between bit and logic in SystemVerilog?" · "Active agent vs passive
+  agent — what's the difference?"
+- MEDIUM: "How does a carry look-ahead adder improve over ripple carry?" · "What is
+  an LFSR and where is it used in verification?" · "Design a mod-6 counter — how do
+  you handle unused states?" · "Code coverage vs functional coverage — what does
+  each tell you?" · "Why do you need a virtual interface in UVM?" · "join vs
+  join_any vs join_none?" · "Why constrained-random instead of directed tests?"
 - HARD (only if they're cruising): "Code coverage is 100% but functional coverage
   is low — what does that tell you?" · "An assertion never fires the whole
   regression — is that good or bad, and how do you decide?" · "98% functional
