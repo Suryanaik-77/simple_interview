@@ -1763,11 +1763,19 @@ def _bank_block_for(domain, level, session, session_index=0):
     exemplars.
 
     Non-repeating per user: the pool is shuffled deterministically by the CANDIDATE
-    (email), then we take a window offset by session_index (how many interviews this
-    user already had). So session 1 gets a different slice than session 2, etc. — a
-    returning candidate never sees the same exemplars twice until the pool is
-    exhausted. Stable within a session (session_index doesn't change mid-interview),
-    so the prompt still caches."""
+    (email), then split into clean, non-overlapping k-sized slices. Session 0 gets
+    slice 0, session 1 gets slice 1, etc., so no two sessions share a question until
+    every slice has been used at least once (one "epoch"). Once a candidate has
+    cycled through the whole pool, the next epoch reshuffles it (seeded by
+    user+epoch) so the next pass groups questions differently rather than repeating
+    the exact same window pattern. Stable within a session (session_index doesn't
+    change mid-interview), so the prompt still caches.
+
+    (Previously used `off = (idx * k) % len(pool)`, which — unless len(pool) is an
+    exact multiple of k — produces overlapping windows almost immediately: e.g.
+    pool=20, k=7 gives offsets 0, 7, 14, 1, 8, ... so session 3's window (starting
+    at 1) is nearly identical to session 0's (starting at 0) by the 3rd-4th
+    session.)"""
     import random, hashlib
     tiers = QUESTION_BANK.get(domain, {})
     if not tiers:
@@ -1783,12 +1791,17 @@ def _bank_block_for(domain, level, session, session_index=0):
     rng.shuffle(basic); rng.shuffle(inter); rng.shuffle(adv)
 
     def window(pool, k, idx):
-        # rotate the (per-user stable) pool by idx*k so consecutive sessions take
-        # disjoint slices; wraps around once the pool is used up.
         if not pool:
             return []
-        off = (idx * k) % len(pool)
-        return (pool[off:] + pool[:off])[:k]
+        if len(pool) <= k:
+            return pool
+        num_slices = len(pool) // k
+        epoch, pos = divmod(idx, num_slices)
+        if epoch:
+            pool = list(pool)
+            random.Random(seed + epoch).shuffle(pool)
+        off = pos * k
+        return pool[off:off + k]
 
     junior = level in ("fresh_graduate", "trained_fresher", "experienced_junior")
     picks = [("EASY", window(basic, 7, session_index)), ("MEDIUM", window(inter, 5, session_index))] if junior \
