@@ -3537,6 +3537,12 @@ def _extract_resume_text(content: bytes, filename: str) -> str:
     return text.strip()
 
 
+def _launch_reject(status: int, reason: str, message: str):
+    """Raise an HTTPException with a structured JSON body so the LMS can parse
+    both a machine-readable reject_reason and a human-readable message."""
+    raise HTTPException(status, detail={"reject_reason": reason, "message": message})
+
+
 @app.post("/api/lms/launch")
 async def lms_launch(
     request: Request,
@@ -3573,28 +3579,32 @@ async def lms_launch(
     """
     api_key = request.headers.get("X-API-Key", "")
     if not LMS_API_KEY or api_key != LMS_API_KEY:
-        raise HTTPException(401, "Invalid or missing API key")
+        _launch_reject(401, "invalid_api_key", "Invalid or missing API key.")
 
     # Check user's remaining quota before allowing LMS session creation
     quota = database.get_user_quota(email)
     if quota and quota["remaining_minutes"] <= 0:
-        raise HTTPException(403, f"Interview quota exhausted. User has used {quota['total_minutes_used']:.1f} minutes of their {quota['quota_limit_minutes']:.0f}-minute lifetime quota. Please contact support to extend quota.")
+        _launch_reject(403, "quota_exhausted",
+                       f"Interview quota exhausted. User has used {quota['total_minutes_used']:.1f} minutes "
+                       f"of their {quota['quota_limit_minutes']:.0f}-minute lifetime quota. "
+                       f"Please contact support to extend quota.")
 
     domain = DOMAIN_ALIASES.get(domain, domain)
     if domain not in SUPPORTED_DOMAINS:
-        raise HTTPException(400, f"Unsupported domain: '{domain}'. Supported domains: {list(SUPPORTED_DOMAINS.keys())}")
+        _launch_reject(400, "unsupported_domain",
+                       f"Unsupported domain: '{domain}'. Supported domains: {list(SUPPORTED_DOMAINS.keys())}")
 
     content = await resume.read()
     if len(content) > 5_000_000:
-        raise HTTPException(413, "Resume too large. Max 5MB.")
+        _launch_reject(413, "resume_too_large", "Resume too large. Maximum allowed size is 5 MB.")
     text = _extract_resume_text(content, resume.filename or "resume.pdf")
     if not text:
-        raise HTTPException(400, "Could not extract text from resume.")
+        _launch_reject(400, "resume_unreadable", "Could not extract text from the resume. Please upload a valid PDF or DOCX file.")
 
     parsed = parse_resume(text)
     if not parsed.get("is_resume", True) is True:
         log.warning(f"[LMS] Document rejected — not a resume (name={name}, email={email})")
-        raise HTTPException(400, "The uploaded document is not a resume. Please upload a valid resume/CV.")
+        _launch_reject(400, "not_a_resume", "The uploaded document is not a resume. Please upload a valid resume/CV.")
     parsed["candidate_name"] = name
     parsed["email"] = email
     # Capture the candidate's OWN detected specialization BEFORE the LMS role domain
@@ -3612,13 +3622,12 @@ async def lms_launch(
     # arrives as an empty UploadFile, so check explicitly.
     log.info(f"[LMS] user_voice: {user_voice}, filename: {getattr(user_voice, 'filename', None) if user_voice else None}")
     if not user_voice or not user_voice.filename:
-        raise HTTPException(400, "user_voice is required. Please provide a voice sample "
-                                 "for speaker verification.")
+        _launch_reject(400, "voice_missing", "Voice sample is required. Please record a voice sample for speaker verification.")
     voice_bytes = await user_voice.read()
     if len(voice_bytes) == 0:
-        raise HTTPException(400, "Voice sample is empty. Please provide a valid audio file.")
+        _launch_reject(400, "voice_empty", "Voice sample is empty. Please record a valid voice sample.")
     if len(voice_bytes) > 10_000_000:
-        raise HTTPException(413, "Voice file too large. Max 10MB.")
+        _launch_reject(413, "voice_too_large", "Voice file too large. Maximum allowed size is 10 MB.")
     # Reject a sample the embedder would silently refuse. There is no lobby to
     # re-record in, so this is the only voice reference the session will ever get:
     # _compute_speaker_embedding returns None below SPEAKER_MIN_AUDIO_SEC, which
@@ -3633,15 +3642,15 @@ async def lms_launch(
         voice_duration_sec = None
         log.warning(f"[LMS] Could not measure voice duration: {e}")
     if voice_duration_sec is not None and voice_duration_sec < SPEAKER_MIN_AUDIO_SEC:
-        raise HTTPException(400, f"Voice sample is too short ({voice_duration_sec:.1f}s). "
-                                 f"At least {SPEAKER_MIN_AUDIO_SEC:.0f} seconds of speech "
-                                 f"is required for speaker verification.")
+        _launch_reject(400, "voice_too_short",
+                       f"Voice sample is too short ({voice_duration_sec:.1f}s). "
+                       f"At least {SPEAKER_MIN_AUDIO_SEC:.0f} seconds of speech is required for speaker verification.")
     _dur = f", {voice_duration_sec:.1f}s" if voice_duration_sec is not None else ""
     log.info(f"[LMS] Received voice: {user_voice.filename} ({len(voice_bytes)} bytes{_dur})")
 
     # ── Face reference (REQUIRED) ───────────────────────────────────────────
     if not user_face or not user_face.filename:
-        raise HTTPException(400, "user_face is required. Please provide a face photo for verification.")
+        _launch_reject(400, "face_missing", "Face photo is required. Please upload a clear face photo for identity verification.")
 
     face_wearing_glasses = False
     rekog_obs = None  # obs_log entry for the Rekognition call, attached to the session below
@@ -3650,9 +3659,9 @@ async def lms_launch(
     # Read and validate face image (REQUIRED)
     face_image_bytes = await user_face.read()
     if len(face_image_bytes) > 5_000_000:
-        raise HTTPException(413, "Face image too large. Max 5MB.")
+        _launch_reject(413, "face_too_large", "Face image too large. Maximum allowed size is 5 MB.")
     if len(face_image_bytes) == 0:
-        raise HTTPException(400, "Face image is empty. Please provide a valid image file.")
+        _launch_reject(400, "face_empty", "Face image is empty. Please upload a valid image file.")
 
     log.info(f"[LMS] Received face: {user_face.filename} ({len(face_image_bytes)} bytes)")
 
@@ -3670,9 +3679,9 @@ async def lms_launch(
                                    cost_usd=_REKOGNITION_COST_PER_IMAGE)
             faces = resp.get("FaceDetails", [])
             if len(faces) == 0:
-                raise HTTPException(400, "No face detected in the uploaded image")
+                _launch_reject(400, "no_face_in_photo", "No face detected in the uploaded photo. Please upload a clear, front-facing photo with good lighting.")
             if len(faces) > 1:
-                raise HTTPException(400, "Multiple faces detected — only one person should be visible")
+                _launch_reject(400, "multiple_faces_in_photo", "Multiple faces detected in the photo. Please upload a photo with only one person visible.")
             # Check glasses
             face = faces[0]
             glasses_info = face.get("Eyeglasses", {})
@@ -3682,7 +3691,7 @@ async def lms_launch(
             raise
         except Exception as e:
             log.error(f"[FaceID] LMS face detection failed: {e}")
-            raise HTTPException(500, f"Face detection failed: {e}")
+            _launch_reject(500, "face_detection_error", f"Face detection service encountered an error. Please try again. Details: {e}")
     else:
         # No Rekognition client - still accept the image but warn
         log.warning("[FaceID] AWS Rekognition not configured - skipping face validation")
@@ -4036,7 +4045,9 @@ def start_interview(data: dict):
     _sync_runtime_config()
     sid = data.get("session_id")
     session = sessions.get(sid)
-    if not session: raise HTTPException(404, "Session not found")
+    if not session:
+        raise HTTPException(404, detail={"reject_reason": "session_not_found",
+                                         "message": "Interview session not found. The session may have expired or been ended. Please launch a new interview."})
 
     # ── Non-VLSI resume gate ─────────────────────────────────────────────────
     resume_data = session.get("resume", {})
@@ -4052,16 +4063,37 @@ def start_interview(data: dict):
             "question": closing, "question_type": "ended",
             "turn": 0, "phase": "ended", "audio": audio,
             "difficulty": "basic", "should_end": True,
+            "reject_reason": "non_vlsi_resume",
+            "end_reason": "non_vlsi_resume",
             "resume": resume_data, "timing": {"tts_ms": 0},
         }
 
-    # ── Domain auto-correct from resume ─────────────────────────────────────
+    # ── Domain mismatch gate ──────────────────────────────────────────────
     mismatch = _domain_mismatch(session)
     if mismatch:
         cand, role = mismatch
-        log.info(f"[DomainGate] Session {sid[:8]}: résumé={cand} vs LMS={role} — switching to résumé domain")
-        session["resume"]["domain"] = cand
-        session.setdefault("resume", {}).pop("candidate_domain", None)
+        c = SUPPORTED_DOMAINS.get(cand, cand.replace("_", " "))
+        r = SUPPORTED_DOMAINS.get(role, role.replace("_", " "))
+        log.info(f"[DomainGate] Session {sid[:8]}: résumé={cand} vs LMS={role} — BLOCKING interview")
+        closing = (f"Your resume indicates your background is in {c}, but this interview "
+                   f"is for a {r} role. Since the domains do not match, we cannot proceed "
+                   f"with this interview. Please contact your administrator to assign the "
+                   f"correct interview domain.")
+        session["phase"] = "ended"
+        session["end_reason"] = "domain_mismatch"
+        _record_mismatch_evaluation(session, cand, role)
+        sessions[sid] = session
+        audio, _ = synthesize_speech(closing)
+        return {
+            "question": closing, "question_type": "ended",
+            "turn": 0, "phase": "ended", "audio": audio,
+            "difficulty": "basic", "should_end": True,
+            "reject_reason": "domain_mismatch",
+            "end_reason": "domain_mismatch",
+            "candidate_domain": c,
+            "assigned_domain": r,
+            "resume": resume_data, "timing": {"tts_ms": 0},
+        }
 
     # Reloading an ended session must not revive it. The client already refuses to
     # call this when phase == "ended", but the stale sweeper can end a session while
@@ -4070,11 +4102,22 @@ def start_interview(data: dict):
     # finished session doesn't spend a Rekognition call to be told it's over.
     if session.get("phase") == "ended":
         end_reason = session.get("end_reason", "unknown")
+        reason_messages = {
+            "speaker_verification_failed": "Interview was ended because voice verification failed — the speaker did not match the registered voice.",
+            "non_vlsi_resume": "Interview was ended because the resume is not related to VLSI or the assigned domain.",
+            "manual": "Interview was ended manually.",
+            "stale_session": "Interview session expired due to inactivity.",
+            "hard_max": "Interview ended — maximum duration reached.",
+            "stop_agent": "Interview was completed by the interviewer.",
+        }
+        msg = reason_messages.get(end_reason, f"This interview has already ended (reason: {end_reason}).")
         log.info(f"[Resume] Session {sid[:8]}: reload on an ended session ({end_reason}), refusing restart")
         return {
-            "question": "This interview has already ended.", "question_type": "ended",
+            "question": msg, "question_type": "ended",
             "turn": session.get("turn", 0), "phase": "ended", "audio": None,
             "difficulty": "basic", "should_end": True,
+            "reject_reason": f"session_ended_{end_reason}",
+            "end_reason": end_reason,
             "resume": session.get("resume", {}), "timing": {"tts_ms": 0},
         }
 
@@ -4105,8 +4148,8 @@ def start_interview(data: dict):
                 else:
                     live_b64 = data.get("face_image") or ""
                     if not live_b64:
-                        raise HTTPException(428, "Camera is off or no frame was captured. "
-                                                 "Enable your camera so we can verify your identity, then try again.")
+                        raise HTTPException(428, detail={"reject_reason": "camera_off",
+                                                         "message": "Camera is off or no frame was captured. Please enable your camera so we can verify your identity, then try again."})
                     try:
                         _fg_t0 = time.time()
                         resp = rekognition_client.compare_faces(
@@ -4129,15 +4172,15 @@ def start_interview(data: dict):
                         })
                         if not gate_ok:
                             log.info(f"[FaceGate] Session {sid[:8]}: start BLOCKED (similarity={similarity:.1f}%)")
-                            raise HTTPException(403, "Face verification failed — the person on camera does "
-                                                     "not match the registered face. Make sure the registered "
-                                                     "candidate is clearly visible, then try again.")
+                            raise HTTPException(403, detail={"reject_reason": "face_mismatch",
+                                                             "message": "Face verification failed — the person on camera does not match the registered photo. "
+                                                                        "Make sure the registered candidate is clearly visible and well-lit, then try again."})
                         log.info(f"[FaceGate] Session {sid[:8]}: start verified (similarity={similarity:.1f}%)")
                     except HTTPException:
                         raise
                     except rekognition_client.exceptions.InvalidParameterException:
-                        raise HTTPException(422, "No face detected on camera. Make sure your face is clearly "
-                                                 "visible and well-lit, then try again.")
+                        raise HTTPException(422, detail={"reject_reason": "no_face_on_camera",
+                                                         "message": "No face detected on camera. Make sure your face is clearly visible and well-lit, then try again."})
                     except Exception as e:
                         log.error(f"[FaceGate] compare failed, allowing start: {e}")
 
