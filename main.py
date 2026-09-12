@@ -1861,37 +1861,49 @@ def build_interview_prompt(session):
         prev_sessions = get_candidate_previous(email)
         session_index = len(prev_sessions)
         if prev_sessions:
-            recent = prev_sessions
-            prev_questions = []
             prev_projects = set()
-            # Filter: only keep actual technical questions, skip greetings/corrections/closings
             _skip_phrases = {"good morning", "good afternoon", "good evening", "tell me about yourself",
                              "welcome back", "thanks for coming", "don't go personal", "let's focus",
                              "please answer in english", "take your time", "that covers what i needed",
                              "thank you for your time", "i'll decide what to ask", "let's continue",
                              "let's move on"}
-            for ps in recent:
-                for q in ps.get("questions_asked", []):
-                    q_lower = q.strip().lower()
-                    # Skip if it starts with or is dominated by a non-question phrase
-                    if any(q_lower.startswith(p) for p in _skip_phrases):
-                        continue
-                    if len(q_lower) < 15:  # too short to be a real question
-                        continue
-                    prev_questions.append(q)
+
+            def _is_real_question(q: str) -> bool:
+                ql = q.strip().lower()
+                if len(ql) < 15:
+                    return False
+                return not any(ql.startswith(p) for p in _skip_phrases)
+
+            all_topics = set()
+            for ps in prev_sessions:
+                for t in ps.get("topics_asked", []):
+                    if t and t != "General":
+                        all_topics.add(t)
                 for p in ps.get("projects", []):
                     prev_projects.add(p.get("name", str(p)) if isinstance(p, dict) else str(p))
+
+            recent_questions = []
+            for ps in prev_sessions[-5:]:
+                for q in ps.get("questions_asked", []):
+                    if _is_real_question(q):
+                        recent_questions.append(q)
 
             projects_note = ""
             if prev_projects:
                 projects_note = f"\nProjects discussed before: {', '.join(prev_projects)}\nAsk about DIFFERENT aspects of these projects, or explore projects not yet discussed."
 
+            topics_note = ""
+            if all_topics:
+                topics_note = f"\nTopics already covered across all {len(prev_sessions)} sessions: {', '.join(sorted(all_topics))}\nPrioritize topics NOT in this list."
+
             returning_block = f"""
-RETURNING CANDIDATE: This candidate has interviewed {len(prev_sessions)} time(s) before.
-These questions were already asked in previous sessions:
-{chr(10).join(f'- {q}' for q in prev_questions)}{projects_note}
-This is a completely NEW interview. Ask fresh questions from different angles on the same topics.
-Test whether the candidate has genuinely improved or just memorized answers from before."""
+RETURNING CANDIDATE: This candidate has interviewed {len(prev_sessions)} time(s) before.{topics_note}
+
+Questions from the most recent sessions (DO NOT repeat or rephrase ANY of these):
+{chr(10).join(f'- {q}' for q in recent_questions)}{projects_note}
+This is a completely NEW interview. You MUST ask entirely different questions — not reworded
+versions of the above. Pick different concepts, different scenarios, different angles.
+If you have already exhausted basic topics, go deeper into advanced sub-topics."""
 
     # ── Anti-repetition ledger ────────────────────────────────────────────
     # The Q&A history below is intentionally trimmed to the last 2 turns (focused
@@ -2539,6 +2551,34 @@ JSON:"""
             {"turn": turn_index, "score": round(result["score"], 4), "method": result["method"], "ts": time.time()})
 
 
+def _question_too_similar(new_q: str, asked_questions: list[str], threshold: float = 0.65) -> str | None:
+    """Return the matching question if new_q is too similar to any already-asked question.
+    Uses word-overlap (Jaccard) on lowercased content words — fast, no ML needed."""
+    import string
+    stop = {"a","an","the","is","are","was","were","be","been","being","do","does","did",
+            "have","has","had","will","would","shall","should","may","might","can","could",
+            "and","or","but","if","in","on","at","to","for","of","with","by","from","as",
+            "into","about","that","this","it","its","you","your","me","my","we","our",
+            "what","how","why","when","where","which","who","whom","tell","one","thing",
+            "okay","alright","now","just","also","let","know","think","go","come","make",
+            "take","give","get","say","see","find","want","use","very","much","really"}
+    def _words(text):
+        return {w for w in re.sub(r'[^\w\s]', '', text.lower()).split() if w not in stop and len(w) > 2}
+    new_words = _words(new_q)
+    if len(new_words) < 3:
+        return None
+    for old_q in asked_questions:
+        old_words = _words(old_q)
+        if not old_words:
+            continue
+        intersection = new_words & old_words
+        union = new_words | old_words
+        jaccard = len(intersection) / len(union) if union else 0
+        if jaccard >= threshold:
+            return old_q
+    return None
+
+
 def generate_question(session, candidate_answer: str, no_response: bool = False) -> dict:
     """Send conversation + answer to LLM, get next question. LLM handles all intelligence.
     no_response=True means the candidate stayed silent past the time limit: the current
@@ -2613,6 +2653,34 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', question)
     question = re.sub(r'`([^`]+)`', r'\1', question)
     question = re.sub(r'#{1,3}\s*', '', question)
+
+    # ── Code-level duplicate guard ───────────────────────────────────────
+    # Check if the LLM generated a question too similar to one already asked
+    # (this session or recent previous sessions). Retry once if so.
+    all_asked = [e["question"] for e in session.get("conversation", [])
+                 if e.get("question") and not _is_pause_prompt(e["question"]) and not e.get("is_greeting")]
+    email_for_dedup = session.get("resume", {}).get("email", "")
+    if email_for_dedup:
+        for ps in get_candidate_previous(email_for_dedup)[-5:]:
+            for q in ps.get("questions_asked", []):
+                if len(q.strip()) >= 15:
+                    all_asked.append(q)
+    dup_match = _question_too_similar(question, all_asked)
+    if dup_match and "[END_INTERVIEW]" not in question:
+        log.warning(f"[DupGuard] Duplicate detected — retrying. New: \"{question[:80]}\" matches: \"{dup_match[:80]}\"")
+        retry_msg = (f"STOP — your question is nearly identical to one already asked: \"{dup_match[:120]}\". "
+                     "You MUST ask about a COMPLETELY DIFFERENT topic. Do not rephrase — pick a new concept entirely.")
+        messages.append({"role": "assistant", "content": question})
+        messages.append({"role": "user", "content": retry_msg})
+        t0_retry = time.time()
+        question, usage2 = call_llm(messages, temperature=0.9, max_tokens=150)
+        retry_ms = round((time.time() - t0_retry) * 1000)
+        llm_ms += retry_ms
+        log.info(f"[DupGuard] Retry {retry_ms}ms | in={usage2['input_tokens']} out={usage2['output_tokens']}")
+        question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', question)
+        question = re.sub(r'`([^`]+)`', r'\1', question)
+        question = re.sub(r'#{1,3}\s*', '', question)
+        usage = {k: usage.get(k, 0) + usage2.get(k, 0) for k in usage}
 
     obs = _obs_entry("LLM_question", RUNTIME_CONFIG["qgen_model"], llm_ms, "success",
                      input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
