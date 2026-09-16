@@ -2551,30 +2551,43 @@ JSON:"""
             {"turn": turn_index, "score": round(result["score"], 4), "method": result["method"], "ts": time.time()})
 
 
-def _question_too_similar(new_q: str, asked_questions: list[str], threshold: float = 0.65) -> str | None:
+def _question_too_similar(new_q: str, asked_questions: list[str], threshold: float = 0.40) -> str | None:
     """Return the matching question if new_q is too similar to any already-asked question.
-    Uses word-overlap (Jaccard) on lowercased content words — fast, no ML needed."""
-    import string
-    stop = {"a","an","the","is","are","was","were","be","been","being","do","does","did",
-            "have","has","had","will","would","shall","should","may","might","can","could",
-            "and","or","but","if","in","on","at","to","for","of","with","by","from","as",
-            "into","about","that","this","it","its","you","your","me","my","we","our",
-            "what","how","why","when","where","which","who","whom","tell","one","thing",
-            "okay","alright","now","just","also","let","know","think","go","come","make",
-            "take","give","get","say","see","find","want","use","very","much","really"}
-    def _words(text):
-        return {w for w in re.sub(r'[^\w\s]', '', text.lower()).split() if w not in stop and len(w) > 2}
-    new_words = _words(new_q)
-    if len(new_words) < 3:
+    Uses stemmed-word Jaccard on concept words (aggressive stop-word list for interview filler)."""
+    _stop = {"a","an","the","is","are","was","were","be","been","being","do","does","did",
+             "have","has","had","will","would","shall","should","may","might","can","could",
+             "and","or","but","if","in","on","at","to","for","of","with","by","from","as",
+             "into","about","that","this","it","its","you","your","me","my","we","our",
+             "what","how","why","when","where","which","who","whom","tell","one","thing",
+             "okay","alright","now","just","also","let","know","think","go","come","make",
+             "take","give","get","say","see","find","want","use","very","much","really",
+             "between","difference","different","differ","differs","explain","describe",
+             "called","meant","suppose","imagine","start","help","important","main",
+             "each","other","some","any","all","both","such","like","more","most",
+             "need","way","work","used","using","works","working","types","type",
+             "digital","circuits","circuit","design","designs","verification"}
+    def _stem(w):
+        for suffix in ("tion","sion","ment","ness","ence","ance","ying","ing","ies","ous",
+                        "ive","ful","less","able","ible","ally","edly","ted","ers","est","ly","ed","er","es","en","ss","s"):
+            if len(w) > len(suffix) + 2 and w.endswith(suffix):
+                return w[:-len(suffix)]
+        return w
+    def _concepts(text):
+        words = re.sub(r'[^\w\s]', ' ', text.lower()).split()
+        return {_stem(w) for w in words if w not in _stop and len(w) > 2}
+    new_concepts = _concepts(new_q)
+    if len(new_concepts) < 2:
         return None
     for old_q in asked_questions:
-        old_words = _words(old_q)
-        if not old_words:
+        old_concepts = _concepts(old_q)
+        if len(old_concepts) < 2:
             continue
-        intersection = new_words & old_words
-        union = new_words | old_words
-        jaccard = len(intersection) / len(union) if union else 0
+        shared = new_concepts & old_concepts
+        union = new_concepts | old_concepts
+        jaccard = len(shared) / len(union) if union else 0
         if jaccard >= threshold:
+            return old_q
+        if len(shared) >= 2 and len(shared) / min(len(new_concepts), len(old_concepts)) >= 0.6:
             return old_q
     return None
 
