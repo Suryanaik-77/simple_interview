@@ -1256,7 +1256,7 @@ RESUME:
 JSON:"""
     for attempt in range(3):
         try:
-            raw = call_cerebras([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=800)
+            raw, _usage = call_llm([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=800)
             parsed = safe_json(raw)
             if parsed and parsed.get("candidate_name"):
                 log.info(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')}")
@@ -3679,6 +3679,9 @@ async def lms_launch(
         _launch_reject(400, "resume_unreadable", "Could not extract text from the resume. Please upload a valid PDF or DOCX file.")
 
     parsed = parse_resume(text)
+    if not parsed or not parsed.get("candidate_name"):
+        log.error(f"[LMS] Resume parsing failed after 3 attempts (name={name}, email={email})")
+        _launch_reject(422, "resume_parse_failed", "Could not parse the resume after multiple attempts. Please re-upload a clearer resume.")
     if not parsed.get("is_resume", True) is True:
         log.warning(f"[LMS] Document rejected — not a resume (name={name}, email={email})")
         _launch_reject(400, "not_a_resume", "The uploaded document is not a resume. Please upload a valid resume/CV.")
