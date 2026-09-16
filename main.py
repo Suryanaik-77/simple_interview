@@ -1887,6 +1887,7 @@ def build_interview_prompt(session):
                 for q in ps.get("questions_asked", []):
                     if _is_real_question(q):
                         recent_questions.append(q)
+            session["_prev_questions_cache"] = recent_questions
 
             projects_note = ""
             if prev_projects:
@@ -2672,12 +2673,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     # (this session or recent previous sessions). Retry once if so.
     all_asked = [e["question"] for e in session.get("conversation", [])
                  if e.get("question") and not _is_pause_prompt(e["question"]) and not e.get("is_greeting")]
-    email_for_dedup = session.get("resume", {}).get("email", "")
-    if email_for_dedup:
-        for ps in get_candidate_previous(email_for_dedup)[-5:]:
-            for q in ps.get("questions_asked", []):
-                if len(q.strip()) >= 15:
-                    all_asked.append(q)
+    all_asked.extend(session.get("_prev_questions_cache", []))
     dup_match = _question_too_similar(question, all_asked)
     if dup_match and "[END_INTERVIEW]" not in question:
         log.warning(f"[DupGuard] Duplicate detected — retrying. New: \"{question[:80]}\" matches: \"{dup_match[:80]}\"")
