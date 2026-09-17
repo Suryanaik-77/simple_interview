@@ -3685,6 +3685,19 @@ async def lms_launch(
     if not parsed.get("is_resume", True) is True:
         log.warning(f"[LMS] Document rejected — not a resume (name={name}, email={email})")
         _launch_reject(400, "not_a_resume", "The uploaded document is not a resume. Please upload a valid resume/CV.")
+
+    # ── Resume name mismatch check ─────────────────────────────────────────
+    resume_name = parsed.get("candidate_name", "").lower().split()
+    lms_name = name.lower().split()
+    if resume_name and lms_name:
+        overlap = set(resume_name) & set(lms_name)
+        if not overlap:
+            r_display = parsed.get("candidate_name", "")
+            log.warning(f"[LMS] Resume name mismatch: resume='{r_display}' vs LMS='{name}' (email={email})")
+            _launch_reject(400, "resume_name_mismatch",
+                           f"The resume belongs to '{r_display}', but the interview is for '{name}'. "
+                           "Please upload the correct resume.")
+
     parsed["candidate_name"] = name
     parsed["email"] = email
     # Capture the candidate's OWN detected specialization BEFORE the LMS role domain
