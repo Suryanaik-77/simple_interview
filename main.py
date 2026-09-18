@@ -3630,6 +3630,7 @@ async def lms_launch(
     user_face: UploadFile = File(...),
     user_voice: UploadFile = File(...),
     callback_url: str = Form(""),
+    batch_name: str = Form(""),
 ):
     """LMS calls this to create a session and return the interview URL.
 
@@ -3650,6 +3651,7 @@ async def lms_launch(
     OPTIONAL fields:
     - domain: Interview domain (default: physical_design)
     - callback_url: LMS callback URL (deprecated)
+    - batch_name: Group label for batch-wise result aggregation
 
     Each part must be sent as a multipart FILE part with a filename. A plain form
     field containing base64 is rejected as "Expected UploadFile, received: str".
@@ -3798,6 +3800,7 @@ async def lms_launch(
         "id": sid, "mode": "mock", "resume": parsed, "phase": "greeting",
         "turn": 0, "conversation": [], "started_at": time.time(),
         "difficulty_level": 1, "lms_source": True,
+        "batch_name": batch_name.strip(),
     }
     if rekog_obs:
         session.setdefault("obs_log", []).append(rekog_obs)
@@ -3829,8 +3832,8 @@ async def lms_launch(
     scheme = request.headers.get("x-forwarded-proto", "https")
     launch_url = f"{scheme}://{host}/interview?session_id={sid}"
 
-    log.info(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain} "
-             f"— face + voice references registered")
+    log.info(f"[LMS] Launch session {sid[:8]} for {name} ({email}), domain={domain}, "
+             f"batch={batch_name!r} — face + voice references registered")
 
     # If request wants JSON (API call), return JSON; otherwise redirect to the interview
     accept = request.headers.get("accept", "")
@@ -5219,6 +5222,7 @@ def get_lms_interview_results(
     email: str = None,
     session_id: str = None,
     domain: str = None,
+    batch_name: str = None,
     limit: int = 100,
     offset: int = 0
 ):
@@ -5229,6 +5233,7 @@ def get_lms_interview_results(
     - email: Filter by candidate email
     - session_id: Get specific session
     - domain: Filter by domain (Physical Design, Design Verification, Analog Layout)
+    - batch_name: Filter by batch name (group-wise results)
     - limit: Max results (default 100, max 1000)
     - offset: Pagination offset
 
@@ -5253,6 +5258,10 @@ def get_lms_interview_results(
     if domain:
         query += " AND domain = %s"
         params.append(domain)
+
+    if batch_name:
+        query += " AND batch_name = %s"
+        params.append(batch_name)
 
     # Order by most recent first
     query += " ORDER BY completed_at DESC"
@@ -5291,6 +5300,89 @@ def get_lms_interview_results(
 
     except Exception as e:
         log.error(f"Error fetching LMS interview results: {e}")
+        raise HTTPException(500, f"Database error: {str(e)}")
+
+
+@app.get("/api/lms/batch-summary")
+def get_lms_batch_summary(batch_name: str = None):
+    """
+    GET batch-wise interview summary.
+
+    Query parameters:
+    - batch_name: Filter for a specific batch (omit to get all batches)
+
+    Returns per-batch counts, average scores, and grade distribution.
+    """
+    query = """
+        SELECT
+            batch_name,
+            COUNT(*)                              AS total_interviews,
+            COUNT(*) FILTER (WHERE eval_status = 'completed') AS completed,
+            ROUND(AVG(overall_score)::numeric, 2) AS avg_score,
+            ROUND(AVG(communication_score)::numeric, 2) AS avg_communication,
+            jsonb_object_agg(
+                COALESCE(grade, 'ungraded'),
+                grade_cnt
+            ) AS grade_distribution
+        FROM (
+            SELECT batch_name, eval_status, overall_score, communication_score, grade
+            FROM lms_interview_results
+            WHERE batch_name != ''
+        ) sub
+        LEFT JOIN LATERAL (
+            SELECT grade AS g, COUNT(*) AS grade_cnt
+            FROM lms_interview_results r2
+            WHERE r2.batch_name = sub.batch_name
+            GROUP BY grade
+        ) gd ON true
+    """
+    params = []
+    if batch_name:
+        query = """
+            SELECT
+                batch_name,
+                COUNT(*)                              AS total_interviews,
+                COUNT(*) FILTER (WHERE eval_status = 'completed') AS completed,
+                ROUND(AVG(overall_score)::numeric, 2) AS avg_score,
+                ROUND(AVG(communication_score)::numeric, 2) AS avg_communication
+            FROM lms_interview_results
+            WHERE batch_name = %s
+            GROUP BY batch_name
+        """
+        params = [batch_name]
+    else:
+        query = """
+            SELECT
+                batch_name,
+                COUNT(*)                              AS total_interviews,
+                COUNT(*) FILTER (WHERE eval_status = 'completed') AS completed,
+                ROUND(AVG(overall_score)::numeric, 2) AS avg_score,
+                ROUND(AVG(communication_score)::numeric, 2) AS avg_communication
+            FROM lms_interview_results
+            WHERE batch_name != ''
+            GROUP BY batch_name
+            ORDER BY batch_name
+        """
+        params = []
+
+    try:
+        with database.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, tuple(params))
+                rows = cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+
+        batches = [dict(zip(columns, row)) for row in rows]
+        for b in batches:
+            if b.get("avg_score") is not None:
+                b["avg_score"] = float(b["avg_score"])
+            if b.get("avg_communication") is not None:
+                b["avg_communication"] = float(b["avg_communication"])
+
+        return {"ok": True, "batches": batches}
+
+    except Exception as e:
+        log.error(f"Error fetching batch summary: {e}")
         raise HTTPException(500, f"Database error: {str(e)}")
 
 

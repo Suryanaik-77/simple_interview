@@ -278,6 +278,7 @@ SELECT
     s.session_data->'resume'->>'level'              AS level,
     (s.session_data->'resume'->>'years_experience')::real AS years_experience,
     s.session_data->>'mode'                         AS mode,
+    COALESCE(s.session_data->>'batch_name', '')     AS batch_name,
 
     -- Evaluation summary
     s.session_data->'evaluation'->>'status'         AS eval_status,
