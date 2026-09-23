@@ -5217,6 +5217,29 @@ async def sim_ai_done(data: dict):
 
 # ── LMS Integration API ────────────────────────────────────────────────────
 
+@app.get("/api/lms/quota")
+def get_lms_quota(email: str = None):
+    """GET user's interview quota/credits."""
+    if not email:
+        raise HTTPException(400, "email parameter is required")
+    quota = database.get_user_quota(email)
+    if not quota:
+        return {
+            "ok": True,
+            "email": email,
+            "total_minutes_used": 0,
+            "quota_limit_minutes": 180,
+            "remaining_minutes": 180,
+        }
+    return {
+        "ok": True,
+        "email": email,
+        "total_minutes_used": quota["total_minutes_used"],
+        "quota_limit_minutes": quota["quota_limit_minutes"],
+        "remaining_minutes": quota["remaining_minutes"],
+    }
+
+
 @app.get("/api/lms/interview-results")
 def get_lms_interview_results(
     email: str = None,
