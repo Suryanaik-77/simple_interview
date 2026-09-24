@@ -3339,7 +3339,7 @@ def _to_wav16k(audio_bytes):
 
 import random as _random
 
-SPEAKER_VERIFY_THRESHOLD = 0.85  # Resemblyzer cosine similarity threshold
+SPEAKER_VERIFY_THRESHOLD = 0.80  # Resemblyzer cosine similarity threshold
 SPEAKER_MIN_AUDIO_SEC = 15.0    # Minimum audio length for reliable embedding
 SPEAKER_MAX_AUDIO_SEC = 30.0    # Cap how much audio gets embedded per turn
 
