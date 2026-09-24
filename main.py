@@ -5329,78 +5329,70 @@ def get_lms_interview_results(
 @app.get("/api/lms/batch-summary")
 def get_lms_batch_summary(batch_name: str = None):
     """
-    GET batch-wise interview summary.
+    GET batch-wise interview summary with candidate details.
 
     Query parameters:
     - batch_name: Filter for a specific batch (omit to get all batches)
 
-    Returns per-batch counts, average scores, and grade distribution.
+    Returns per-batch counts, average scores, and list of candidates.
     """
-    query = """
-        SELECT
-            batch_name,
-            COUNT(*)                              AS total_interviews,
-            COUNT(*) FILTER (WHERE eval_status = 'completed') AS completed,
-            ROUND(AVG(overall_score)::numeric, 2) AS avg_score,
-            ROUND(AVG(communication_score)::numeric, 2) AS avg_communication,
-            jsonb_object_agg(
-                COALESCE(grade, 'ungraded'),
-                grade_cnt
-            ) AS grade_distribution
-        FROM (
-            SELECT batch_name, eval_status, overall_score, communication_score, grade
-            FROM lms_interview_results
-            WHERE batch_name != ''
-        ) sub
-        LEFT JOIN LATERAL (
-            SELECT grade AS g, COUNT(*) AS grade_cnt
-            FROM lms_interview_results r2
-            WHERE r2.batch_name = sub.batch_name
-            GROUP BY grade
-        ) gd ON true
-    """
-    params = []
-    if batch_name:
-        query = """
-            SELECT
-                batch_name,
-                COUNT(*)                              AS total_interviews,
-                COUNT(*) FILTER (WHERE eval_status = 'completed') AS completed,
-                ROUND(AVG(overall_score)::numeric, 2) AS avg_score,
-                ROUND(AVG(communication_score)::numeric, 2) AS avg_communication
-            FROM lms_interview_results
-            WHERE batch_name = %s
-            GROUP BY batch_name
-        """
-        params = [batch_name]
-    else:
-        query = """
-            SELECT
-                batch_name,
-                COUNT(*)                              AS total_interviews,
-                COUNT(*) FILTER (WHERE eval_status = 'completed') AS completed,
-                ROUND(AVG(overall_score)::numeric, 2) AS avg_score,
-                ROUND(AVG(communication_score)::numeric, 2) AS avg_communication
-            FROM lms_interview_results
-            WHERE batch_name != ''
-            GROUP BY batch_name
-            ORDER BY batch_name
-        """
-        params = []
-
     try:
         with database.get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, tuple(params))
-                rows = cur.fetchall()
-                columns = [desc[0] for desc in cur.description]
+                summary_query = """
+                    SELECT
+                        batch_name,
+                        COUNT(*)                              AS total_interviews,
+                        COUNT(*) FILTER (WHERE eval_status = 'completed') AS completed,
+                        ROUND(AVG(overall_score)::numeric, 2) AS avg_score,
+                        ROUND(AVG(communication_score)::numeric, 2) AS avg_communication
+                    FROM lms_interview_results
+                    WHERE batch_name != ''
+                """
+                params = []
+                if batch_name:
+                    summary_query += " AND batch_name = %s"
+                    params.append(batch_name)
+                summary_query += " GROUP BY batch_name ORDER BY batch_name"
+                cur.execute(summary_query, tuple(params))
+                summary_rows = cur.fetchall()
+                summary_cols = [desc[0] for desc in cur.description]
 
-        batches = [dict(zip(columns, row)) for row in rows]
-        for b in batches:
+                candidates_query = """
+                    SELECT batch_name, session_id, email, candidate_name, domain,
+                           overall_score, communication_score, grade, eval_status,
+                           verdict, started_at, completed_at
+                    FROM lms_interview_results
+                    WHERE batch_name != ''
+                """
+                params2 = []
+                if batch_name:
+                    candidates_query += " AND batch_name = %s"
+                    params2.append(batch_name)
+                candidates_query += " ORDER BY batch_name, completed_at DESC"
+                cur.execute(candidates_query, tuple(params2))
+                cand_rows = cur.fetchall()
+                cand_cols = [desc[0] for desc in cur.description]
+
+        candidates_by_batch = {}
+        for row in cand_rows:
+            c = dict(zip(cand_cols, row))
+            if c.get("started_at"):
+                c["started_at"] = c["started_at"].isoformat()
+            if c.get("completed_at"):
+                c["completed_at"] = c["completed_at"].isoformat()
+            bn = c.pop("batch_name")
+            candidates_by_batch.setdefault(bn, []).append(c)
+
+        batches = []
+        for row in summary_rows:
+            b = dict(zip(summary_cols, row))
             if b.get("avg_score") is not None:
                 b["avg_score"] = float(b["avg_score"])
             if b.get("avg_communication") is not None:
                 b["avg_communication"] = float(b["avg_communication"])
+            b["candidates"] = candidates_by_batch.get(b["batch_name"], [])
+            batches.append(b)
 
         return {"ok": True, "batches": batches}
 
