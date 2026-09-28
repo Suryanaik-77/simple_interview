@@ -2057,10 +2057,11 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     system = base_prompt + judgment_rules + jd_block + bank_block + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
-    # Add conversation history — only the last 2 turns for focused follow-up context.
-    # The full list of asked questions rides in the anti-repetition ledger below, so
-    # trimming the transcript here does NOT lose track of what's been covered.
-    for entry in history[-2:]:
+    # Add conversation history — last 4 turns so the LLM can judge answer depth
+    # and decide whether a follow-up is warranted. The full list of asked questions
+    # rides in the anti-repetition ledger below, so trimming here does NOT lose
+    # track of what's been covered.
+    for entry in history[-4:]:
         if entry.get("question"):
             messages.append({"role": "assistant", "content": entry["question"]})
         # Inject expected points BEFORE the candidate's answer so the interviewer
@@ -2081,6 +2082,21 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
                 "Only skip the follow-up if they honestly say 'I don't know' or never worked on it."})
         if entry.get("answer"):
             messages.append({"role": "user", "content": entry["answer"]})
+
+    # Nudge follow-up if the last answer was short or surface-level
+    if history and not (history[-1] or {}).get("is_followup"):
+        last_answer = (history[-1].get("answer") or "").strip()
+        word_count = len(last_answer.split()) if last_answer else 0
+        if 0 < word_count < 40:
+            messages.append({"role": "system", "content":
+                "The candidate's last answer was VERY SHORT. Ask a follow-up to dig deeper — "
+                "request a specific example, a number, or a concrete decision from their work."})
+        elif word_count < 80 and last_answer:
+            has_specifics = any(c.isdigit() for c in last_answer)
+            if not has_specifics:
+                messages.append({"role": "system", "content":
+                    "The candidate's last answer lacked concrete specifics (no numbers, tool names, "
+                    "or real examples). Consider asking a follow-up to probe for lived detail."})
 
     # Volatile per-turn steering (already-asked ledger + live project-coverage
     # counts) rides AFTER the history, not in the system prompt — it changes every
