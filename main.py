@@ -1980,8 +1980,10 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
         "symptom, what broke first, which tool command, a real example from their work. Do NOT move on "
         "until you've spent one follow-up attempting to pin it down.\n"
         "- 'I don't know' / didn't do it → acknowledge and switch topics immediately.\n"
-        "FOLLOW-UPS ARE REQUIRED when an answer is vague or hand-wavy. You are under-using follow-ups if "
-        "most answers go unchallenged. At most one follow-up per topic; NEVER two follow-ups in a row.\n"
+        "FOLLOW-UPS ARE REQUIRED when an answer is vague or hand-wavy — roughly 40-50% of questions "
+        "should have a follow-up. You are under-using follow-ups if most answers go unchallenged. "
+        "A good interviewer probes surface-level answers, not just wrong ones. At most one follow-up "
+        "per topic; NEVER two follow-ups in a row.\n"
         "\nQUESTION TYPES — use all three; aim roughly 35% PROJECT / 45% CONCEPT / 20% SCENARIO. "
         "CONCEPT is the type you under-ask, so favour it whenever it's tied or behind:\n"
         "- CONCEPT: a fundamentals question that asks for BOTH definition AND application/reasoning. "
@@ -2072,10 +2074,11 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
             messages.append({"role": "system", "content":
                 f"EXPECTED POINTS for your last question — CORE (must cover): {_core_txt}. "
                 f"NICE-TO-HAVE: {_extra_txt}.\n"
-                "If the candidate covered the CORE points, MOVE ON to a new topic — do NOT "
-                "follow up just to collect nice-to-have points. Only ask a follow-up if a CORE "
-                "point is missing or shaky AND the candidate claims to have done that work. If "
-                "they honestly say they never faced or worked on this, do not push — move on."})
+                "If the candidate covered the CORE points WITH specifics (real numbers, tool names, "
+                "concrete decisions), move on. But if they only gave textbook vocabulary without "
+                "lived detail — even if they mentioned the right terms — you MUST ask ONE follow-up "
+                "demanding a concrete example, a number, or a specific decision before moving on. "
+                "Only skip the follow-up if they honestly say 'I don't know' or never worked on it."})
         if entry.get("answer"):
             messages.append({"role": "user", "content": entry["answer"]})
 
