@@ -869,7 +869,7 @@ def tts_chunk(text: str) -> bytes:
 
     if provider == "inworld" and INWORLD_API_KEY:
         iw_body = {"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}
-        if "ranjitha" in (voice or "").lower():
+        if "sia" in (voice or "").lower():
             iw_body["audioConfig"] = {"speakingRate": 1.25}
         try:
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice:stream",
@@ -1492,7 +1492,7 @@ def synthesize_speech(text: str) -> tuple[str, int]:
     if provider == "inworld" and INWORLD_API_KEY:
         try:
             iw_body = {"text": text[:2000], "voiceId": voice or INWORLD_VOICE_ID, "modelId": INWORLD_MODEL_ID}
-            if "ranjitha" in (voice or "").lower():
+            if "sia" in (voice or "").lower():
                 iw_body["audioConfig"] = {"speakingRate": 1.25}
             r = http_requests.post("https://api.inworld.ai/tts/v1/voice",
                 headers={"Authorization": f"Basic {INWORLD_API_KEY}", "Content-Type": "application/json"},
@@ -2803,7 +2803,7 @@ def generate_greeting(session) -> str:
 
     context = f"""Generate a short opening greeting for a technical interview.
 
-Your name: Ranjitha
+Your name: Sia
 Time: {time_of_day}
 Candidate name: {call_name}
 Returning: {'yes, interviewed ' + str(len(prev_sessions)) + ' time(s) before' if prev_sessions else 'no, first time'}
@@ -2811,8 +2811,8 @@ Returning: {'yes, interviewed ' + str(len(prev_sessions)) + ' time(s) before' if
 Rules:
 - Maximum 1 sentence, 8-20 words. Never more than 20 words.
 - Introduce yourself by name, greet them, ask them to introduce themselves
-- First time: "Good evening Veera, I'm Ranjitha. Tell me about yourself."
-- Returning: "Good evening Veera, I'm Ranjitha. Thank you for joining again, tell me about yourself."
+- First time: "Good evening Veera, I'm Sia. Tell me about yourself."
+- Returning: "Good evening Veera, I'm Sia. Thank you for joining again, tell me about yourself."
 - Plain spoken. No "thanks so much", "before we dive in", "why don't you" or scripted phrases.
 - Do NOT ask technical questions yet
 - Do NOT mention domain, scoring, or evaluation
@@ -2832,7 +2832,7 @@ Rules:
                        cache_write_tokens=greet_usage.get("cache_creation_input_tokens", 0)))
     except:
         name = (resume.get("candidate_name", "") or "").split()[0] if resume.get("candidate_name") else ""
-        greeting = f"Good {time_of_day}{' ' + name if name else ''}, I'm Ranjitha. Tell me about yourself."
+        greeting = f"Good {time_of_day}{' ' + name if name else ''}, I'm Sia. Tell me about yourself."
 
     if prev_sessions:
         session["is_returning"] = True

@@ -596,7 +596,7 @@ textarea::placeholder{color:var(--t4)}
               <option value="Alex">Alex (American)</option>
             </optgroup>
             <optgroup label="Inworld — Custom" id="vc-voices-inworld-custom">
-              <option value="prime-tiger-2013__ranjitha">Ranjitha (clone)</option>
+              <option value="prime-tiger-2013__sia">Sia (clone)</option>
               <option value="prime-tiger-2013__indhu">Indhu (clone)</option>
               <option value="default--jhuwmpq8kd6shf2emd0ma__rita">Ritu (clone)</option>
             </optgroup>
@@ -1015,7 +1015,7 @@ textarea::placeholder{color:var(--t4)}
           <div style="width:8px;height:8px;border-radius:50%;background:var(--purple)"></div>
           <div style="font-size:13px;font-weight:600;color:var(--t)">Interviewer System Prompts</div>
         </div>
-        <div style="font-size:11px;color:var(--t3);margin-bottom:14px">9 system prompts (3 domains × 3 levels). Select domain and level to view the prompt used by Ranjitha for that combination.</div>
+        <div style="font-size:11px;color:var(--t3);margin-bottom:14px">9 system prompts (3 domains × 3 levels). Select domain and level to view the prompt used by Sia for that combination.</div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;margin-bottom:12px;align-items:end">
           <div>
@@ -1380,7 +1380,7 @@ function fillInterviewerSample() {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   if (_pgRecording) stopPgMic();
   const v = getPgVars();
-  document.getElementById('pg-system').value = `You are Ranjitha, a senior VLSI ${v.domain} interviewer at a semiconductor company. You are conducting a mock interview.
+  document.getElementById('pg-system').value = `You are Sia, a senior VLSI ${v.domain} interviewer at a semiconductor company. You are conducting a mock interview.
 
 CANDIDATE: ${v.name} | ${v.domain} | ${v.level}
 Resume tools: ${v.tools}
