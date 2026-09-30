@@ -2758,7 +2758,10 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     # for scoring, and tag classification (follow-up / scenario / type).
     if not llm_end and not is_pause_prompt:
         resume = session.get("resume", {})
-        # Expected points generation removed per user request
+        threading.Thread(target=generate_expected_points,
+                         args=(question, resume.get("domain", "physical_design"),
+                               resume.get("level", "trained_fresher"), session),
+                         daemon=True).start()
         threading.Thread(target=classify_question_tags,
                          args=(session, question), daemon=True).start()
 
