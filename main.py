@@ -1883,7 +1883,7 @@ def build_interview_prompt(session):
                     prev_projects.add(p.get("name", str(p)) if isinstance(p, dict) else str(p))
 
             recent_questions = []
-            for ps in prev_sessions[-5:]:
+            for ps in prev_sessions[-3:]:
                 for q in ps.get("questions_asked", []):
                     if _is_real_question(q):
                         recent_questions.append(q)
@@ -1975,15 +1975,11 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
         "PICK YOUR NEXT MOVE from the candidate's last answer:\n"
         "- Solid AND detailed (with specifics, numbers, concrete examples) → move to a NEW area and "
         "deliberately switch the KIND of question (see QUESTION TYPES).\n"
-        "- Vague/surface-level/textbook-only (vocabulary without lived detail, no specifics) → you MUST "
-        "ask a follow-up that demands concrete evidence: a number, a specific decision you made, the exact "
-        "symptom, what broke first, which tool command, a real example from their work. Do NOT move on "
-        "until you've spent one follow-up attempting to pin it down.\n"
+        "- Missing core points → ask ONE follow-up targeting the specific point they missed. "
+        "Do not rephrase the same question — ask directly about what was missing.\n"
         "- 'I don't know' / didn't do it → acknowledge and switch topics immediately.\n"
-        "FOLLOW-UPS ARE REQUIRED when an answer is vague or hand-wavy — roughly 40-50% of questions "
-        "should have a follow-up. You are under-using follow-ups if most answers go unchallenged. "
-        "A good interviewer probes surface-level answers, not just wrong ones. At most one follow-up "
-        "per topic; NEVER two follow-ups in a row.\n"
+        "FOLLOW-UPS: When the candidate misses a core point in their answer, ask ONE follow-up "
+        "about what they missed. At most one follow-up per topic; NEVER two follow-ups in a row.\n"
         "\nQUESTION TYPES — use all three; aim roughly 35% PROJECT / 45% CONCEPT / 20% SCENARIO. "
         "CONCEPT is the type you under-ask, so favour it whenever it's tied or behind:\n"
         "- CONCEPT: a fundamentals question that asks for BOTH definition AND application/reasoning. "
@@ -2075,28 +2071,27 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
             messages.append({"role": "system", "content":
                 f"EXPECTED POINTS for your last question — CORE (must cover): {_core_txt}. "
                 f"NICE-TO-HAVE: {_extra_txt}.\n"
-                "If the candidate covered the CORE points WITH specifics (real numbers, tool names, "
-                "concrete decisions), move on. But if they only gave textbook vocabulary without "
-                "lived detail — even if they mentioned the right terms — you MUST ask ONE follow-up "
-                "demanding a concrete example, a number, or a specific decision before moving on. "
-                "Only skip the follow-up if they honestly say 'I don't know' or never worked on it."})
+                "If the candidate MISSED any CORE points, ask ONE follow-up question targeting "
+                "the missed point. Do NOT repeat the same question — ask specifically about what "
+                "they missed. If they covered all CORE points or said 'I don't know', move on."})
         if entry.get("answer"):
             messages.append({"role": "user", "content": entry["answer"]})
 
-    # Nudge follow-up if the last answer was short or surface-level
+    # Nudge follow-up if the last answer missed expected points
     if history and not (history[-1] or {}).get("is_followup"):
-        last_answer = (history[-1].get("answer") or "").strip()
-        word_count = len(last_answer.split()) if last_answer else 0
-        if 0 < word_count < 40:
-            messages.append({"role": "system", "content":
-                "The candidate's last answer was VERY SHORT. Ask a follow-up to dig deeper — "
-                "request a specific example, a number, or a concrete decision from their work."})
-        elif word_count < 80 and last_answer:
-            has_specifics = any(c.isdigit() for c in last_answer)
-            if not has_specifics:
+        last_entry = history[-1]
+        last_answer = (last_entry.get("answer") or "").strip()
+        if last_answer and last_entry.get("expected_points"):
+            _np = _norm_expected_points(last_entry["expected_points"])
+            core_points = [t for t, w in _np if w == "core"]
+            answer_lower = last_answer.lower()
+            missed = [p for p in core_points if p.lower() not in answer_lower]
+            if missed:
+                missed_txt = "; ".join(missed[:3])
+                log.info(f"[FollowupNudge] Missed core points: {missed_txt}")
                 messages.append({"role": "system", "content":
-                    "The candidate's last answer lacked concrete specifics (no numbers, tool names, "
-                    "or real examples). Consider asking a follow-up to probe for lived detail."})
+                    f"The candidate MISSED these core points: {missed_txt}. "
+                    "Ask ONE follow-up question about the most important missed point."})
 
     # Volatile per-turn steering (already-asked ledger + live project-coverage
     # counts) rides AFTER the history, not in the system prompt — it changes every
