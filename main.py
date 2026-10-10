@@ -520,6 +520,7 @@ async def login(data: dict):
 # Pricing per 1M tokens (input, output) — keep in sync with AVAILABLE_MODELS
 _LLM_PRICING = {
     "gpt-4o-mini":                              (0.15, 0.60),
+    "gpt-4o-mini-transcribe":                   (1.25, 5.00),
     "gpt-4.1-mini":                             (0.40, 1.60),
     "gpt-5-nano":                                (0.05, 0.40),
     "us.anthropic.claude-haiku-4-5-20251001-v1:0": (1.00, 5.00),
@@ -540,7 +541,7 @@ _LLM_PRICING = {
     "us.amazon.nova-premier-v1:0":              (2.50, 10.00),
 }
 
-# STT pricing per minute
+# STT pricing per minute (fallback — OpenAI models use actual token-based cost from API response)
 _STT_PRICING = {
     "gpt-4o-mini-transcribe": 0.003,
     "whisper-1": 0.006,
@@ -552,7 +553,7 @@ _STT_PRICING = {
 # TTS pricing per 1K characters (estimates)
 _TTS_PRICING = {
     "deepgram": 0.015,
-    "inworld": 0.015,
+    "inworld": 0.005,  # $5/1M chars (TTS-1.5 Mini)
     "openai": 0.015,
     "kugel": 0.046,  # ~€0.043/min (Turbo) ≈ $0.046/1K chars at ~1000 chars/min English
 }
@@ -1360,8 +1361,8 @@ def _is_stt_hallucination(text: str) -> bool:
         return True
     return False
 
-def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") -> tuple[str, int]:
-    """Returns (transcript, latency_ms)."""
+def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") -> tuple[str, int, dict]:
+    """Returns (transcript, latency_ms, stt_usage) where stt_usage has cost_usd and token counts when available."""
     provider = RUNTIME_CONFIG.get("stt_provider", "openai")
     model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
     tmp_path = None
@@ -1385,9 +1386,9 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
             latency = round((time.time() - t0) * 1000)
             if _is_stt_hallucination(text):
                 log.warning(f"[STT] Inworld/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
-                return "", latency
+                return "", latency, {}
             log.info(f"[STT] Inworld/{model} {latency}ms — {len(text)} chars")
-            return text, latency
+            return text, latency, {}
         except Exception as e:
             log.error(f"[STT] Inworld error: {e}, falling back to OpenAI")
 
@@ -1405,9 +1406,9 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
             latency = round((time.time() - t0) * 1000)
             if _is_stt_hallucination(text):
                 log.warning(f"[STT] Deepgram/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
-                return "", latency
+                return "", latency, {}
             log.info(f"[STT] Deepgram/{model} {latency}ms — {len(text)} chars")
-            return text, latency
+            return text, latency, {}
         except Exception as e:
             log.error(f"[STT] Deepgram error: {e}, falling back to OpenAI")
 
@@ -1417,21 +1418,30 @@ def transcribe_audio(audio_bytes: bytes, ext: str = "webm", domain: str = "") ->
         with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as f:
             f.write(audio_bytes); tmp_path = f.name
         with open(tmp_path, "rb") as audio_file:
+            stt_model = model if provider == "openai" else "gpt-4o-mini-transcribe"
             response = openai_client.audio.transcriptions.create(
-                model=model if provider == "openai" else "gpt-4o-mini-transcribe",
+                model=stt_model,
                 file=audio_file, language="en",
                 prompt=stt_prompt,
             )
         latency = round((time.time() - t0) * 1000)
         text = response.text.strip() if hasattr(response, "text") else str(response).strip()
+        stt_usage = {}
+        if hasattr(response, "usage") and response.usage:
+            in_tok = getattr(response.usage, "input_tokens", 0) or 0
+            out_tok = getattr(response.usage, "output_tokens", 0) or 0
+            stt_cost = _calc_llm_cost(stt_model, in_tok, out_tok)
+            stt_usage = {"input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": stt_cost, "model": stt_model}
+            log.info(f"[STT] OpenAI/{stt_model} {latency}ms — {len(text)} chars | in={in_tok} out={out_tok} ${stt_cost:.4f}")
+        else:
+            log.info(f"[STT] OpenAI/{stt_model} {latency}ms — {len(text)} chars (domain={domain or 'generic'})")
         if _is_stt_hallucination(text):
-            log.warning(f"[STT] OpenAI/{model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
-            return "", latency
-        log.info(f"[STT] OpenAI/{model} {latency}ms — {len(text)} chars (domain={domain or 'generic'})")
-        return text, latency
+            log.warning(f"[STT] OpenAI/{stt_model} {latency}ms — HALLUCINATION filtered: \"{text}\"")
+            return "", latency, stt_usage
+        return text, latency, stt_usage
     except Exception as e:
         log.error(f"[STT] Error: {e}")
-        return "", round((time.time() - t0) * 1000)
+        return "", round((time.time() - t0) * 1000), {}
     finally:
         if tmp_path:
             try: os.unlink(tmp_path)
@@ -3685,6 +3695,8 @@ async def lms_launch(
                        f"of their {quota['quota_limit_minutes']:.0f}-minute lifetime quota. "
                        f"Please contact support to extend quota.")
 
+    log.info(f"[LMS-Launch] email={email} domain_raw='{domain}' name='{name}'")
+    domain = domain.strip().lower().replace(" ", "_").replace("-", "_")
     domain = DOMAIN_ALIASES.get(domain, domain)
     if domain not in SUPPORTED_DOMAINS:
         _launch_reject(400, "unsupported_domain",
@@ -4358,14 +4370,20 @@ def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form(""
     session = sessions.get(session_id)
     domain = (session.get("resume", {}).get("domain", "") if session else "") or ""
     audio_duration_ms = _get_audio_duration_ms(audio_bytes, ext)
-    transcript, stt_ms = transcribe_audio(audio_bytes, ext, domain=domain)
-    # Store STT timing + cost in session (use actual audio duration for cost)
+    transcript, stt_ms, stt_usage = transcribe_audio(audio_bytes, ext, domain=domain)
     stt_model = RUNTIME_CONFIG.get("stt_model", "gpt-4o-mini-transcribe")
-    cost_duration = audio_duration_ms if audio_duration_ms > 0 else stt_ms  # fallback to latency
+    if stt_usage.get("cost_usd"):
+        stt_cost = stt_usage["cost_usd"]
+    else:
+        cost_duration = audio_duration_ms if audio_duration_ms > 0 else stt_ms
+        stt_cost = _calc_stt_cost(stt_model, cost_duration)
     if session:
-        session.setdefault("obs_log", []).append(
-            _obs_entry("STT", stt_model, stt_ms, "success" if transcript else "failure",
-                       chars=len(transcript), cost_usd=_calc_stt_cost(stt_model, cost_duration)))
+        stt_entry = _obs_entry("STT", stt_model, stt_ms, "success" if transcript else "failure",
+                               chars=len(transcript), cost_usd=stt_cost)
+        if stt_usage.get("input_tokens"):
+            stt_entry["input_tokens"] = stt_usage["input_tokens"]
+            stt_entry["output_tokens"] = stt_usage.get("output_tokens", 0)
+        session.setdefault("obs_log", []).append(stt_entry)
         # Background speaker verification
         turn = session.get("turn", 0)
         if _should_run_speaker_check(session, turn):
@@ -5815,12 +5833,15 @@ async def stt_test(audio: UploadFile = File(...), provider: str = Form("openai")
     RUNTIME_CONFIG["stt_provider"] = provider
     RUNTIME_CONFIG["stt_model"] = model
     try:
-        transcript, latency_ms = transcribe_audio(audio_bytes, ext)
+        transcript, latency_ms, stt_usage = transcribe_audio(audio_bytes, ext)
     finally:
         RUNTIME_CONFIG["stt_provider"] = orig_provider
         RUNTIME_CONFIG["stt_model"] = orig_model
 
-    cost = _calc_stt_cost(model, audio_duration_ms if audio_duration_ms > 0 else latency_ms)
+    if stt_usage.get("cost_usd"):
+        cost = stt_usage["cost_usd"]
+    else:
+        cost = _calc_stt_cost(model, audio_duration_ms if audio_duration_ms > 0 else latency_ms)
     return {
         "transcript": transcript,
         "latency_ms": latency_ms,
@@ -6458,6 +6479,110 @@ def obs_logs(limit: int = 500, _=Depends(require_admin)):
                 "error": log.get("error"),
             })
     return all_logs[-limit:]
+
+
+@app.get("/api/cost/breakdown")
+def api_cost_breakdown(days: int = 30):
+    """API cost breakdown by service type (LLM, STT, TTS, Rekognition) and provider/model.
+    Used by LMS to display cost analytics. No admin auth — called from LMS backend."""
+    cutoff = time.time() - (days * 86400)
+    all_logs = []
+    session_costs = []
+    for sid, s in sessions.items():
+        if s.get("started_at", 0) < cutoff:
+            continue
+        logs = s.get("obs_log", [])
+        all_logs.extend(logs)
+        sess_cost = sum(l.get("cost_usd", 0) for l in logs)
+        if sess_cost > 0:
+            email = s.get("resume", {}).get("email", "unknown")
+            session_costs.append({
+                "session_id": sid,
+                "email": email,
+                "date": datetime.fromtimestamp(s.get("started_at", 0)).strftime("%Y-%m-%d %H:%M"),
+                "total_cost_usd": round(sess_cost, 6),
+            })
+
+    def _classify(step):
+        s = step.upper()
+        if s.startswith("LLM"):
+            return "llm"
+        if s.startswith("STT"):
+            return "stt"
+        if s.startswith("TTS"):
+            return "tts"
+        if "REKOGNITION" in s or "REKOG" in s:
+            return "rekognition"
+        return "other"
+
+    llm = {"total_cost": 0, "total_calls": 0, "input_tokens": 0, "output_tokens": 0, "by_model": {}}
+    stt = {"total_cost": 0, "total_calls": 0, "input_tokens": 0, "output_tokens": 0, "chars": 0, "by_model": {}}
+    tts = {"total_cost": 0, "total_calls": 0, "chars": 0, "by_model": {}}
+    rekog = {"total_cost": 0, "total_calls": 0}
+    grand_total = 0
+
+    for l in all_logs:
+        cost = l.get("cost_usd", 0)
+        model = l.get("model", "unknown")
+        cat = _classify(l.get("step", ""))
+        grand_total += cost
+
+        if cat == "llm":
+            llm["total_cost"] += cost
+            llm["total_calls"] += 1
+            llm["input_tokens"] += l.get("input_tokens", 0)
+            llm["output_tokens"] += l.get("output_tokens", 0)
+            m = llm["by_model"].setdefault(model, {"cost": 0, "calls": 0, "input_tokens": 0, "output_tokens": 0})
+            m["cost"] += cost
+            m["calls"] += 1
+            m["input_tokens"] += l.get("input_tokens", 0)
+            m["output_tokens"] += l.get("output_tokens", 0)
+
+        elif cat == "stt":
+            stt["total_cost"] += cost
+            stt["total_calls"] += 1
+            stt["input_tokens"] += l.get("input_tokens", 0)
+            stt["output_tokens"] += l.get("output_tokens", 0)
+            stt["chars"] += l.get("chars", 0)
+            m = stt["by_model"].setdefault(model, {"cost": 0, "calls": 0, "chars": 0})
+            m["cost"] += cost
+            m["calls"] += 1
+            m["chars"] += l.get("chars", 0)
+
+        elif cat == "tts":
+            tts["total_cost"] += cost
+            tts["total_calls"] += 1
+            tts["chars"] += l.get("chars", 0)
+            m = tts["by_model"].setdefault(model, {"cost": 0, "calls": 0, "chars": 0})
+            m["cost"] += cost
+            m["calls"] += 1
+            m["chars"] += l.get("chars", 0)
+
+        elif cat == "rekognition":
+            rekog["total_cost"] += cost
+            rekog["total_calls"] += 1
+
+    def _round_dict(d):
+        for k, v in d.items():
+            if isinstance(v, float):
+                d[k] = round(v, 6)
+            elif isinstance(v, dict):
+                _round_dict(v)
+
+    for bucket in (llm, stt, tts, rekog):
+        _round_dict(bucket)
+
+    session_costs.sort(key=lambda x: x["total_cost_usd"], reverse=True)
+
+    return {
+        "days": days,
+        "grand_total_usd": round(grand_total, 6),
+        "llm": llm,
+        "stt": stt,
+        "tts": tts,
+        "rekognition": rekog,
+        "top_sessions": session_costs[:20],
+    }
 
 
 # ── Admin: Expert Review ─────────────────────────────────────────────────
