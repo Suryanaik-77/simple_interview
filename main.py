@@ -6585,6 +6585,146 @@ def api_cost_breakdown(days: int = 30):
     }
 
 
+@app.get("/api/cost/session/{sid}")
+def api_cost_session(sid: str):
+    """Per-interview cost breakdown by service type and each API call."""
+    session = sessions.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    logs = session.get("obs_log", [])
+    email = session.get("resume", {}).get("email", "")
+    domain = session.get("resume", {}).get("domain", "")
+    turns = session.get("turn", 0)
+    started = session.get("started_at", 0)
+    duration = session.get("duration_minutes", 0)
+
+    def _classify(step):
+        s = step.upper()
+        if s.startswith("LLM"):
+            return "llm"
+        if s.startswith("STT"):
+            return "stt"
+        if s.startswith("TTS"):
+            return "tts"
+        if "REKOGNITION" in s or "REKOG" in s:
+            return "rekognition"
+        return "other"
+
+    llm = {"total_cost": 0, "calls": 0, "input_tokens": 0, "output_tokens": 0, "details": []}
+    stt = {"total_cost": 0, "calls": 0, "input_tokens": 0, "output_tokens": 0, "chars": 0, "details": []}
+    tts = {"total_cost": 0, "calls": 0, "chars": 0, "details": []}
+    rekog = {"total_cost": 0, "calls": 0, "details": []}
+    grand_total = 0
+
+    for l in logs:
+        cost = l.get("cost_usd", 0)
+        model = l.get("model", "unknown")
+        step = l.get("step", "")
+        cat = _classify(step)
+        grand_total += cost
+        ts = l.get("ts", started)
+        detail = {
+            "step": step,
+            "model": model,
+            "cost_usd": round(cost, 6),
+            "latency_ms": l.get("latency_ms", 0),
+            "status": l.get("status", "success"),
+            "time": datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else "",
+        }
+
+        if cat == "llm":
+            detail["input_tokens"] = l.get("input_tokens", 0)
+            detail["output_tokens"] = l.get("output_tokens", 0)
+            llm["total_cost"] += cost
+            llm["calls"] += 1
+            llm["input_tokens"] += l.get("input_tokens", 0)
+            llm["output_tokens"] += l.get("output_tokens", 0)
+            llm["details"].append(detail)
+
+        elif cat == "stt":
+            detail["chars"] = l.get("chars", 0)
+            detail["input_tokens"] = l.get("input_tokens", 0)
+            detail["output_tokens"] = l.get("output_tokens", 0)
+            stt["total_cost"] += cost
+            stt["calls"] += 1
+            stt["input_tokens"] += l.get("input_tokens", 0)
+            stt["output_tokens"] += l.get("output_tokens", 0)
+            stt["chars"] += l.get("chars", 0)
+            stt["details"].append(detail)
+
+        elif cat == "tts":
+            detail["chars"] = l.get("chars", 0)
+            tts["total_cost"] += cost
+            tts["calls"] += 1
+            tts["chars"] += l.get("chars", 0)
+            tts["details"].append(detail)
+
+        elif cat == "rekognition":
+            rekog["total_cost"] += cost
+            rekog["calls"] += 1
+            rekog["details"].append(detail)
+
+    for bucket in (llm, stt, tts, rekog):
+        bucket["total_cost"] = round(bucket["total_cost"], 6)
+
+    return {
+        "session_id": sid,
+        "email": email,
+        "domain": domain,
+        "turns": turns,
+        "duration_minutes": duration,
+        "date": datetime.fromtimestamp(started).strftime("%Y-%m-%d %H:%M") if started else "",
+        "grand_total_usd": round(grand_total, 6),
+        "llm": llm,
+        "stt": stt,
+        "tts": tts,
+        "rekognition": rekog,
+    }
+
+
+@app.get("/api/cost/sessions")
+def api_cost_sessions(days: int = 30):
+    """List all interviews with their cost breakdown summary. Used by LMS."""
+    cutoff = time.time() - (days * 86400)
+    results = []
+    for sid, s in sessions.items():
+        if s.get("started_at", 0) < cutoff:
+            continue
+        logs = s.get("obs_log", [])
+        if not logs:
+            continue
+        llm_cost = stt_cost = tts_cost = rekog_cost = 0
+        for l in logs:
+            cost = l.get("cost_usd", 0)
+            step = l.get("step", "").upper()
+            if step.startswith("LLM"):
+                llm_cost += cost
+            elif step.startswith("STT"):
+                stt_cost += cost
+            elif step.startswith("TTS"):
+                tts_cost += cost
+            elif "REKOGNITION" in step:
+                rekog_cost += cost
+        total = llm_cost + stt_cost + tts_cost + rekog_cost
+        if total > 0:
+            results.append({
+                "session_id": sid,
+                "email": s.get("resume", {}).get("email", ""),
+                "domain": s.get("resume", {}).get("domain", ""),
+                "turns": s.get("turn", 0),
+                "duration_minutes": s.get("duration_minutes", 0),
+                "date": datetime.fromtimestamp(s.get("started_at", 0)).strftime("%Y-%m-%d %H:%M"),
+                "total_cost_usd": round(total, 6),
+                "llm_cost": round(llm_cost, 6),
+                "stt_cost": round(stt_cost, 6),
+                "tts_cost": round(tts_cost, 6),
+                "rekognition_cost": round(rekog_cost, 6),
+            })
+    results.sort(key=lambda x: x["date"], reverse=True)
+    return results
+
+
 # ── Admin: Expert Review ─────────────────────────────────────────────────
 
 @app.post("/api/admin/review")
