@@ -700,10 +700,6 @@ QUESTIONS = [
     {"domain": "design_verification", "topic": "UVM", "difficulty": "advanced", "question_text": "You own verification of an IP from scratch — walk me through your steps from plan to sign-off.", "expected_points": ["understand spec and features", "write the verification plan", "build env, write tests and coverage", "regression, coverage closure and review sign-off"]},
 
     # ═══════════════════════════════════════════════════════════════
-    # DESIGN VERIFICATION — Digital Logic Design fundamentals
-    # ═══════════════════════════════════════════════════════════════
-    # --- Number Systems ---
-    {"domain": "design_verification", "topic": "Number Systems", "difficulty": "basic", "question_text": "How do you convert a decimal number to hexadecimal, and why do we use hex in digital design instead of just binary?", "expected_points": ["repeated division-by-16 with remainders", "hex digit maps to exactly 4 binary bits", "much more compact and readable than long binary strings", "used for addresses, buses, register values"]},
     {"domain": "design_verification", "topic": "Number Systems", "difficulty": "basic", "question_text": "Convert 0xAF to decimal and BCD — why does BCD need more bits than pure binary for the same value?", "expected_points": ["0xAF = 10x16+15 = 175 decimal", "binary is 1010_1111 (8 bits)", "BCD encodes each decimal digit separately: 0001 0111 0101 (12 bits)", "BCD wastes bits because each 4-bit nibble only uses 10 of 16 codes"]},
     {"domain": "design_verification", "topic": "Number Systems", "difficulty": "intermediate", "question_text": "Why does the octal system map cleanly to binary while decimal does not, and where is octal still used in practice?", "expected_points": ["octal base 8 = 2^3, so each octal digit maps to exactly 3 binary bits", "decimal 10 is not a power of 2 so no clean bit-group mapping", "octal used in Unix file permissions (chmod 755)", "hex (base 16 = 2^4) largely replaced octal for hardware work"]},
 

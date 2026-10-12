@@ -50,7 +50,14 @@ log = logging.getLogger("interview")
 
 # ── App ──────────────────────────────────────────────────────────────────
 app = FastAPI(title="Simple Interview Agent")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+_ALLOWED_ORIGINS = [
+    "https://mockin.eduspark.sumedhait.com",
+    "https://stage-lms.sumedhait.com",
+    "https://lms.sumedhait.com",
+    "http://localhost:8001",
+    "http://localhost:3000",
+]
+app.add_middleware(CORSMiddleware, allow_origins=_ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 
 @app.exception_handler(RequestValidationError)
@@ -1587,6 +1594,7 @@ def _norm_expected_points(ep):
     return out
 
 
+
 def generate_expected_points(question: str, domain: str, level: str, session: dict):
     """Background LLM call to generate expected key points for a question, each tagged
     with a weight (core = essential, extra = nice-to-have). Stored on the conversation
@@ -2063,11 +2071,12 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     system = base_prompt + judgment_rules + jd_block + bank_block + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
-    # Add conversation history — last 4 turns so the LLM can judge answer depth
-    # and decide whether a follow-up is warranted. The full list of asked questions
-    # rides in the anti-repetition ledger below, so trimming here does NOT lose
-    # track of what's been covered.
-    for entry in history[-4:]:
+    # Add conversation history — last 6 turns so the LLM has enough context to
+    # judge answer depth, follow up on earlier references, and maintain coherent
+    # conversation flow. The full list of asked questions rides in the
+    # anti-repetition ledger below, so trimming here does NOT lose track of
+    # what's been covered.
+    for entry in history[-6:]:
         if entry.get("question"):
             messages.append({"role": "assistant", "content": entry["question"]})
         # Inject expected points BEFORE the candidate's answer so the interviewer
@@ -2087,7 +2096,7 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
         if entry.get("answer"):
             messages.append({"role": "user", "content": entry["answer"]})
 
-    # Nudge follow-up if the last answer missed expected points
+    # Nudge follow-up if the last answer missed expected core points
     if history and not (history[-1] or {}).get("is_followup"):
         last_entry = history[-1]
         last_answer = (last_entry.get("answer") or "").strip()
@@ -2143,8 +2152,8 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
         n_typed = n_proj + n_conc + n_scen
         mix_reminder = (
             f"\n\nTYPE MIX so far — PROJECT: {n_proj}, CONCEPT: {n_conc}, "
-            f"SCENARIO: {n_scen}. Target over the session is roughly 40% project / "
-            "40% concept / 20% scenario. For THIS question, pick the type furthest "
+            f"SCENARIO: {n_scen}. Target over the session is roughly 35% project / "
+            "45% concept / 20% scenario. For THIS question, pick the type furthest "
             "below its share; that takes priority over project rotation. A concept "
             "check must be a clean standalone fundamentals question — do NOT tie it "
             "to their project or bolt it onto something they just described. A "
@@ -2164,6 +2173,24 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
                 "\n\nSCENARIOS OVER QUOTA — scenarios are already past their 20% share. "
                 "Do NOT ask another scenario now; ask a PROJECT question or a standalone "
                 "CONCEPT check, whichever is further behind.")
+        # Time pacing — ensure missing question types get covered before time runs out
+        started_at = session.get("started_at", 0)
+        if started_at:
+            elapsed = time.time() - started_at
+            remaining_pct = max(0, 1 - elapsed / SESSION_MAX_DURATION_SEC)
+            if remaining_pct < 0.35 and n_typed >= 4:
+                missing_types = []
+                if n_conc == 0:
+                    missing_types.append("CONCEPT")
+                if n_scen == 0:
+                    missing_types.append("SCENARIO")
+                if n_proj == 0:
+                    missing_types.append("PROJECT")
+                if missing_types:
+                    mix_reminder += (
+                        f"\n\nTIME RUNNING LOW — about {int(remaining_pct * 100)}% of the interview "
+                        f"remains and you have NOT asked any {'/'.join(missing_types)} questions yet. "
+                        f"Prioritize asking a {missing_types[0]} question NOW.")
     # Opening + follow-up guards fire even on turn 1 (when the mix block above is
     # skipped), so the first question opens easy and we never chain two follow-ups
     # in a row — the two failure modes the persona file alone can't enforce.
@@ -2626,7 +2653,6 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     is_repeat_request = _is_repeat_request(candidate_answer)
 
     if is_repeat_request and session["conversation"]:
-        # Don't store "repeat" as an answer - just return the same question
         last_question = session["conversation"][-1].get("question", "")
         log.info(f"[RepeatRequest] Detected repeat request: \"{candidate_answer}\" - repeating question")
         return {
@@ -2636,6 +2662,25 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
             "llm_ms": 0,
             "repeat_question": True
         }
+
+    # STT failure recovery — if transcript is empty (not a deliberate silence),
+    # ask the candidate to repeat instead of moving on silently
+    if not no_response and not candidate_answer.strip() and session["conversation"]:
+        stt_retry_count = session.get("_stt_retry_count", 0)
+        if stt_retry_count < 2:
+            session["_stt_retry_count"] = stt_retry_count + 1
+            log.info(f"[STT-Recovery] Empty transcript, asking to repeat (attempt {stt_retry_count + 1})")
+            return {
+                "question": "I didn't catch that clearly. Could you please repeat your answer?",
+                "should_end": False,
+                "pause_prompt": False,
+                "llm_ms": 0,
+                "repeat_question": True
+            }
+        else:
+            session["_stt_retry_count"] = 0
+            log.info("[STT-Recovery] Max retries reached, treating as no response")
+            no_response = True
 
     # Add candidate's answer to history.
     # If the last LLM response was a pause prompt, append to existing answer.
@@ -2650,6 +2695,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         else:
             session["conversation"][-1]["answer"] = candidate_answer
         if not no_response:
+            session.pop("_stt_retry_count", None)
             if not session.get("first_real_answer_at"):
                 session["first_real_answer_at"] = time.time()
             turn_idx = len(session["conversation"]) - 1
@@ -2778,6 +2824,25 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     return {"question": question, "should_end": llm_end, "pause_prompt": is_pause_prompt, "llm_ms": llm_ms}
 
 
+def _llm_extract_call_name(full_name: str) -> str:
+    """Use a cheap LLM to extract the short callable name from a full name."""
+    if not full_name.strip():
+        return ""
+    parts = full_name.strip().split()
+    if len(parts) <= 2:
+        return parts[0]
+    try:
+        result, _ = call_llm([{"role": "user", "content":
+            f"From this Indian full name, return ONLY the one short first name (given name) "
+            f"to call them by in conversation. No surname, no title. Just the name, nothing else.\n"
+            f"Name: {full_name}"}],
+            model_id="gpt-4o-mini", temperature=0, max_tokens=10)
+        name = result.strip().strip('"').strip("'").split()[0] if result.strip() else parts[0]
+        return name
+    except Exception:
+        return parts[1] if len(parts) > 2 else parts[0]
+
+
 def generate_greeting(session) -> str:
     """Let the LLM generate a natural opening based on candidate context."""
     resume = session.get("resume", {})
@@ -2789,16 +2854,9 @@ def generate_greeting(session) -> str:
     hour = datetime.now(ist).hour
     time_of_day = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
 
-    # Pick a short callable name from full name
+    # Pick a short callable name from full name using LLM
     full_name = resume.get("candidate_name", "") or ""
-    parts = full_name.strip().split()
-    if len(parts) <= 2:
-        call_name = parts[0] if parts else ""
-    else:
-        # Long name — skip surname (first) and title-like parts, pick the actual first name
-        # "Beeram Veera Venkata Reddy" → "Veera"
-        # Skip parts that look like surnames (first part) or suffixes (last part)
-        call_name = parts[1] if len(parts) > 2 else parts[0]
+    call_name = _llm_extract_call_name(full_name)
 
     # Get previous greetings to avoid repetition
     prev_greetings = []
@@ -3103,6 +3161,36 @@ def _enforce_followup_grouping(session, per_question: list) -> list:
 
 _eval_locks = {}  # per-session locks to prevent duplicate evaluation
 
+def _sanity_check_eval(parsed: dict, sid: str):
+    """Post-evaluation sanity check — fix obvious score inconsistencies."""
+    pq = parsed.get("per_question", [])
+    if not pq:
+        return
+    scores = [q.get("score", 0) for q in pq if isinstance(q.get("score"), (int, float))]
+    if not scores:
+        return
+    avg_pq = sum(scores) / len(scores)
+    overall = parsed.get("overall_score")
+    if not isinstance(overall, (int, float)):
+        return
+    # If overall score deviates more than 3 points from per-question average, correct it
+    if abs(overall - avg_pq) > 3:
+        corrected = round(avg_pq)
+        log.warning(f"[Eval] {sid[:8]} Sanity fix: overall_score {overall} → {corrected} "
+                    f"(per-question avg {avg_pq:.1f}, gap={abs(overall - avg_pq):.1f})")
+        parsed["overall_score"] = corrected
+        parsed["_sanity_corrected"] = True
+    # Recommendation must match score range (use potentially corrected score)
+    final_score = parsed.get("overall_score")
+    rec = parsed.get("recommendation", "")
+    if final_score >= 8 and rec in ("no", "strong_no"):
+        parsed["recommendation"] = "yes"
+        log.warning(f"[Eval] {sid[:8]} Sanity fix: rec '{rec}' → 'yes' (score={final_score})")
+    elif final_score <= 3 and rec in ("yes", "strong_yes"):
+        parsed["recommendation"] = "no"
+        log.warning(f"[Eval] {sid[:8]} Sanity fix: rec '{rec}' → 'no' (score={overall})")
+
+
 def evaluate_interview(session) -> dict:
     """Score the full interview once it ends. Gated on MIN_ANSWERS_FOR_EVAL.
     Idempotent (skips if already evaluated) and safe to run in a background
@@ -3166,6 +3254,7 @@ def evaluate_interview(session) -> dict:
         parsed = safe_json(raw) or {}
         if parsed:
             parsed["per_question"] = _enforce_followup_grouping(session, parsed.get("per_question", []))
+            _sanity_check_eval(parsed, sid)
         result = {
             "status": "done",
             "answered": answered,
@@ -4020,7 +4109,8 @@ def parse_resume_endpoint(file: UploadFile = File(...)):
                 except Exception as e:
                     log.error(f"[Resume] Textract failed: {e}")
         except Exception as e:
-            raise HTTPException(400, f"PDF error: {e}")
+            log.error(f"[Resume] PDF parse error: {e}")
+            raise HTTPException(400, "Failed to parse PDF")
         finally:
             if tmp_path:
                 try: os.unlink(tmp_path)
@@ -4033,7 +4123,8 @@ def parse_resume_endpoint(file: UploadFile = File(...)):
             text = docx2txt.process(tmp_path)
             os.unlink(tmp_path)
         except Exception as e:
-            raise HTTPException(400, f"DOCX error: {e}")
+            log.error(f"[Resume] DOCX parse error: {e}")
+            raise HTTPException(400, "Failed to parse DOCX")
     else:
         text = content.decode("utf-8", errors="ignore")
 
@@ -5358,7 +5449,8 @@ def get_lms_interview_results(
 
     except Exception as e:
         log.error(f"Error fetching LMS interview results: {e}")
-        raise HTTPException(500, f"Database error: {str(e)}")
+        log.error(f"[DB] Error: {e}")
+        raise HTTPException(500, "Database error")
 
 
 @app.get("/api/lms/batch-summary")
@@ -5433,7 +5525,8 @@ def get_lms_batch_summary(batch_name: str = None):
 
     except Exception as e:
         log.error(f"Error fetching batch summary: {e}")
-        raise HTTPException(500, f"Database error: {str(e)}")
+        log.error(f"[DB] Error: {e}")
+        raise HTTPException(500, "Database error")
 
 
 # ── Face Comparison (AWS Rekognition) ─────────────────────────────────────
@@ -5496,7 +5589,7 @@ def face_register(data: dict):
         log.info(f"[FaceRegister] Glasses detected: {wearing_glasses} (confidence={glasses_info.get('Confidence', 0):.1f}%)")
     except Exception as e:
         log.error(f"[FaceRegister] DetectFaces failed: {e}")
-        raise HTTPException(500, f"Face detection failed: {e}")
+        raise HTTPException(500, "Face detection failed")
     # Persist in DB by email (reusable across sessions)
     if email:
         img_bytes = base64.b64decode(image_b64)
@@ -5611,7 +5704,7 @@ def face_compare(data: dict):
         return {"ok": True, "matched": False, "similarity": 0, "error": "no_face_detected"}
     except Exception as e:
         log.error(f"[FaceCompare] Error: {e}")
-        raise HTTPException(500, f"Face comparison failed: {e}")
+        raise HTTPException(500, "Face comparison failed")
 
 
 # ── Admin: LLM Config ───────────────────────────────────────────────────
@@ -6482,9 +6575,8 @@ def obs_logs(limit: int = 500, _=Depends(require_admin)):
 
 
 @app.get("/api/cost/breakdown")
-def api_cost_breakdown(days: int = 30):
-    """API cost breakdown by service type (LLM, STT, TTS, Rekognition) and provider/model.
-    Used by LMS to display cost analytics. No admin auth — called from LMS backend."""
+def api_cost_breakdown(days: int = 30, _=Depends(require_admin)):
+    """API cost breakdown by service type (LLM, STT, TTS, Rekognition) and provider/model."""
     cutoff = time.time() - (days * 86400)
     all_logs = []
     session_costs = []
@@ -6586,7 +6678,7 @@ def api_cost_breakdown(days: int = 30):
 
 
 @app.get("/api/cost/session/{sid}")
-def api_cost_session(sid: str):
+def api_cost_session(sid: str, _=Depends(require_admin)):
     """Per-interview cost breakdown by service type and each API call."""
     session = sessions.get(sid)
     if not session:
@@ -6684,8 +6776,8 @@ def api_cost_session(sid: str):
 
 
 @app.get("/api/cost/sessions")
-def api_cost_sessions(days: int = 30):
-    """List all interviews with their cost breakdown summary. Used by LMS."""
+def api_cost_sessions(days: int = 30, _=Depends(require_admin)):
+    """List all interviews with their cost breakdown summary."""
     cutoff = time.time() - (days * 86400)
     results = []
     for sid, s in sessions.items():
@@ -6813,7 +6905,8 @@ async def get_comparison_analysis(session_id: str, _=Depends(require_admin)):
         return comparison
     except Exception as e:
         log.error(f"[Comparison] Failed to generate analysis: {e}")
-        raise HTTPException(500, f"Failed to generate comparison: {str(e)}")
+        log.error(f"[Comparison] Error: {e}")
+        raise HTTPException(500, "Failed to generate comparison")
 
 
 @app.get("/api/comparison/{session_id}/report")
@@ -6925,7 +7018,8 @@ async def get_comparison_by_email(data: dict, _=Depends(require_admin)):
         return comparison
     except Exception as e:
         log.error(f"[Comparison] Failed to generate analysis for {email}: {e}")
-        raise HTTPException(500, f"Failed to generate comparison: {str(e)}")
+        log.error(f"[Comparison] Error: {e}")
+        raise HTTPException(500, "Failed to generate comparison")
 
 
 @app.post("/api/lms/comparison")
@@ -7005,7 +7099,8 @@ async def lms_get_comparison(request: Request, data: dict):
         return comparison
     except Exception as e:
         log.error(f"[LMS-Comparison] Failed for {email}: {e}")
-        raise HTTPException(500, f"Failed to generate comparison: {str(e)}")
+        log.error(f"[Comparison] Error: {e}")
+        raise HTTPException(500, "Failed to generate comparison")
 
 
 # ── Admin: Cognition AI (DISABLED) ─────────────────────────────────────
