@@ -502,6 +502,9 @@ def create_token(sub: str, role: str = "admin"):
     return jwt.encode({"sub": sub, "role": role, "exp": datetime.now(tz=timezone.utc) + timedelta(hours=8)}, JWT_SECRET, algorithm="HS256")
 
 async def require_admin(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key and LMS_API_KEY and api_key == LMS_API_KEY:
+        return {"sub": "lms", "role": "admin"}
     token = None
     if credentials:
         token = credentials.credentials
@@ -1933,19 +1936,29 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     asked = [e["question"] for e in history
              if e.get("question") and not _is_pause_prompt(e["question"])
              and not e.get("is_greeting")]
+    # Load questions from candidate's last 3 sessions for cross-session anti-repetition
+    email = resume.get("email", "")
+    past_questions = database.get_past_session_questions(email, session.get("id", ""), limit=3)
+
     asked_block = ""
-    if asked:
-        asked_lines = "\n".join(f"- {q}" for q in asked)
+    if asked or past_questions:
+        parts = []
+        if asked:
+            asked_lines = "\n".join(f"- {q}" for q in asked)
+            parts.append(f"THIS SESSION:\n{asked_lines}")
+        if past_questions:
+            past_lines = "\n".join(f"- {q}" for q in past_questions)
+            parts.append(f"PREVIOUS SESSIONS (last 3):\n{past_lines}")
+        all_questions = "\n".join(parts)
         asked_block = (
-            "\n\nQUESTIONS ALREADY ASKED THIS SESSION — this is the COMPLETE list. Do NOT "
-            "ask any of these again, and do NOT ask a reworded or rephrased version of the "
-            "SAME topic (e.g. 'what is a guard ring' and 'what are guard rings' are the same "
-            "question — never both). CRITICAL: If you already asked about scoreboard implementation, "
-            "do NOT ask it again even in a different context (ALU vs UVM vs general). If you asked "
-            "about interface usage, do NOT ask about interface advantages. One question per core concept. "
-            "You may drill deeper on the candidate's MOST RECENT answer, but never re-open an earlier "
-            "topic you already moved on from. Every new top-level question MUST be about a topic, "
-            f"project, tool, or concept that does NOT appear anywhere in this list:\n{asked_lines}")
+            "\n\nQUESTIONS ALREADY ASKED — this includes this session AND the candidate's "
+            "recent past interviews. Do NOT ask any of these again, and do NOT ask a reworded "
+            "or rephrased version of the SAME topic (e.g. 'what is a guard ring' and 'what are "
+            "guard rings' are the same question — never both). CRITICAL: If any question about a "
+            "concept appears in this list, do NOT ask it again in any form. One question per core "
+            "concept. You may drill deeper on the candidate's MOST RECENT answer, but never re-open "
+            "an earlier topic. Every new top-level question MUST be about a topic, project, tool, "
+            f"or concept that does NOT appear anywhere in this list:\n{all_questions}")
 
     # ── Resume-project rotation ───────────────────────────────────────────
     # Data-driven balance using the candidate's OWN project names (not a
@@ -1990,14 +2003,19 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
         "questions drawn from the DOMAIN QUESTION BANK below, on a topic from the ROLE's required "
         "skills (see JOB DESCRIPTION) — not a probe of their project. Let them settle before you "
         "go deep.\n"
+        "THIS IS A CONVERSATION, NOT A QUIZ. React naturally to what the candidate says — "
+        "acknowledge their answer briefly ('Okay', 'Right', 'Good point') before moving on. "
+        "Build on their answers: if they mention something interesting, dig into it.\n"
         "PICK YOUR NEXT MOVE from the candidate's last answer:\n"
+        "- Incomplete or vague (missed key points) → you MUST ask a follow-up about what they missed. "
+        "This is the most important rule: do NOT skip to a new topic when the answer was incomplete. "
+        "Ask directly about the specific concept they failed to mention or got wrong.\n"
         "- Solid AND detailed (with specifics, numbers, concrete examples) → move to a NEW area and "
         "deliberately switch the KIND of question (see QUESTION TYPES).\n"
-        "- Missing core points → ask ONE follow-up targeting the specific point they missed. "
-        "Do not rephrase the same question — ask directly about what was missing.\n"
         "- 'I don't know' / didn't do it → acknowledge and switch topics immediately.\n"
-        "FOLLOW-UPS: When the candidate misses a core point in their answer, ask ONE follow-up "
-        "about what they missed. At most one follow-up per topic; NEVER two follow-ups in a row.\n"
+        "FOLLOW-UPS: When the candidate's answer is incomplete or misses a core concept, you MUST "
+        "ask ONE follow-up targeting what they missed. Do NOT rephrase the same question — ask "
+        "specifically about the missed point. At most one follow-up per topic; NEVER two follow-ups in a row.\n"
         "\nQUESTION TYPES — use all three; aim roughly 35% PROJECT / 45% CONCEPT / 20% SCENARIO. "
         "CONCEPT is the type you under-ask, so favour it whenever it's tied or behind:\n"
         "- CONCEPT: a fundamentals question that asks for BOTH definition AND application/reasoning. "
@@ -2076,6 +2094,16 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     # conversation flow. The full list of asked questions rides in the
     # anti-repetition ledger below, so trimming here does NOT lose track of
     # what's been covered.
+    # Refresh expected_points from DB for recent history (background thread may have written them)
+    conv_all = session.get("conversation", [])
+    for entry in history[-6:]:
+        if not entry.get("expected_points") and entry.get("question"):
+            idx = next((i for i in range(len(conv_all) - 1, -1, -1) if conv_all[i] is entry), None)
+            if idx is not None:
+                db_ep = database.get_session_expected_points(session.get("id", ""), idx)
+                if db_ep:
+                    entry["expected_points"] = db_ep
+
     for entry in history[-6:]:
         if entry.get("question"):
             messages.append({"role": "assistant", "content": entry["question"]})
@@ -2090,9 +2118,9 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
             messages.append({"role": "system", "content":
                 f"EXPECTED POINTS for your last question — CORE (must cover): {_core_txt}. "
                 f"NICE-TO-HAVE: {_extra_txt}.\n"
-                "If the candidate MISSED any CORE points, ask ONE follow-up question targeting "
-                "the missed point. Do NOT repeat the same question — ask specifically about what "
-                "they missed. If they covered all CORE points or said 'I don't know', move on."})
+                "After reading the candidate's answer below, check if they covered the CORE points. "
+                "If they MISSED any core point, you MUST ask a follow-up about it — do NOT skip to "
+                "a new topic. Only move on if they covered all core points or said 'I don't know'."})
         if entry.get("answer"):
             messages.append({"role": "user", "content": entry["answer"]})
 
@@ -2101,8 +2129,15 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
         last_entry = history[-1]
         last_answer = (last_entry.get("answer") or "").strip()
         last_question = (last_entry.get("question") or "").strip()
-        if last_answer and last_entry.get("expected_points"):
-            _np = _norm_expected_points(last_entry["expected_points"])
+        ep = last_entry.get("expected_points")
+        if not ep and last_answer:
+            last_turn_idx = len(session.get("conversation", [])) - 1
+            ep = database.get_session_expected_points(session.get("id", ""), last_turn_idx)
+            if ep:
+                last_entry["expected_points"] = ep
+                log.info(f"[FollowupNudge] Refreshed expected_points from DB for turn {last_turn_idx}")
+        if last_answer and ep:
+            _np = _norm_expected_points(ep)
             core_points = [t for t, w in _np if w == "core"]
             if core_points:
                 try:
@@ -3496,22 +3531,29 @@ def _patch_session(session_id, updates=None, pops=()):
     return latest
 
 
+SPEAKER_MISMATCH_TOLERANCE = 2  # end interview after this many consecutive mismatches
+
 def _terminate_for_speaker_mismatch(session_id, entry):
-    """Record a mismatch and end the interview — on the latest stored session."""
+    """Record a mismatch. Warn on first, end on 2nd consecutive mismatch."""
     latest = sessions.get(session_id)
     if latest is None:
         return 0
     count = latest.get("speaker_mismatch_count", 0) + 1
     latest["speaker_mismatch_count"] = count
     latest.setdefault("speaker_mismatches", []).append(entry)
-    # /api/stream-answer, /api/submit-answer and /api/transcribe all gate on this flag.
-    # Nothing used to set it, so every one of those guards was dead.
-    latest["speaker_mismatch"] = True
-    if latest.get("phase") != "ended":
-        _end_interview(latest, reason="speaker_verification_failed")
-    sessions[session_id] = latest
-    log.warning(f"[Resemblyzer] {session_id[:8]} — MISMATCH #{count} at turn {entry.get('turn')} "
-                f"(score={entry.get('score')}) - INTERVIEW TERMINATED")
+
+    if count >= SPEAKER_MISMATCH_TOLERANCE:
+        latest["speaker_mismatch"] = True
+        if latest.get("phase") != "ended":
+            _end_interview(latest, reason="speaker_verification_failed")
+        sessions[session_id] = latest
+        log.warning(f"[Resemblyzer] {session_id[:8]} — MISMATCH #{count} at turn {entry.get('turn')} "
+                    f"(score={entry.get('score')}) - INTERVIEW TERMINATED")
+    else:
+        latest["speaker_mismatch_warning"] = True
+        sessions[session_id] = latest
+        log.warning(f"[Resemblyzer] {session_id[:8]} — MISMATCH #{count} at turn {entry.get('turn')} "
+                    f"(score={entry.get('score')}) - WARNING (will end on next mismatch)")
     return count
 
 
@@ -3603,6 +3645,9 @@ def _verify_speaker_background(audio_bytes, session, turn):
                         {"turn": turn, "score": round(score, 4), "ts": time.time(),
                          "vs": "reference_voice"})
                 else:
+                    if session.get("speaker_mismatch_count", 0) > 0:
+                        _patch_session(session["id"], updates={
+                            "speaker_mismatch_count": 0, "speaker_mismatch_warning": False})
                     log.info(f"[Resemblyzer] {sid} — turn {turn} verified vs reference voice (score={score:.4f})")
                 return
             _patch_session(session["id"], {"speaker_ref_embedding": current_emb.tolist()})
@@ -3618,10 +3663,12 @@ def _verify_speaker_background(audio_bytes, session, turn):
                 session["id"],
                 {"turn": turn, "score": round(score, 4), "ts": time.time()})
         else:
-            # Log passes too. Without this a silent no-op and a genuine pass look
-            # identical in the log, which makes "why did no mismatch fire?"
-            # impossible to answer.
-            log.info(f"[Resemblyzer] {sid} — turn {turn} verified (score={score:.4f})")
+            if session.get("speaker_mismatch_count", 0) > 0:
+                _patch_session(session["id"], updates={
+                    "speaker_mismatch_count": 0, "speaker_mismatch_warning": False})
+                log.info(f"[Resemblyzer] {sid} — turn {turn} verified (score={score:.4f}), mismatch count reset")
+            else:
+                log.info(f"[Resemblyzer] {sid} — turn {turn} verified (score={score:.4f})")
 
     except Exception as e:
         log.error(f"[Resemblyzer] {sid} — Error: {e}")

@@ -344,6 +344,60 @@ def update_session_expected_points(session_id, turn_index, points):
         return False
 
 
+def get_past_session_questions(email, current_session_id, limit=3):
+    """Get questions from the candidate's last N sessions (excluding current) for anti-repetition."""
+    if not _db_available or not email:
+        return []
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT session_data->'conversation'
+                    FROM active_sessions
+                    WHERE session_data->'resume'->>'email' = %s
+                      AND session_id != %s
+                      AND session_data->>'phase' = 'ended'
+                    ORDER BY updated_at DESC
+                    LIMIT %s
+                """, (email, current_session_id, limit))
+                questions = []
+                for row in cur.fetchall():
+                    conv = row[0]
+                    if isinstance(conv, str):
+                        import json
+                        conv = json.loads(conv)
+                    if isinstance(conv, list):
+                        for entry in conv:
+                            q = entry.get("question", "").strip()
+                            if q and not entry.get("is_greeting"):
+                                questions.append(q)
+                return questions
+    except Exception as e:
+        log.error(f"[DB] get_past_session_questions failed: {e}")
+        return []
+
+
+def get_session_expected_points(session_id, turn_index):
+    """Read expected_points for a single turn directly from Postgres (bypasses cache)."""
+    if not _db_available:
+        return None
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT session_data->'conversation'->%s->'expected_points'
+                    FROM active_sessions WHERE session_id = %s
+                """, (str(turn_index), session_id))
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    return row[0] if isinstance(row[0], list) else json.loads(row[0])
+                return None
+    except Exception as e:
+        log.error(f"[DB] get_session_expected_points failed: {e}")
+        return None
+
+
 def append_session_obs_log(session_id, entry):
     """Atomically append one obs_log entry to a session via jsonb array append."""
     if not _db_available:
