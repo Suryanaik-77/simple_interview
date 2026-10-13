@@ -423,6 +423,119 @@ def append_session_obs_log(session_id, entry):
         return False
 
 
+def log_llm_call(session_id, step, model, input_tokens, output_tokens, latency_ms, cost_usd, status="success", error=""):
+    """Write every LLM call to the llm_calls table for complete cost tracking."""
+    if not _db_available:
+        return
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO llm_calls (session_id, step, model, input_tokens, output_tokens, latency_ms, cost_usd, status, error)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (session_id or "", step, model, input_tokens, output_tokens, latency_ms, cost_usd, status, error))
+                conn.commit()
+    except Exception as e:
+        log.warning(f"[DB] log_llm_call failed (non-fatal): {e}")
+
+
+def get_cost_summary(days=30):
+    """Aggregate cost from all sessions in Postgres obs_log, grouped by service type."""
+    if not _db_available:
+        return None
+    try:
+        import json as _json
+        cutoff_sql = f"NOW() - INTERVAL '{int(days)} days'"
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    SELECT session_id, session_data->'obs_log' as obs,
+                           session_data->'resume'->>'email' as email,
+                           session_data->'resume'->>'domain' as domain,
+                           session_data->>'turn' as turns,
+                           session_data->>'started_at' as started_at,
+                           session_data->>'duration_minutes' as duration
+                    FROM active_sessions
+                    WHERE updated_at >= {cutoff_sql}
+                      AND session_data->'obs_log' IS NOT NULL
+                      AND session_data->'obs_log' != 'null'::jsonb
+                """)
+                rows = cur.fetchall()
+
+                # Also get non-session costs from llm_calls table
+                cur.execute(f"""
+                    SELECT COALESCE(SUM(cost_usd), 0), COUNT(*)
+                    FROM llm_calls
+                    WHERE created_at >= {cutoff_sql}
+                      AND (session_id = '' OR session_id IS NULL)
+                """)
+                non_session_row = cur.fetchone()
+                non_session_cost = float(non_session_row[0]) if non_session_row else 0
+                non_session_calls = int(non_session_row[1]) if non_session_row else 0
+
+        llm_total = stt_total = tts_total = rekog_total = 0
+        session_count = 0
+        per_session = []
+
+        for row in rows:
+            sid, obs_raw, email, domain, turns, started_at, duration = row
+            obs = obs_raw if isinstance(obs_raw, list) else (_json.loads(obs_raw) if obs_raw else [])
+            if not obs:
+                continue
+            s_llm = s_stt = s_tts = s_rekog = 0
+            for entry in obs:
+                cost = entry.get("cost_usd", 0) or 0
+                step = (entry.get("step") or "").upper()
+                if step.startswith("LLM"):
+                    s_llm += cost
+                elif step.startswith("STT"):
+                    s_stt += cost
+                elif step.startswith("TTS"):
+                    s_tts += cost
+                elif "REKOGNITION" in step or "REKOG" in step:
+                    s_rekog += cost
+            s_total = s_llm + s_stt + s_tts + s_rekog
+            if s_total > 0:
+                session_count += 1
+                llm_total += s_llm
+                stt_total += s_stt
+                tts_total += s_tts
+                rekog_total += s_rekog
+                per_session.append({
+                    "session_id": sid,
+                    "email": email or "",
+                    "domain": domain or "",
+                    "turns": int(turns) if turns else 0,
+                    "duration_minutes": round(float(duration), 1) if duration else 0,
+                    "total_cost_usd": round(s_total, 6),
+                    "llm_cost": round(s_llm, 6),
+                    "stt_cost": round(s_stt, 6),
+                    "tts_cost": round(s_tts, 6),
+                    "rekognition_cost": round(s_rekog, 6),
+                })
+
+        grand_total = llm_total + stt_total + tts_total + rekog_total + non_session_cost
+        per_session.sort(key=lambda x: x["total_cost_usd"], reverse=True)
+
+        return {
+            "days": days,
+            "session_count": session_count,
+            "grand_total_usd": round(grand_total, 6),
+            "llm_total_usd": round(llm_total, 6),
+            "stt_total_usd": round(stt_total, 6),
+            "tts_total_usd": round(tts_total, 6),
+            "rekognition_total_usd": round(rekog_total, 6),
+            "non_session_cost_usd": round(non_session_cost, 6),
+            "non_session_calls": non_session_calls,
+            "avg_cost_per_session": round(grand_total / session_count, 6) if session_count else 0,
+            "top_sessions": per_session[:20],
+            "all_sessions": per_session,
+        }
+    except Exception as e:
+        log.error(f"[DB] get_cost_summary failed: {e}")
+        return None
+
+
 def get_app_config(key):
     """Read shared app config (e.g. runtime LLM/TTS/STT settings). None on miss."""
     if not _db_available:

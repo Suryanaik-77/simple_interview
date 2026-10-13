@@ -385,7 +385,8 @@ def _classify_topic_dynamic(question: str) -> str:
         return ""
     try:
         topic_list = ", ".join(_ALL_TOPIC_LABELS)
-        text, _usage = call_llm(
+        _tc_t0 = time.time()
+        text, _tc_usage = call_llm(
             [
                 {
                     "role": "system",
@@ -400,6 +401,11 @@ def _classify_topic_dynamic(question: str) -> str:
             model_id="gpt-5-nano",
             max_tokens=20,
         )
+        _tc_ms = round((time.time() - _tc_t0) * 1000)
+        threading.Thread(target=database.log_llm_call, args=(
+            "", "LLM_topic_classify", "gpt-5-nano",
+            _tc_usage.get("input_tokens", 0), _tc_usage.get("output_tokens", 0),
+            _tc_ms, _tc_usage.get("cost_usd", 0.0)), daemon=True).start()
         label = text.strip().strip('"').strip(".")
         return label if label else _extract_topic_from_question(question)
     except Exception as e:
@@ -1269,7 +1275,13 @@ RESUME:
 JSON:"""
     for attempt in range(3):
         try:
-            raw, _usage = call_llm([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=800)
+            _rp_t0 = time.time()
+            raw, _rp_usage = call_llm([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=800)
+            _rp_ms = round((time.time() - _rp_t0) * 1000)
+            threading.Thread(target=database.log_llm_call, args=(
+                "", "LLM_resume_parse", RUNTIME_CONFIG.get("qgen_model", ""),
+                _rp_usage.get("input_tokens", 0), _rp_usage.get("output_tokens", 0),
+                _rp_ms, _rp_usage.get("cost_usd", 0.0)), daemon=True).start()
             parsed = safe_json(raw)
             if parsed and parsed.get("candidate_name"):
                 log.info(f"[Resume] Parsed on attempt {attempt+1}: {parsed.get('candidate_name')}")
@@ -2904,11 +2916,17 @@ def _llm_extract_call_name(full_name: str) -> str:
     if len(parts) <= 2:
         return parts[0]
     try:
-        result, _ = call_llm([{"role": "user", "content":
+        _ne_t0 = time.time()
+        result, _ne_usage = call_llm([{"role": "user", "content":
             f"From this Indian full name, return ONLY the one short first name (given name) "
             f"to call them by in conversation. No surname, no title. Just the name, nothing else.\n"
             f"Name: {full_name}"}],
             model_id="gpt-4o-mini", temperature=0, max_tokens=10)
+        _ne_ms = round((time.time() - _ne_t0) * 1000)
+        threading.Thread(target=database.log_llm_call, args=(
+            "", "LLM_name_extract", "gpt-4o-mini",
+            _ne_usage.get("input_tokens", 0), _ne_usage.get("output_tokens", 0),
+            _ne_ms, _ne_usage.get("cost_usd", 0.0)), daemon=True).start()
         name = result.strip().strip('"').strip("'").split()[0] if result.strip() else parts[0]
         return name
     except Exception:
@@ -5653,19 +5671,21 @@ def face_register(data: dict):
     wearing_glasses = False
     try:
         img_bytes = base64.b64decode(image_b64)
+        _fr_t0 = time.time()
         resp = rekognition_client.detect_faces(
             Image={"Bytes": img_bytes},
             Attributes=["ALL"]
         )
+        _fr_ms = round((time.time() - _fr_t0) * 1000)
+        threading.Thread(target=database.log_llm_call, args=(
+            "", "Rekognition_face_register", "aws-rekognition-detect-faces",
+            0, 0, _fr_ms, _REKOGNITION_COST_PER_IMAGE), daemon=True).start()
         faces = resp.get("FaceDetails", [])
         if len(faces) == 0:
             return {"ok": False, "error": "No face detected in the image"}
         if len(faces) > 1:
             return {"ok": False, "error": "Multiple faces detected — only one person should be visible"}
         face = faces[0]
-        # Reject poor-quality captures with actionable guidance so the reference
-        # is clear — a dark/blurry reference makes every CompareFaces during the
-        # interview unreliable. Rekognition Quality.Brightness/Sharpness are 0-100.
         quality = face.get("Quality", {})
         brightness = quality.get("Brightness", 100)
         sharpness = quality.get("Sharpness", 100)
@@ -5705,10 +5725,15 @@ def face_detect_glasses(data: dict):
         raise HTTPException(400, "Missing image")
     try:
         img_bytes = base64.b64decode(image_b64)
+        _dg_t0 = time.time()
         resp = rekognition_client.detect_faces(
             Image={"Bytes": img_bytes},
             Attributes=["ALL"]
         )
+        _dg_ms = round((time.time() - _dg_t0) * 1000)
+        threading.Thread(target=database.log_llm_call, args=(
+            "", "Rekognition_detect_glasses", "aws-rekognition-detect-faces",
+            0, 0, _dg_ms, _REKOGNITION_COST_PER_IMAGE), daemon=True).start()
         faces = resp.get("FaceDetails", [])
         if not faces:
             return {"ok": True, "wearing_glasses": False, "no_face": True}
@@ -6910,6 +6935,16 @@ def api_cost_sessions(days: int = 30, _=Depends(require_admin)):
             })
     results.sort(key=lambda x: x["date"], reverse=True)
     return results
+
+
+@app.get("/api/cost/total")
+def api_cost_total(days: int = 30, _=Depends(require_admin)):
+    """Total cost across ALL sessions from database (not just in-memory).
+    Includes LLM, STT, TTS, Rekognition breakdown + per-session list."""
+    result = database.get_cost_summary(days=days)
+    if result is None:
+        raise HTTPException(503, "Database unavailable or query failed")
+    return result
 
 
 # ── Admin: Expert Review ─────────────────────────────────────────────────
