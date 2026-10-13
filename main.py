@@ -2149,14 +2149,18 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
                         f"Question: {last_question}\n"
                         f"Candidate's answer: {last_answer}\n\n"
                         f"Core points expected:\n{core_list}\n\n"
-                        f"Which core points did the candidate NOT cover or only partially cover? "
-                        f"List ONLY the missed points, one per line, no bullets. "
-                        f"If the candidate covered all points, reply with just: NONE"}],
+                        f"The candidate may have used different words or explained things differently. "
+                        f"A point is COVERED if the candidate conveyed the same idea, even roughly. "
+                        f"Only flag a point as missed if the candidate completely skipped that concept — "
+                        f"not if they said it in fewer words or less precisely.\n\n"
+                        f"Which core points did the candidate COMPLETELY SKIP (not mention at all)? "
+                        f"List ONLY the fully missed points, one per line, no bullets. "
+                        f"If the candidate addressed all core points (even partially), reply with just: NONE"}],
                         model_id="gpt-4o-mini", temperature=0, max_tokens=150)
                     check_result = check_result.strip()
                     if check_result and check_result.upper() != "NONE":
                         missed_points = [l.strip().lstrip("-•").strip() for l in check_result.splitlines() if l.strip()]
-                        if missed_points:
+                        if len(missed_points) >= 2 or (len(missed_points) == 1 and len(core_points) <= 2):
                             missed_txt = "; ".join(missed_points[:3])
                             log.info(f"[FollowupNudge] LLM detected missed core points: {missed_txt}")
                             _followup_nudge_msg = (
