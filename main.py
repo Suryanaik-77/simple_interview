@@ -2272,10 +2272,7 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     if steering:
         messages.append({"role": "system", "content": steering})
 
-    if _followup_nudge_msg:
-        messages.append({"role": "system", "content": _followup_nudge_msg})
-
-    return messages
+    return messages, _followup_nudge_msg
 
 
 def _get_interview_phase(turn: int) -> str:
@@ -2767,24 +2764,27 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         return {"question": end_msg, "should_end": True}
 
     # Build prompt with pacing + topic context
-    messages = build_interview_prompt(session)
+    messages, followup_nudge = build_interview_prompt(session)
 
     phase = _get_interview_phase(session["turn"])
     topics_covered = _get_topics_covered(session)
 
     pacing = f"\nPHASE: {phase} | Turn: {session['turn']}"
-    if topics_covered:
+    if topics_covered and not followup_nudge:
         pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
 
     llm_answer = (
         "(The candidate did not respond within the time limit. Do not repeat that question — "
         "briefly acknowledge and move on to a NEW question on a different topic.)"
         if no_response else candidate_answer)
-    # Hard per-turn length reminder — keeps GPT-4.1-mini / Haiku from rambling
     pacing += ("\nKeep it short and conversational: a brief acknowledgement, then ONE clear question. "
                    "A scenario may add one short setup sentence. Never stack multiple questions or a long "
                    "multi-part setup into one turn.")
     messages.append({"role": "user", "content": llm_answer + pacing})
+
+    if followup_nudge:
+        messages.append({"role": "system", "content": followup_nudge})
+        log.info(f"[FollowupNudge] INJECTED as final message #{len(messages)}")
 
     # Single LLM call — handles question generation + behavior detection
     t0_llm = time.time()
@@ -4818,12 +4818,12 @@ def stream_answer(data: dict):
             threading.Thread(target=_stop_agent_background, args=(session,), daemon=True).start()
 
         # Build prompt
-        messages = build_interview_prompt(session)
+        messages, followup_nudge = build_interview_prompt(session)
         turn = session["turn"]
         phase = _get_interview_phase(turn)
         topics_covered = _get_topics_covered(session)
         pacing = f"\nPHASE: {phase} | Turn: {turn}"
-        if topics_covered:
+        if topics_covered and not followup_nudge:
             pacing += f"\nTopics covered: {', '.join(topics_covered)}. Ask about DIFFERENT topics."
         # Ending is owned by the stop agent (server-enforced), NOT the interviewer —
         # so the interviewer must never end on its own. It keeps drilling weak answers
@@ -4837,6 +4837,9 @@ def stream_answer(data: dict):
                    "A scenario may add one short setup sentence. Never stack multiple questions or a long "
                    "multi-part setup into one turn.")
         messages.append({"role": "user", "content": answer + pacing})
+        if followup_nudge:
+            messages.append({"role": "system", "content": followup_nudge})
+            log.info(f"[FollowupNudge] INJECTED as final message #{len(messages)} (voice path)")
 
         # Stream LLM tokens, buffer into sentences
         t0_llm = time.time()
