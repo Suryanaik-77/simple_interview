@@ -3311,7 +3311,27 @@
             if (!sessionOn || interviewEnded || faceCompareBusy) return;
             if (!sessionId) return;
             const imageB64 = captureFrameAsBase64();
-            if (!imageB64) return;
+
+            if (!imageB64) {
+                faceCompareWarnings++;
+                console.warn(`[FaceCompare] Camera off — no frame captured, warning ${faceCompareWarnings}`);
+                sendAntiCheat('camera_off', `warning:${faceCompareWarnings},recheck:${isRecheck ? recheckCount : 0}`);
+
+                if (isRecheck) {
+                    recheckCount++;
+                    if (recheckCount >= RECHECK_LIMIT) {
+                        stopRecheck();
+                        sendAntiCheat('camera_off_termination', `mismatches:${faceCompareWarnings}`);
+                        endSessionWithReason('camera_off', 'Interview ended — camera is off. Please keep your camera on during the interview.');
+                    }
+                } else {
+                    pauseInterview('camera_off',
+                        'Your camera appears to be off.<br>Re-checking...<br><span style="color:#ef4444;font-weight:600;">Please turn on your camera. Interview will end if camera stays off.</span>', '');
+                    recheckCount = 0;
+                    recheckTimer = setInterval(() => compareFace(true), RECHECK_INTERVAL);
+                }
+                return;
+            }
 
             faceCompareBusy = true;
             try {
@@ -3326,7 +3346,7 @@
                 if (d.matched) {
                     console.log(`[FaceCompare] Match OK — similarity=${d.similarity}%`);
                     stopRecheck();
-                    if (interviewPaused && (pauseReason === 'face_mismatch' || pauseReason === 'no_face_detected')) {
+                    if (interviewPaused && (pauseReason === 'face_mismatch' || pauseReason === 'no_face_detected' || pauseReason === 'camera_off')) {
                         resumeInterview();
                     }
                 } else {

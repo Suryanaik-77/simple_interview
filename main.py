@@ -698,7 +698,7 @@ def _end_interview(session, reason="manual"):
     Args:
         session: Interview session dict
         reason: One of: time_limit, domain_mismatch, abusive_behavior, llm_decision,
-                stop_agent, hard_max, speaker_verification_failed, manual
+                stop_agent, hard_max, speaker_verification_failed, camera_off, manual
     """
     session["phase"] = "ended"
     session["ended_at"] = time.time()
@@ -2100,17 +2100,33 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     if history and not (history[-1] or {}).get("is_followup"):
         last_entry = history[-1]
         last_answer = (last_entry.get("answer") or "").strip()
+        last_question = (last_entry.get("question") or "").strip()
         if last_answer and last_entry.get("expected_points"):
             _np = _norm_expected_points(last_entry["expected_points"])
             core_points = [t for t, w in _np if w == "core"]
-            answer_lower = last_answer.lower()
-            missed = [p for p in core_points if p.lower() not in answer_lower]
-            if missed:
-                missed_txt = "; ".join(missed[:3])
-                log.info(f"[FollowupNudge] Missed core points: {missed_txt}")
-                messages.append({"role": "system", "content":
-                    f"The candidate MISSED these core points: {missed_txt}. "
-                    "Ask ONE follow-up question about the most important missed point."})
+            if core_points:
+                try:
+                    core_list = "\n".join(f"- {p}" for p in core_points)
+                    check_result, _ = call_llm([{"role": "user", "content":
+                        f"Question: {last_question}\n"
+                        f"Candidate's answer: {last_answer}\n\n"
+                        f"Core points expected:\n{core_list}\n\n"
+                        f"Which core points did the candidate NOT cover or only partially cover? "
+                        f"List ONLY the missed points, one per line, no bullets. "
+                        f"If the candidate covered all points, reply with just: NONE"}],
+                        model_id="gpt-4o-mini", temperature=0, max_tokens=150)
+                    check_result = check_result.strip()
+                    if check_result and check_result.upper() != "NONE":
+                        missed_points = [l.strip().lstrip("-•").strip() for l in check_result.splitlines() if l.strip()]
+                        if missed_points:
+                            missed_txt = "; ".join(missed_points[:3])
+                            log.info(f"[FollowupNudge] LLM detected missed core points: {missed_txt}")
+                            messages.append({"role": "system", "content":
+                                f"The candidate MISSED these core points in their answer: {missed_txt}. "
+                                "Ask ONE targeted follow-up question about the most important missed point. "
+                                "Do NOT repeat the original question — ask specifically about what they missed."})
+                except Exception as e:
+                    log.warning(f"[FollowupNudge] LLM check failed, skipping: {e}")
 
     # Volatile per-turn steering (already-asked ledger + live project-coverage
     # counts) rides AFTER the history, not in the system prompt — it changes every
@@ -3978,7 +3994,15 @@ def _lms_callback(session, retries=3):
         return
     evaluation = session.get("evaluation", {})
     resume = session.get("resume", {})
-    anticheat = session.get("anticheat_log", {})
+    anticheat_raw = session.get("anticheat_log", [])
+    if isinstance(anticheat_raw, list):
+        face_mismatch_count = sum(1 for e in anticheat_raw if e.get("event_type") in ("face_comparison", "no_face_detected", "face_mismatch", "camera_off"))
+        tab_switch_count = sum(1 for e in anticheat_raw if e.get("event_type") == "tab_switch")
+        ai_detection_flags = sum(1 for e in anticheat_raw if e.get("event_type") == "ai_detection")
+    else:
+        face_mismatch_count = anticheat_raw.get("face_mismatch_count", 0)
+        tab_switch_count = anticheat_raw.get("tab_switch_count", 0)
+        ai_detection_flags = anticheat_raw.get("ai_detection_flags", 0)
     per_q = evaluation.get("per_question_scores") or evaluation.get("per_question", [])
     if not isinstance(per_q, list):
         per_q = []
@@ -4008,11 +4032,11 @@ def _lms_callback(session, retries=3):
             "questions_answered": evaluation.get("answered", 0),
         },
         "integrity": {
-            "ai_detection_flags": anticheat.get("ai_detection_flags", 0),
-            "face_mismatch_count": anticheat.get("face_mismatch_count", 0),
+            "ai_detection_flags": ai_detection_flags,
+            "face_mismatch_count": face_mismatch_count,
             "voice_mismatch_count": session.get("speaker_mismatch_count", 0),
-            "tab_switch_count": anticheat.get("tab_switch_count", 0),
-            "trust_score": anticheat.get("trust_score"),
+            "tab_switch_count": tab_switch_count,
+            "trust_score": None,
         },
         "questions": [
             {
