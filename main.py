@@ -720,11 +720,13 @@ def _end_interview(session, reason="manual"):
 
 # ── LLM Routing ──────────────────────────────────────────────────────────
 
-def call_llm(messages, model_id="", temperature=0.5, max_tokens=500):
+def call_llm(messages, model_id="", temperature=0.5, max_tokens=500,
+             _step="", _session_id=""):
     """Route to correct LLM: OpenAI, Bedrock, or Grok.
     Returns (text, usage_dict) where usage_dict has input_tokens, output_tokens, cost_usd."""
     model = model_id or RUNTIME_CONFIG["qgen_model"]
     input_est = _estimate_message_tokens(messages, model)
+    _t0 = time.time()
 
     # Grok
     if model.startswith("grok-") and xai_client:
@@ -2145,7 +2147,8 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
             if core_points:
                 try:
                     core_list = "\n".join(f"- {p}" for p in core_points)
-                    check_result, _ = call_llm([{"role": "user", "content":
+                    _nudge_t0 = time.time()
+                    check_result, _nudge_usage = call_llm([{"role": "user", "content":
                         f"Question: {last_question}\n"
                         f"Candidate's answer: {last_answer}\n\n"
                         f"Core points expected:\n{core_list}\n\n"
@@ -2157,6 +2160,12 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
                         f"List ONLY the fully missed points, one per line, no bullets. "
                         f"If the candidate addressed all core points (even partially), reply with just: NONE"}],
                         model_id="gpt-4o-mini", temperature=0, max_tokens=150)
+                    _nudge_ms = round((time.time() - _nudge_t0) * 1000)
+                    database.append_session_obs_log(session.get("id", ""),
+                        _obs_entry("LLM_followup_check", "gpt-4o-mini", _nudge_ms, "success",
+                                   input_tokens=_nudge_usage.get("input_tokens", 0),
+                                   output_tokens=_nudge_usage.get("output_tokens", 0),
+                                   cost_usd=_nudge_usage.get("cost_usd", 0.0)))
                     check_result = check_result.strip()
                     if check_result and check_result.upper() != "NONE":
                         missed_points = [l.strip().lstrip("-•").strip() for l in check_result.splitlines() if l.strip()]
