@@ -2125,6 +2125,9 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
             messages.append({"role": "user", "content": entry["answer"]})
 
     # Nudge follow-up if the last answer missed expected core points
+    # NOTE: The actual nudge message is appended AFTER the steering block below,
+    # so it's the last thing the LLM sees and cannot be overridden by other instructions.
+    _followup_nudge_msg = None
     if history and not (history[-1] or {}).get("is_followup"):
         last_entry = history[-1]
         last_answer = (last_entry.get("answer") or "").strip()
@@ -2156,10 +2159,12 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
                         if missed_points:
                             missed_txt = "; ".join(missed_points[:3])
                             log.info(f"[FollowupNudge] LLM detected missed core points: {missed_txt}")
-                            messages.append({"role": "system", "content":
-                                f"The candidate MISSED these core points in their answer: {missed_txt}. "
-                                "Ask ONE targeted follow-up question about the most important missed point. "
-                                "Do NOT repeat the original question — ask specifically about what they missed."})
+                            _followup_nudge_msg = (
+                                f"MANDATORY FOLLOW-UP: The candidate MISSED these core points: {missed_txt}. "
+                                "You MUST ask a follow-up question about the most important missed point. "
+                                "Do NOT move to a new topic. Do NOT ask about a different concept. "
+                                "Ask specifically about what they missed from the previous question. "
+                                "This overrides all other instructions about question type or topic switching.")
                 except Exception as e:
                     log.warning(f"[FollowupNudge] LLM check failed, skipping: {e}")
 
@@ -2266,6 +2271,9 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     steering = (asked_block + project_block + mix_reminder + open_steer + followup_guard + ramp_steer).strip()
     if steering:
         messages.append({"role": "system", "content": steering})
+
+    if _followup_nudge_msg:
+        messages.append({"role": "system", "content": _followup_nudge_msg})
 
     return messages
 
