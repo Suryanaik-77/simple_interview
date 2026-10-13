@@ -2804,7 +2804,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
                  if e.get("question") and not _is_pause_prompt(e["question"]) and not e.get("is_greeting")]
     all_asked.extend(session.get("_prev_questions_cache", []))
     dup_match = _question_too_similar(question, all_asked)
-    if dup_match and "[END_INTERVIEW]" not in question:
+    if dup_match and "[END_INTERVIEW]" not in question and not followup_nudge:
         log.warning(f"[DupGuard] Duplicate detected — retrying. New: \"{question[:80]}\" matches: \"{dup_match[:80]}\"")
         retry_msg = (f"STOP — your question is nearly identical to one already asked: \"{dup_match[:120]}\". "
                      "You MUST ask about a COMPLETELY DIFFERENT topic. Do not rephrase — pick a new concept entirely.")
