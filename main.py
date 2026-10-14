@@ -569,7 +569,7 @@ _STT_PRICING = {
 # TTS pricing per 1K characters (estimates)
 _TTS_PRICING = {
     "deepgram": 0.015,
-    "inworld": 0.005,  # $5/1M chars (TTS-1.5 Mini)
+    "inworld": 0.015,  # $15/1M chars (TTS-1.5 Mini)
     "openai": 0.015,
     "kugel": 0.046,  # ~€0.043/min (Turbo) ≈ $0.046/1K chars at ~1000 chars/min English
 }
