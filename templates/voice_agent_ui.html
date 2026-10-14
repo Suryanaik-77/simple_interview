@@ -2398,6 +2398,10 @@
         let _wasPausePrompt = false;
         function onStreamComplete() {
             if (audioPlaying || audioQueue.length > 0) return;
+            // Reset no-answer state for the new question (matches displayQuestion resets)
+            _noAnswerNudged = false;
+            _nudgeEndedAt = 0;
+            _nudgePlaying = false;
             document.getElementById('status-txt').textContent = 'listening';
             document.getElementById('main-label').textContent = 'Listening...';
             // For a pause prompt ("Take your time") restore the original question text
