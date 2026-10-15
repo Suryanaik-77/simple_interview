@@ -5053,7 +5053,11 @@ def stream_answer(data: dict):
             # steering, and tag classification (follow-up / scenario / type). Both must be
             # spawned here too — this streaming path is what live interviews use.
             if not is_end:
-                # Expected points generation removed per user request
+                resume = session.get("resume", {})
+                threading.Thread(target=generate_expected_points,
+                                 args=(question, resume.get("domain", "physical_design"),
+                                       resume.get("level", "trained_fresher"), session),
+                                 daemon=True).start()
                 threading.Thread(target=classify_question_tags,
                                  args=(session, question), daemon=True).start()
 
