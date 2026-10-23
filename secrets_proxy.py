@@ -15,8 +15,13 @@ Naming convention on AWS side:
     SSM:            /simple-interview/OPENAI_API_KEY
     SecretsMgr:     simple-interview/OPENAI_API_KEY
 Override prefixes with SSM_PREFIX / SECRETSMANAGER_PREFIX if needed.
+
+Blob mode: set SECRETSMANAGER_BLOB=<secret-name> to read ALL keys from one
+JSON secret (fetched once, cached). Falls back to per-key lookup, then env.
 """
 
+import json
+import logging
 import os
 from functools import lru_cache
 from typing import Optional
@@ -27,6 +32,7 @@ load_dotenv()  # ensures SECRETS_BACKEND itself, plus dev secrets, are visible
 _BACKEND    = os.getenv("SECRETS_BACKEND", "env").lower()
 _SSM_PREFIX = os.getenv("SSM_PREFIX", "/simple-interview/")
 _SM_PREFIX  = os.getenv("SECRETSMANAGER_PREFIX", "simple-interview/")
+_SM_BLOB    = os.getenv("SECRETSMANAGER_BLOB", "")
 _AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
 
 
@@ -60,6 +66,19 @@ def _from_sm(name: str) -> Optional[str]:
         return None
 
 
+@lru_cache(maxsize=1)
+def _blob() -> dict:
+    """Fetch the single JSON secret holding all keys. Cached for process life."""
+    try:
+        resp = _sm().get_secret_value(SecretId=_SM_BLOB)
+        data = json.loads(resp.get("SecretString") or "{}")
+        # Keys pasted into the console sometimes carry stray whitespace.
+        return {k.strip(): v for k, v in data.items()}
+    except Exception as e:
+        logging.getLogger("secrets").error(f"[Secrets] blob '{_SM_BLOB}' fetch failed: {e}")
+        return {}
+
+
 def get_secret(name: str, default: Optional[str] = None) -> str:
     """
     Resolution order:
@@ -72,9 +91,14 @@ def get_secret(name: str, default: Optional[str] = None) -> str:
         if v is not None:
             return v
     elif _BACKEND == "secretsmanager":
-        v = _from_sm(name)
-        if v is not None:
-            return v
+        if _SM_BLOB:
+            v = _blob().get(name)
+            if v is not None and v != "":
+                return v
+        else:
+            v = _from_sm(name)
+            if v is not None:
+                return v
 
     v = os.getenv(name)
     if v is not None:
