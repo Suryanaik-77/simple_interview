@@ -692,26 +692,49 @@
     }
 
     // ════════════════════════════════════════════════════════════
-    // CANDIDATE CAMERA PIP
+    // UNIFIED MEDIA PERMISSIONS — single prompt for camera + mic
     // ════════════════════════════════════════════════════════════
-    (function initCameraPip() {
+    let _camStream = null;   // video-only stream for PIP
+    let _sharedAudioStream = null;  // audio stream shared with initMic()
+
+    (async function requestAllMedia() {
+        try {
+            const combined = await navigator.mediaDevices.getUserMedia({
+                video: { width: 320, height: 240, facingMode: 'user' },
+                audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true }
+            });
+            _camStream = new MediaStream(combined.getVideoTracks());
+            _sharedAudioStream = new MediaStream(combined.getAudioTracks());
+            setupCameraPip(_camStream);
+            preInitMic(_sharedAudioStream);
+        } catch (e) {
+            console.warn('[Media] Combined request failed, trying separately:', e.name);
+            try {
+                const vs = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: 'user' } });
+                setupCameraPip(vs);
+            } catch (_) { setupCameraPip(null); }
+            try {
+                const as_ = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true } });
+                preInitMic(as_);
+            } catch (_) {}
+        }
+    })();
+
+    function setupCameraPip(stream) {
         const video = document.getElementById('cam-video');
         const placeholder = document.getElementById('cam-placeholder');
         const camDot = document.getElementById('cam-dot');
         const pip = document.getElementById('cam-pip');
 
-        // Start camera
-        navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: 'user' }, audio: false })
-            .then(stream => {
-                video.srcObject = stream;
-                video.style.display = 'block';
-                placeholder.style.display = 'none';
-                camDot.classList.add('active');
-            })
-            .catch(() => {
-                video.style.display = 'none';
-                placeholder.style.display = 'flex';
-            });
+        if (stream) {
+            video.srcObject = stream;
+            video.style.display = 'block';
+            placeholder.style.display = 'none';
+            camDot.classList.add('active');
+        } else {
+            video.style.display = 'none';
+            placeholder.style.display = 'flex';
+        }
 
         // Draggable PIP
         let isDragging = false, offsetX = 0, offsetY = 0;
@@ -1434,6 +1457,24 @@
             try { sileroVad.pause(); } catch(e) {}
         }
         _vadIsSpeaking = false;
+    }
+
+    // Pre-initialize mic from the shared audio stream (called at page load)
+    function preInitMic(stream) {
+        if (micReady) return;
+        try {
+            mediaStream = stream;
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            const source = audioContext.createMediaStreamSource(mediaStream);
+            source.connect(analyser);
+            micReady = true;
+            console.log('[Mic] Pre-initialized from combined stream');
+            initSileroVad().then(ok => console.log('[VAD]', ok ? 'silero active' : 'browser fallback'));
+        } catch (err) {
+            console.error('[Mic] Pre-init failed:', err);
+        }
     }
 
     // Initialize mic once — kept open for the entire interview

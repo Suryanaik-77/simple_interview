@@ -60,6 +60,13 @@ _ALLOWED_ORIGINS = [
 app.add_middleware(CORSMiddleware, allow_origins=_ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 
+@app.middleware("http")
+async def permissions_policy_header(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Permissions-Policy"] = "camera=(self), microphone=(self)"
+    return response
+
+
 @app.exception_handler(RequestValidationError)
 async def _log_validation_error(request: Request, exc: RequestValidationError):
     """FastAPI rejects a bad request BEFORE the endpoint body runs, so a 422 leaves
