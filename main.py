@@ -50,6 +50,7 @@ log = logging.getLogger("interview")
 
 # ── App ──────────────────────────────────────────────────────────────────
 app = FastAPI(title="Simple Interview Agent")
+
 _ALLOWED_ORIGINS = [
     "https://mockin.eduspark.sumedhait.com",
     "https://stage-lms.sumedhait.com",
@@ -92,6 +93,14 @@ async def _log_validation_error(request: Request, exc: RequestValidationError):
 _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 if os.path.isdir(_static_dir):
     app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+# ── LangGraph Interview Agent (v2) ──────────────────────────────────────
+try:
+    from interview_agent.api import router as _v2_router
+    app.include_router(_v2_router)
+    log.info("[V2] LangGraph interview agent router mounted at /api/v2")
+except Exception as _v2_err:
+    log.warning("[V2] Agent router not loaded: %s", _v2_err)
 
 # ── Config ───────────────────────────────────────────────────────────────
 OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
@@ -438,8 +447,10 @@ def save_candidate_session(session):
         "date": datetime.now(tz=timezone.utc).isoformat(),
         "domain": session.get("resume", {}).get("domain", ""),
         "turns": session.get("turn", 0),
+        "answered": _count_answered(session),
         "topics_asked": topics_asked,
         "questions_asked": [e.get("question", "") for e in session.get("conversation", []) if e.get("question")],
+        "bank_refs": session.get("bank_refs", []),   # curated questions already offered (see _pick_reference_question)
         "projects": session.get("resume", {}).get("key_projects", []),
         "skills": session.get("resume", {}).get("skills", []),
         "tools": session.get("resume", {}).get("tools", []),
@@ -503,10 +514,44 @@ def _generate_comparison_async(session, email):
 
 
 def get_candidate_previous(email: str) -> list[dict]:
-    """Get previous sessions for a returning candidate."""
+    """Get previous sessions for a returning candidate (oldest first)."""
     if database.is_available():
         return database.get_candidate_history(email)
     return candidate_history.get(email, [])
+
+
+def _answered_previous(email: str) -> list[dict]:
+    """Earlier interviews that had at least one answer. 0-answer interviews (left at the
+    greeting) are skipped for question memory and interview numbering — counting them
+    pushed real interviews out of the memory window."""
+    return [ps for ps in get_candidate_previous(email)
+            if (ps.get("answered", ps.get("turns", 0)) or 0) > 0]
+
+
+PREV_QUESTIONS_MAX = 80   # how many questions from earlier interviews the interviewer is told to avoid
+
+_SKIP_QUESTION_PREFIXES = ("good morning", "good afternoon", "good evening", "tell me about yourself",
+                           "welcome back", "thanks for coming", "don't go personal", "let's focus",
+                           "please answer in english", "take your time", "that covers what i needed",
+                           "thank you for your time", "i'll decide what to ask", "let's continue",
+                           "let's move on")
+
+
+def _previous_questions(prev_sessions, current_session_id="") -> list[str]:
+    """Real questions from ALL earlier interviews, newest first, de-duplicated, capped."""
+    out, seen = [], set()
+    for ps in reversed(prev_sessions):
+        if ps.get("session_id") == current_session_id:
+            continue
+        for q in ps.get("questions_asked", []):
+            ql = (q or "").strip().lower()
+            if len(ql) < 15 or ql.startswith(_SKIP_QUESTION_PREFIXES) or ql in seen:
+                continue
+            seen.add(ql)
+            out.append(q.strip())
+            if len(out) >= PREV_QUESTIONS_MAX:
+                return out
+    return out
 
 # ── Auth ─────────────────────────────────────────────────────────────────
 security = HTTPBearer(auto_error=False)
@@ -708,6 +753,33 @@ def _obs_entry(step: str, model: str, latency_ms: int, status: str = "success",
 
 # ── Interview Duration Tracking ──────────────────────────────────────────
 
+# Shown to the student when the interview stops, and exposed to the LMS as end_message.
+END_MESSAGES = {
+    "manual": "The interview was ended by the student.",
+    "time_limit": "The interview ended because the time limit was reached.",
+    "llm_decision": "The interviewer completed the interview.",
+    "stop_agent": "The interviewer completed the interview.",
+    "hard_max": "The interview ended because the maximum length was reached.",
+    "stale_timeout": "The interview was closed automatically after a long period of inactivity.",
+    "abusive_behavior": "The interview was ended because of inappropriate language.",
+    "domain_mismatch": "The interview was not conducted: the student's background does not match this interview's role.",
+    "speaker_verification_failed": "The interview was ended: a different speaker's voice was detected.",
+    "voice_mismatch": "The interview was ended: a different speaker's voice was detected.",
+    "face_mismatch": "The interview was ended: a different person was detected on camera.",
+    "no_face_detected": "The interview was ended: no face was visible on camera.",
+    "camera_off": "The interview was ended because the camera was turned off.",
+    "camera_covered": "The interview was ended because the camera was covered.",
+    "user_not_in_front": "The interview was ended because the student left the camera view.",
+    "multiple_persons": "The interview was ended because more than one person was detected on camera.",
+    "phone_detected": "The interview was ended because a phone was detected on camera.",
+    "eye_away": "The interview was ended because the student repeatedly looked away from the screen.",
+    "tab_switch": "The interview was ended because the student switched tabs or windows.",
+    "window_resize": "The interview was ended because the browser window was resized.",
+    "screen_overlay": "The interview was ended because a screen overlay was detected.",
+    "ai_tool_detected": "The interview was ended because an AI tool was detected.",
+    "ai_answer_detected": "The interview was ended because an answer was flagged as AI-generated.",
+}
+
 def _end_interview(session, reason="manual"):
     """Mark interview as ended and track duration with reason.
 
@@ -719,16 +791,13 @@ def _end_interview(session, reason="manual"):
     session["phase"] = "ended"
     session["ended_at"] = time.time()
     session["end_reason"] = reason
+    session["end_message"] = END_MESSAGES.get(reason, "The interview has ended.")
     started = session.get("started_at", session["ended_at"])
     duration_minutes = round((session["ended_at"] - started) / 60, 2)
     session["duration_minutes"] = duration_minutes
     sid = session.get("id", "unknown")[:8]
     log.info(f"[Interview] Session {sid} ended - Reason: {reason} | Duration: {duration_minutes} min ({session['turn']} turns)")
 
-    # Deduct from user's lifetime quota
-    email = session.get("resume", {}).get("email")
-    if email and duration_minutes > 0:
-        database.update_user_quota(email, duration_minutes)
 
 
 # ── LLM Routing ──────────────────────────────────────────────────────────
@@ -1783,7 +1852,10 @@ def _load_question_bank():
     for q in QUESTIONS:
         d, diff, txt = q.get("domain"), q.get("difficulty"), q.get("question_text")
         if d and diff and txt:
-            bank.setdefault(d, {}).setdefault(diff, []).append(txt)
+            # topic + expected points let an "angle" reference be passed WITHOUT the
+            # question text (the model copied the text even when told to change the angle).
+            bank.setdefault(d, {}).setdefault(diff, []).append(
+                {"q": txt, "topic": q.get("topic", ""), "points": list(q.get("expected_points") or [])})
     n = sum(len(v) for t in bank.values() for v in t.values())
     log.info(f"[Bank] loaded {n} curated questions across {len(bank)} domains")
     return bank
@@ -1800,64 +1872,94 @@ except Exception as _jd_e:  # keep the app running even if the JD file is missin
         return ""
 
 
-def _bank_block_for(domain, level, session, session_index=0):
-    """A small, level-appropriate sample of curated questions as difficulty/style
-    exemplars.
+_JUNIOR_LEVELS = ("fresh_graduate", "trained_fresher", "experienced_junior")
 
-    Non-repeating per user: the pool is shuffled deterministically by the CANDIDATE
-    (email), then split into clean, non-overlapping k-sized slices. Session 0 gets
-    slice 0, session 1 gets slice 1, etc., so no two sessions share a question until
-    every slice has been used at least once (one "epoch"). Once a candidate has
-    cycled through the whole pool, the next epoch reshuffles it (seeded by
-    user+epoch) so the next pass groups questions differently rather than repeating
-    the exact same window pattern. Stable within a session (session_index doesn't
-    change mid-interview), so the prompt still caches.
 
-    (Previously used `off = (idx * k) % len(pool)`, which — unless len(pool) is an
-    exact multiple of k — produces overlapping windows almost immediately: e.g.
-    pool=20, k=7 gives offsets 0, 7, 14, 1, 8, ... so session 3's window (starting
-    at 1) is nearly identical to session 0's (starting at 0) by the 3rd-4th
-    session.)"""
+def _bank_pool(domain, level, session):
+    """Curated bank questions for this domain/level, in a stable per-student order (easier tier first)."""
     import random, hashlib
     tiers = QUESTION_BANK.get(domain, {})
-    if not tiers:
-        return ""
-    basic = list(tiers.get("basic", []))
-    inter = list(tiers.get("intermediate", []))
-    adv = list(tiers.get("advanced", []))
-    # Seed by the user (email), so each person has their own stable ordering; fall
-    # back to session id for anonymous sessions.
-    user_key = (session.get("resume", {}).get("email") or str(session.get("id", ""))).lower()
+    names = ("basic", "intermediate") if level in _JUNIOR_LEVELS else ("intermediate", "advanced")
+    user_key = (session.get("resume", {}).get("email") or str(session.get("id", ""))).strip().lower()
     seed = int(hashlib.md5(user_key.encode()).hexdigest(), 16) & 0xffffffff
-    rng = random.Random(seed)
-    rng.shuffle(basic); rng.shuffle(inter); rng.shuffle(adv)
+    pool = []
+    for i, name in enumerate(names):
+        tier = list(tiers.get(name, []))
+        random.Random(seed + i).shuffle(tier)
+        pool += tier
+    return pool, seed
 
-    def window(pool, k, idx):
-        if not pool:
-            return []
-        if len(pool) <= k:
-            return pool
-        num_slices = len(pool) // k
-        epoch, pos = divmod(idx, num_slices)
-        if epoch:
-            pool = list(pool)
-            random.Random(seed + epoch).shuffle(pool)
-        off = pos * k
-        return pool[off:off + k]
 
-    junior = level in ("fresh_graduate", "trained_fresher", "experienced_junior")
-    picks = [("EASY", window(basic, 7, session_index)), ("MEDIUM", window(inter, 5, session_index))] if junior \
-        else [("MEDIUM", window(inter, 6, session_index)), ("HARD", window(adv, 6, session_index))]
-    lines = [f"- ({label}) {q}" for label, qs in picks for q in qs]
-    if not lines:
-        return ""
-    header = (
-        "\n\nDOMAIN QUESTION BANK — real interview questions at this candidate's level, "
-        "easy first. Use them to calibrate the DIFFICULTY and PHRASING of your CONCEPT "
-        "questions and to open easy. Adapt or rephrase to the candidate, stay within the "
-        "topics on their résumé, and you may ask one close to verbatim when it fits. These "
-        "are standalone concept checks — never bolt them onto a project.\n")
-    return header + "\n".join(lines)
+def _pick_reference_question(session, prev_sessions, asked_this_session, prev_questions):
+    """Choose the curated bank question the next NEW topic should be based on.
+
+    Replaces the old fixed exemplar list (7 easy + 5 medium per interview): with only 20
+    easy Physical Design questions the slices repeated from the 3rd interview, and the
+    model asked them word for word. Now the server picks ONE reference per turn:
+      - never one already used for this student (bank_refs in earlier interviews and this
+        one), nor one whose concept was already asked (similarity check);
+      - mode "direct" (ask it, may reword) or "angle" (same concept, different angle),
+        alternating so not every question sounds like the bank;
+      - when every bank question has been used, the least-used one comes back, always
+        as "angle" and never in the same interview twice.
+    Returns (bank item {q, topic, points}, mode, reused) or None."""
+    import random
+    resume = session.get("resume", {})
+    pool, seed = _bank_pool(resume.get("domain", "physical_design"),
+                            resume.get("level", "trained_fresher"), session)
+    if not pool:
+        return None
+    used_now = set(session.get("bank_refs", []))
+    use_count = {}
+    for ps in prev_sessions:
+        for q in ps.get("bank_refs", []):
+            use_count[q] = use_count.get(q, 0) + 1
+    asked_all = list(asked_this_session) + list(prev_questions)
+    fresh = next((it for it in pool if it["q"] not in used_now and it["q"] not in use_count
+                  and not _question_too_similar(_ref_core(it["q"]), asked_all, overlap=0.5)), None)
+    rng = random.Random(seed + len(prev_sessions) * 101 + len(used_now))
+    if fresh:
+        return fresh, ("direct" if rng.random() < 0.5 else "angle"), False
+    # Bank exhausted for this student: bring back the least-used concept, from a new angle.
+    again = sorted((it for it in pool if it["q"] not in used_now), key=lambda it: use_count.get(it["q"], 0))
+    again = next((it for it in again
+                  if not _question_too_similar(_ref_core(it["q"]), asked_this_session, overlap=0.5)), None)
+    return (again, "angle", True) if again else None
+
+
+def _commit_reference(session):
+    """The turn's question has been asked: count the offered reference as used, so neither
+    this interview nor later ones offer it again (saved to history as bank_refs)."""
+    ref = session.pop("_ref_this_turn", None)
+    if ref and ref not in session.setdefault("bank_refs", []):
+        session["bank_refs"].append(ref)
+
+
+def _reference_directive(ref):
+    """Per-turn REFERENCE for the next new topic. It is a suggestion, not a script: the
+    interviewer may use it, adapt it, or pick another topic from the job description /
+    projects — as long as that topic is not in QUESTIONS ALREADY ASKED."""
+    item, mode, reused = ref
+    if mode == "direct":
+        head = ("\n\nREFERENCE FOR YOUR NEXT NEW TOPIC (a suggestion, not a script) — a curated "
+                f"question this candidate has not had yet:\n\"{item['q']}\"\n")
+        body = ("If you move to a new concept, you may ask this one, as written or in your own words.")
+    else:
+        # Angle mode: the question text is deliberately NOT shown, only the concept, so the
+        # model has to write its own question instead of rewording the bank one.
+        ideas = "; ".join(item.get("points", [])[:4]) or item["q"].split("?")[0]
+        head = ("\n\nREFERENCE CONCEPT FOR YOUR NEXT NEW TOPIC (a suggestion, not a script) — "
+                f"area: {item.get('topic') or 'core concept'}; key ideas: {ideas}.\n")
+        body = ("If you use it, write your OWN question that tests one or two of these ideas "
+                "from a practical angle — a 'what happens if…', a symptom to debug, a design "
+                "trade-off, or where it shows up in a real flow. Do NOT ask a plain definition "
+                "or 'difference between X and Y' question.")
+        if reused:
+            body += (" This concept came up in an earlier interview, so the angle must clearly "
+                     "differ from QUESTIONS ALREADY ASKED.")
+    return (head + body + " You are free to choose a different topic instead (from the job "
+            "description or the candidate's projects), but never one in QUESTIONS ALREADY ASKED, "
+            "and never a reworded copy of one.")
 
 
 def build_interview_prompt(session):
@@ -1895,58 +1997,38 @@ def build_interview_prompt(session):
     else:
         candidate_info = f"\nCANDIDATE: {name} | {level.replace('_',' ')} | {years} years | Projects: {projects_str}"
 
-    # Check for returning candidate
+    # Check for returning candidate — ALL earlier interviews that had answers (not the
+    # last 3: short abandoned interviews used to push the real ones out of memory).
     returning_block = ""
-    session_index = 0  # how many interviews this candidate already had (0 = first)
+    prev_sessions = []
     email = resume.get("email", "")
     if email:
-        prev_sessions = get_candidate_previous(email)
-        session_index = len(prev_sessions)
-        if prev_sessions:
-            prev_projects = set()
-            _skip_phrases = {"good morning", "good afternoon", "good evening", "tell me about yourself",
-                             "welcome back", "thanks for coming", "don't go personal", "let's focus",
-                             "please answer in english", "take your time", "that covers what i needed",
-                             "thank you for your time", "i'll decide what to ask", "let's continue",
-                             "let's move on"}
+        prev_sessions = _answered_previous(email)
+    session["_prev_questions_cache"] = _previous_questions(prev_sessions, session.get("id", ""))
+    if prev_sessions:
+        prev_projects = set()
+        all_topics = set()
+        for ps in prev_sessions:
+            for t in ps.get("topics_asked", []):
+                if t and t != "General":
+                    all_topics.add(t)
+            for p in ps.get("projects", []):
+                prev_projects.add(p.get("name", str(p)) if isinstance(p, dict) else str(p))
 
-            def _is_real_question(q: str) -> bool:
-                ql = q.strip().lower()
-                if len(ql) < 15:
-                    return False
-                return not any(ql.startswith(p) for p in _skip_phrases)
+        projects_note = ""
+        if prev_projects:
+            projects_note = f"\nProjects discussed before: {', '.join(prev_projects)}\nAsk about DIFFERENT aspects of these projects, or explore projects not yet discussed."
 
-            all_topics = set()
-            for ps in prev_sessions:
-                for t in ps.get("topics_asked", []):
-                    if t and t != "General":
-                        all_topics.add(t)
-                for p in ps.get("projects", []):
-                    prev_projects.add(p.get("name", str(p)) if isinstance(p, dict) else str(p))
+        topics_note = ""
+        if all_topics:
+            topics_note = f"\nTopics already covered across all {len(prev_sessions)} sessions: {', '.join(sorted(all_topics))}\nPrioritize topics NOT in this list."
 
-            recent_questions = []
-            for ps in prev_sessions[-3:]:
-                for q in ps.get("questions_asked", []):
-                    if _is_real_question(q):
-                        recent_questions.append(q)
-            session["_prev_questions_cache"] = recent_questions
-
-            projects_note = ""
-            if prev_projects:
-                projects_note = f"\nProjects discussed before: {', '.join(prev_projects)}\nAsk about DIFFERENT aspects of these projects, or explore projects not yet discussed."
-
-            topics_note = ""
-            if all_topics:
-                topics_note = f"\nTopics already covered across all {len(prev_sessions)} sessions: {', '.join(sorted(all_topics))}\nPrioritize topics NOT in this list."
-
-            returning_block = f"""
-RETURNING CANDIDATE: This candidate has interviewed {len(prev_sessions)} time(s) before.{topics_note}
-
-Questions from the most recent sessions (DO NOT repeat or rephrase ANY of these):
-{chr(10).join(f'- {q}' for q in recent_questions)}{projects_note}
-This is a completely NEW interview. You MUST ask entirely different questions — not reworded
-versions of the above. Pick different concepts, different scenarios, different angles.
-If you have already exhausted basic topics, go deeper into advanced sub-topics."""
+        # The questions themselves are listed in QUESTIONS ALREADY ASKED (steering block).
+        returning_block = f"""
+RETURNING CANDIDATE: This candidate has interviewed {len(prev_sessions)} time(s) before.{topics_note}{projects_note}
+This is a completely NEW interview. Every question from their earlier interviews is listed in
+QUESTIONS ALREADY ASKED — never ask any of them again, not even reworded. Pick different
+concepts, different scenarios, different angles. If basic topics are exhausted, go deeper."""
 
     # ── Anti-repetition ledger ────────────────────────────────────────────
     # The Q&A history below is intentionally trimmed to the last 2 turns (focused
@@ -1957,9 +2039,8 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     asked = [e["question"] for e in history
              if e.get("question") and not _is_pause_prompt(e["question"])
              and not e.get("is_greeting")]
-    # Load questions from candidate's last 3 sessions for cross-session anti-repetition
-    email = resume.get("email", "")
-    past_questions = database.get_past_session_questions(email, session.get("id", ""), limit=3)
+    # Questions from ALL earlier interviews with answers (newest first, capped at PREV_QUESTIONS_MAX)
+    past_questions = session["_prev_questions_cache"]
 
     asked_block = ""
     if asked or past_questions:
@@ -1969,7 +2050,7 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
             parts.append(f"THIS SESSION:\n{asked_lines}")
         if past_questions:
             past_lines = "\n".join(f"- {q}" for q in past_questions)
-            parts.append(f"PREVIOUS SESSIONS (last 3):\n{past_lines}")
+            parts.append(f"EARLIER INTERVIEWS:\n{past_lines}")
         all_questions = "\n".join(parts)
         asked_block = (
             "\n\nQUESTIONS ALREADY ASKED — this includes this session AND the candidate's "
@@ -2021,16 +2102,15 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     judgment_rules = (
         "\n\nHOW TO RUN THIS INTERVIEW\n"
         "OPEN EASY. Your first one or two technical questions must be easy, standalone CONCEPT "
-        "questions drawn from the DOMAIN QUESTION BANK below, on a topic from the ROLE's required "
+        "questions (the per-turn REFERENCE question is a good start), on a topic from the ROLE's required "
         "skills (see JOB DESCRIPTION) — not a probe of their project. Let them settle before you "
         "go deep.\n"
         "THIS IS A CONVERSATION, NOT A QUIZ. React naturally to what the candidate says — "
         "acknowledge their answer briefly ('Okay', 'Right', 'Good point') before moving on. "
         "Build on their answers: if they mention something interesting, dig into it.\n"
         "PICK YOUR NEXT MOVE from the candidate's last answer:\n"
-        "- Incomplete or vague (missed key points) → you MUST ask a follow-up about what they missed. "
-        "This is the most important rule: do NOT skip to a new topic when the answer was incomplete. "
-        "Ask directly about the specific concept they failed to mention or got wrong.\n"
+        "- Incomplete (missed key points) → ask a follow-up about what they missed. When the system "
+        "names the missed points (MANDATORY FOLLOW-UP), follow up on exactly those.\n"
         "- Solid AND detailed (with specifics, numbers, concrete examples) → move to a NEW area and "
         "deliberately switch the KIND of question (see QUESTION TYPES).\n"
         "- 'I don't know' / didn't do it → acknowledge and switch topics immediately.\n"
@@ -2106,8 +2186,9 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
             "below) for PROJECT questions — what they actually built — and to anchor scenarios in "
             "their tools.\n" + jd_text)
 
-    bank_block = _bank_block_for(domain, level, session, session_index)
-    system = base_prompt + judgment_rules + jd_block + bank_block + candidate_info + returning_block
+    # Curated bank questions are no longer listed here (the same 12 per interview were
+    # asked word for word); one unused reference is offered per turn in the steering block.
+    system = base_prompt + judgment_rules + jd_block + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
     # Add conversation history — last 6 turns so the LLM has enough context to
@@ -2265,7 +2346,7 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
         started_at = session.get("started_at", 0)
         if started_at:
             elapsed = time.time() - started_at
-            remaining_pct = max(0, 1 - elapsed / SESSION_MAX_DURATION_SEC)
+            remaining_pct = max(0, 1 - elapsed / _session_max_sec())
             if remaining_pct < 0.35 and n_typed >= 4:
                 missing_types = []
                 if n_conc == 0:
@@ -2285,8 +2366,8 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     open_steer = ""
     if not asked:
         open_steer = ("\n\nFIRST TECHNICAL QUESTION — open EASY: ask ONE standalone CONCEPT "
-                      "question drawn from the DOMAIN QUESTION BANK on a topic from their "
-                      "résumé. Do NOT open by probing their project.")
+                      "question (the REFERENCE below is a good starting point). Do NOT open by "
+                      "probing their project.")
     followup_guard = ""
     _conv = session.get("conversation", [])
     if _conv and _conv[-1].get("is_followup"):
@@ -2300,7 +2381,25 @@ If you have already exhausted basic topics, go deeper into advanced sub-topics."
     # Removed adaptive difficulty ramping - questions should stay appropriate
     # for the candidate's level throughout the interview, not get progressively deeper
 
-    steering = (asked_block + project_block + mix_reminder + open_steer + followup_guard + ramp_steer).strip()
+    # One curated reference for the next NEW topic — skipped on a forced follow-up turn.
+    # Recorded in session["bank_refs"] by _commit_reference() once the question is asked.
+    # Offered only on every other new topic (main questions 1, 3, 5…): with a reference every
+    # turn, every main question came from the bank and none from the projects / job description.
+    ref_block = ""
+    session.pop("_ref_this_turn", None)
+    n_main = sum(1 for e in _conv if e.get("question") and not e.get("is_greeting")
+                 and not e.get("is_followup") and not _is_pause_prompt(e["question"]))
+    if not _followup_nudge_msg and n_main % 2 == 0:
+        ref = _pick_reference_question(session, prev_sessions, asked, past_questions)
+        if ref:
+            session["_ref_this_turn"] = ref[0]["q"]
+            ref_block = _reference_directive(ref)
+    elif not _followup_nudge_msg:
+        ref_block = ("\n\nNO REFERENCE THIS TURN — for a new topic, draw on the candidate's projects "
+                     "or the JOB DESCRIPTION (still following the TYPE MIX), not a textbook question.")
+
+    steering = (asked_block + project_block + mix_reminder + open_steer + followup_guard
+                + ramp_steer + ref_block).strip()
     if steering:
         messages.append({"role": "system", "content": steering})
 
@@ -2364,12 +2463,47 @@ def _get_topics_covered(session) -> list[str]:
     return topics
 
 
-SESSION_MAX_DURATION_SEC = int(os.getenv("SESSION_MAX_DURATION_SEC", "3600"))  # 1 hour
+# Admin-editable interview settings (RUNTIME_CONFIG, persisted in app_config).
+# The env values are only the defaults used until an admin saves something.
+SESSION_MAX_DURATION_SEC = int(os.getenv("SESSION_MAX_DURATION_SEC", "1800"))  # 30 minutes
+MAX_INTERVIEWS_PER_USER = int(os.getenv("MAX_INTERVIEWS_PER_USER", "4"))
+PASS_PERCENTAGE = int(os.getenv("PASS_PERCENTAGE", "60"))
+
+# key: (default, min, max)
+INTERVIEW_SETTINGS = {
+    "session_minutes": (SESSION_MAX_DURATION_SEC // 60, 5, 180),
+    "max_interviews_per_user": (MAX_INTERVIEWS_PER_USER, 1, 100),
+    "pass_percentage": (PASS_PERCENTAGE, 1, 100),
+}
+
+
+def _setting(key) -> int:
+    return int(RUNTIME_CONFIG.get(key, INTERVIEW_SETTINGS[key][0]))
+
+
+def _session_max_sec() -> int:
+    return _setting("session_minutes") * 60
+
+
+def _default_interview_limit() -> int:
+    return _setting("max_interviews_per_user")
+
+
+def _norm_email(email) -> str:
+    """Single key for a student across limit/usage tables: trimmed + lower-cased."""
+    return (email or "").strip().lower()
+
+
+def _interview_usage(email) -> tuple[int, int]:
+    """(used, limit) for a student — per-student limit if an admin set one, else the global default.
+    used = interviews with ≥1 answer + recorded missed slots, since the last reset."""
+    used, override = database.get_interview_usage(_norm_email(email))
+    return used, (override if override is not None else _default_interview_limit())
 NO_RESPONSE_TIMEOUT_SEC = int(os.getenv("NO_RESPONSE_TIMEOUT_SEC", "300"))    # 5 minutes
 
 def _should_end_interview(session) -> tuple[bool, str]:
     started = session.get("started_at", 0)
-    if started and (time.time() - started) > SESSION_MAX_DURATION_SEC:
+    if started and (time.time() - started) > _session_max_sec():
         return True, "We've run out of time. Thank you for your time."
     if started and not session.get("first_real_answer_at"):
         elapsed = time.time() - started
@@ -2435,7 +2569,7 @@ def _record_mismatch_evaluation(session, cand: str, role: str):
 # until the question minimum is met, then on EVERY turn it judges whether the
 # interview should continue. When it says STOP the SERVER ends the interview —
 # it does not depend on the interviewer model emitting [END_INTERVIEW].
-STOP_AGENT_MIN_Q = 12       # dormant until this many answered questions
+STOP_AGENT_MIN_Q = 15       # dormant until this many answered questions
 STOP_AGENT_HARD_MAX = 30    # absolute ceiling — always stop here
 
 # Fixed rubric — kept as a stable prefix so the LLM provider can prompt-cache it
@@ -2456,6 +2590,11 @@ def _count_answered(session) -> int:
     question, so they don't count as separate answered questions."""
     return sum(1 for e in session.get("conversation", [])
                if (e.get("answer") or "").strip() and not e.get("is_followup"))
+
+
+def _progress(session) -> dict:
+    """Main-question progress sent to the browser/LMS — follow-ups count with their parent."""
+    return {"answered_questions": _count_answered(session), "min_questions": MIN_ANSWERS_FOR_EVAL}
 
 def _stop_agent_transcript(session, max_chars: int = 16000) -> str:
     # Oldest-first so the string grows as a stable prefix across turns (good for
@@ -2691,7 +2830,8 @@ JSON:"""
             {"turn": turn_index, "score": round(result["score"], 4), "method": result["method"], "ts": time.time()})
 
 
-def _question_too_similar(new_q: str, asked_questions: list[str], threshold: float = 0.40) -> str | None:
+def _question_too_similar(new_q: str, asked_questions: list[str], threshold: float = 0.40,
+                          overlap: float = 0.6) -> str | None:
     """Return the matching question if new_q is too similar to any already-asked question.
     Uses stemmed-word Jaccard on concept words (aggressive stop-word list for interview filler)."""
     _stop = {"a","an","the","is","are","was","were","be","been","being","do","does","did",
@@ -2707,6 +2847,9 @@ def _question_too_similar(new_q: str, asked_questions: list[str], threshold: flo
              "need","way","work","used","using","works","working","types","type",
              "digital","circuits","circuit","design","designs","verification"}
     def _stem(w):
+        # plural first, so "violations" and "violation" stem the same
+        if len(w) > 4 and w.endswith("s") and not w.endswith(("ss", "us", "is")):
+            w = w[:-1]
         for suffix in ("tion","sion","ment","ness","ence","ance","ying","ing","ies","ous",
                         "ive","ful","less","able","ible","ally","edly","ted","ers","est","ly","ed","er","es","en","ss","s"):
             if len(w) > len(suffix) + 2 and w.endswith(suffix):
@@ -2727,9 +2870,16 @@ def _question_too_similar(new_q: str, asked_questions: list[str], threshold: flo
         jaccard = len(shared) / len(union) if union else 0
         if jaccard >= threshold:
             return old_q
-        if len(shared) >= 2 and len(shared) / min(len(new_concepts), len(old_concepts)) >= 0.6:
+        if len(shared) >= 2 and len(shared) / min(len(new_concepts), len(old_concepts)) >= overlap:
             return old_q
     return None
+
+
+def _ref_core(q: str) -> str:
+    """First sentence of a curated question — its core concept. Bank questions add a second
+    clause ("If you fix a setup violation by upsizing…") that dilutes the similarity check."""
+    m = re.match(r"(.+?[?.])\s", q.strip() + " ")
+    return m.group(1) if m else q
 
 
 def generate_question(session, candidate_answer: str, no_response: bool = False) -> dict:
@@ -2851,6 +3001,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         question = re.sub(r'`([^`]+)`', r'\1', question)
         question = re.sub(r'#{1,3}\s*', '', question)
         usage = {k: usage.get(k, 0) + usage2.get(k, 0) for k in usage}
+    _commit_reference(session)
 
     obs = _obs_entry("LLM_question", RUNTIME_CONFIG["qgen_model"], llm_ms, "success",
                      input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
@@ -3016,7 +3167,7 @@ Rules:
 # answered enough questions to be judged fairly. Scores the whole transcript
 # with a rubric tuned to the candidate's level.
 
-MIN_ANSWERS_FOR_EVAL = int(os.getenv("MIN_ANSWERS_FOR_EVAL", "8"))
+MIN_ANSWERS_FOR_EVAL = int(os.getenv("MIN_ANSWERS_FOR_EVAL", "12"))
 EVAL_SWEEP_INTERVAL_SEC = int(os.getenv("EVAL_SWEEP_INTERVAL_SEC", "300"))  # how often the sweeper wakes
 EVAL_SWEEP_GRACE_SEC = int(os.getenv("EVAL_SWEEP_GRACE_SEC", "120"))        # don't touch a session updated more recently than this
 
@@ -3310,7 +3461,10 @@ def evaluate_interview(session) -> dict:
         answered = _count_answered(session)
         if answered < MIN_ANSWERS_FOR_EVAL:
             result = {"status": "skipped", "answered": answered,
-                      "reason": f"only {answered} answered (need {MIN_ANSWERS_FOR_EVAL})"}
+                      "min_questions": MIN_ANSWERS_FOR_EVAL,
+                      "reason": f"only {answered} answered (need {MIN_ANSWERS_FOR_EVAL})",
+                      "summary": (f"Not scored: {answered} of the required {MIN_ANSWERS_FOR_EVAL} "
+                                  f"main questions were answered. This result is final.")}
             session["evaluation"] = result
             if database.is_available():
                 database.save_session_evaluation(sid, result)
@@ -3366,6 +3520,16 @@ def evaluate_interview(session) -> dict:
             result["parse_error"] = True
             result["raw_response"] = raw[:2000]
             log.error(f"[Eval] {sid[:8]} — PARSE FAILED! Raw response:\n{raw[:1000]}")
+        else:
+            # Pass mark in effect at scoring time is stored with the result, so a
+            # later admin change doesn't silently flip past results.
+            try:
+                score_pct = round(float(result.get("overall_score")) * 10)
+                pass_pct = _setting("pass_percentage")
+                result.update(score_percentage=score_pct, pass_percentage=pass_pct,
+                              passed=score_pct >= pass_pct)
+            except (TypeError, ValueError):
+                pass
 
         session["evaluation"] = result
 
@@ -3392,6 +3556,15 @@ def evaluate_interview(session) -> dict:
         return result
     finally:
         _eval_locks.pop(sid, None)
+
+
+def _finish_stale_session(session, run_eval):
+    # Eval first so the history row and comparison see the final score. Saving
+    # history also makes a closed-tab interview count toward the student's limit.
+    if run_eval:
+        evaluate_interview(session)
+    if _count_answered(session) >= 1:
+        save_candidate_session(session)
 
 
 def _evaluate_async(session):
@@ -3472,9 +3645,10 @@ def _stale_session_sweeper():
                     database.save_active_session(sid, data)
                     log.info(f"[StaleSweep] Ended {sid[:8]} ({name}, turn {turns}, "
                              f"runtime {data['duration_minutes']}min)")
-                    # Trigger evaluation if enough turns
-                    if turns >= MIN_ANSWERS_FOR_EVAL:
-                        threading.Thread(target=evaluate_interview, args=(data,), daemon=True).start()
+                    run_eval = turns >= MIN_ANSWERS_FOR_EVAL
+                    if run_eval or _count_answered(data) >= 1:
+                        threading.Thread(target=_finish_stale_session, args=(data, run_eval),
+                                         daemon=True).start()
                 except Exception as e:
                     log.error(f"[StaleSweep] Failed to end {sid[:8]}: {e}")
         except Exception as e:
@@ -3501,6 +3675,12 @@ async def interview_page(session_id: str = None):
         from starlette.responses import RedirectResponse
         return RedirectResponse(LMS_REDIRECT_URL)
     return HTMLResponse(open("templates/voice_agent_ui.html", encoding="utf-8").read())
+
+
+@app.get("/interview/v2", response_class=HTMLResponse)
+async def interview_v2_page():
+    return HTMLResponse(open("templates/interview_v2.html", encoding="utf-8").read())
+
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page():
@@ -3552,7 +3732,7 @@ def _to_wav16k(audio_bytes):
 
 import random as _random
 
-SPEAKER_VERIFY_THRESHOLD = 0.80  # Resemblyzer cosine similarity threshold
+SPEAKER_VERIFY_THRESHOLD = 0.78  # Resemblyzer cosine similarity threshold (genuine speakers seen at 0.80-0.92)
 SPEAKER_MIN_AUDIO_SEC = 15.0    # Minimum audio length for reliable embedding
 SPEAKER_MAX_AUDIO_SEC = 30.0    # Cap how much audio gets embedded per turn
 
@@ -3577,16 +3757,60 @@ def _patch_session(session_id, updates=None, pops=()):
     return latest
 
 
-SPEAKER_MISMATCH_TOLERANCE = 2  # end interview after this many consecutive mismatches
+SPEAKER_MISMATCH_TOLERANCE = 2  # end interview after this many consecutive mismatched ANSWERS
+
+# Voice reference + mismatch count per session, kept in process memory. The session
+# copy is not reliable for these: /api/stream-answer writes back the session it read
+# before the background check finished, wiping speaker_ref_embedding and the count.
+# The session fields are still written (admin/LMS read them) and used after a restart.
+_speaker_state: dict = {}
+_speaker_lock = threading.Lock()
+
+
+def _speaker_ref(session):
+    ref = _speaker_state.get(session.get("id"), {}).get("ref")
+    return ref if ref is not None else session.get("speaker_ref_embedding")
+
+
+def _set_speaker_ref(session_id, emb_list, pops=()):
+    with _speaker_lock:
+        _speaker_state.setdefault(session_id, {})["ref"] = emb_list
+    _patch_session(session_id, {"speaker_ref_embedding": emb_list}, pops=pops)
+
+
+def _speaker_verified(session_id, session):
+    """A verified turn clears the consecutive-mismatch count."""
+    with _speaker_lock:
+        st = _speaker_state.setdefault(session_id, {})
+        had = st.get("count", session.get("speaker_mismatch_count", 0))
+        st["count"] = 0
+    if had:
+        _patch_session(session_id, updates={"speaker_mismatch_count": 0, "speaker_mismatch_warning": False})
+    return had
+
 
 def _terminate_for_speaker_mismatch(session_id, entry):
-    """Record a mismatch. Warn on first, end on 2nd consecutive mismatch."""
+    """Record a mismatch. Warn on the first mismatched answer, end on the 2nd consecutive one.
+    A long answer is sent in several chunks; all chunks of one answer count once."""
     latest = sessions.get(session_id)
     if latest is None:
         return 0
-    count = latest.get("speaker_mismatch_count", 0) + 1
+    turn = entry.get("turn")
+    with _speaker_lock:
+        st = _speaker_state.setdefault(session_id, {})
+        st.setdefault("count", latest.get("speaker_mismatch_count", 0))
+        same_answer = st["count"] > 0 and st.get("mismatch_turn") == turn
+        if not same_answer:
+            st["count"] += 1
+            st["mismatch_turn"] = turn
+        count = st["count"]
     latest["speaker_mismatch_count"] = count
     latest.setdefault("speaker_mismatches", []).append(entry)
+    if same_answer:
+        sessions[session_id] = latest
+        log.warning(f"[Resemblyzer] {session_id[:8]} — mismatch again in the same answer (turn {turn}, "
+                    f"score={entry.get('score')}) - already counted, not escalating")
+        return count
 
     if count >= SPEAKER_MISMATCH_TOLERANCE:
         latest["speaker_mismatch"] = True
@@ -3664,7 +3888,8 @@ def _verify_speaker_background(audio_bytes, session, turn):
         if current_emb is None:
             return
 
-        if "speaker_ref_embedding" not in session:
+        stored_ref = _speaker_ref(session)
+        if stored_ref is None:
             voice_ref = session.get("user_voice_ref")
             if voice_ref:
                 if isinstance(voice_ref, str):
@@ -3679,9 +3904,8 @@ def _verify_speaker_background(audio_bytes, session, turn):
                     log.warning(f"[Resemblyzer] {sid} — reference voice failed to embed; "
                                 f"NOT enrolling from turn {turn}, will retry")
                     return
-                _patch_session(session["id"],
-                               {"speaker_ref_embedding": ref_emb.tolist()},
-                               pops=("user_voice_ref",))  # drop the raw audio
+                _set_speaker_ref(session["id"], ref_emb.tolist(),
+                                 pops=("user_voice_ref",))  # drop the raw audio
                 log.info(f"[Resemblyzer] {sid} — Reference from supplied voice sample")
                 score = float(np.dot(ref_emb, current_emb) /
                               (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
@@ -3691,16 +3915,14 @@ def _verify_speaker_background(audio_bytes, session, turn):
                         {"turn": turn, "score": round(score, 4), "ts": time.time(),
                          "vs": "reference_voice"})
                 else:
-                    if session.get("speaker_mismatch_count", 0) > 0:
-                        _patch_session(session["id"], updates={
-                            "speaker_mismatch_count": 0, "speaker_mismatch_warning": False})
+                    _speaker_verified(session["id"], session)
                     log.info(f"[Resemblyzer] {sid} — turn {turn} verified vs reference voice (score={score:.4f})")
                 return
-            _patch_session(session["id"], {"speaker_ref_embedding": current_emb.tolist()})
-            log.info(f"[Resemblyzer] {sid} — Reference from turn 1")
+            _set_speaker_ref(session["id"], current_emb.tolist())
+            log.info(f"[Resemblyzer] {sid} — Reference from turn {turn}")
             return
 
-        ref_emb = np.array(session["speaker_ref_embedding"])
+        ref_emb = np.array(stored_ref)
         score = float(np.dot(ref_emb, current_emb) /
                       (np.linalg.norm(ref_emb) * np.linalg.norm(current_emb)))
 
@@ -3709,9 +3931,7 @@ def _verify_speaker_background(audio_bytes, session, turn):
                 session["id"],
                 {"turn": turn, "score": round(score, 4), "ts": time.time()})
         else:
-            if session.get("speaker_mismatch_count", 0) > 0:
-                _patch_session(session["id"], updates={
-                    "speaker_mismatch_count": 0, "speaker_mismatch_warning": False})
+            if _speaker_verified(session["id"], session):
                 log.info(f"[Resemblyzer] {sid} — turn {turn} verified (score={score:.4f}), mismatch count reset")
             else:
                 log.info(f"[Resemblyzer] {sid} — turn {turn} verified (score={score:.4f})")
@@ -3885,13 +4105,11 @@ async def lms_launch(
     if not LMS_API_KEY or api_key != LMS_API_KEY:
         _launch_reject(401, "invalid_api_key", "Invalid or missing API key.")
 
-    # Check user's remaining quota before allowing LMS session creation
-    quota = database.get_user_quota(email)
-    if quota and quota["remaining_minutes"] <= 0:
-        _launch_reject(403, "quota_exhausted",
-                       f"Interview quota exhausted. User has used {quota['total_minutes_used']:.1f} minutes "
-                       f"of their {quota['quota_limit_minutes']:.0f}-minute lifetime quota. "
-                       f"Please contact support to extend quota.")
+    interview_count, interview_limit = _interview_usage(email)
+    if interview_count >= interview_limit:
+        _launch_reject(403, "interview_limit_reached",
+                       f"Interview limit reached. User has completed {interview_count} of "
+                       f"{interview_limit} allowed interviews.")
 
     log.info(f"[LMS-Launch] email={email} domain_raw='{domain}' name='{name}'")
     domain = domain.strip().lower().replace(" ", "_").replace("-", "_")
@@ -4065,16 +4283,12 @@ async def lms_launch(
     # If request wants JSON (API call), return JSON; otherwise redirect to the interview
     accept = request.headers.get("accept", "")
     if "application/json" in accept:
-        # Include quota information in response
-        quota = database.get_user_quota(email)
-        quota_info = {}
-        if quota:
-            quota_info = {
-                "quota_remaining_minutes": quota["remaining_minutes"],
-                "quota_total_minutes": quota["quota_limit_minutes"],
-                "quota_used_minutes": quota["total_minutes_used"]
-            }
-        return {"session_id": sid, "launch_url": launch_url, "resume": parsed, **quota_info}
+        return {
+            "session_id": sid, "launch_url": launch_url, "resume": parsed,
+            "interview_number": interview_count + 1,
+            "max_interviews": interview_limit,
+            "interviews_remaining": interview_limit - interview_count - 1,
+        }
 
     from starlette.responses import RedirectResponse
     return RedirectResponse(launch_url, status_code=303)
@@ -4282,12 +4496,11 @@ async def create_session_endpoint(
     if resume["domain"] not in SUPPORTED_DOMAINS:
         resume["domain"] = "physical_design"  # fallback for direct sessions
 
-    # Check user's remaining quota before allowing session creation
     user_email = resume.get("email")
     if user_email:
-        quota = database.get_user_quota(user_email)
-        if quota and quota["remaining_minutes"] <= 0:
-            raise HTTPException(403, f"Interview quota exhausted. You have used {quota['total_minutes_used']:.1f} minutes of your {quota['quota_limit_minutes']:.0f}-minute lifetime quota. Please contact support to extend your quota.")
+        interview_count, interview_limit = _interview_usage(user_email)
+        if interview_count >= interview_limit:
+            raise HTTPException(403, f"Interview limit reached. You have completed {interview_count} of {interview_limit} allowed interviews.")
 
     sid = secrets.token_hex(8)
     session = {
@@ -4332,18 +4545,15 @@ async def create_session_endpoint(
 
     sessions[sid] = session
 
-    # Include quota information in response
-    quota_info = {}
+    interview_info = {}
     if user_email:
-        quota = database.get_user_quota(user_email)
-        if quota:
-            quota_info = {
-                "quota_remaining_minutes": quota["remaining_minutes"],
-                "quota_total_minutes": quota["quota_limit_minutes"],
-                "quota_used_minutes": quota["total_minutes_used"]
-            }
+        interview_info = {
+            "interview_number": interview_count + 1,
+            "max_interviews": interview_limit,
+            "interviews_remaining": interview_limit - interview_count - 1,
+        }
 
-    return {"session_id": sid, "resume": resume, **quota_info}
+    return {"session_id": sid, "resume": resume, **interview_info}
 
 
 @app.post("/api/session/voice-ref")
@@ -4360,7 +4570,7 @@ async def set_session_voice_ref(session_id: str = Form(...), user_voice: UploadF
         raise HTTPException(404, "Session not found")
     # Never overwrite an established reference — an LMS-supplied sample or an
     # already-enrolled embedding is the stronger one and must win.
-    if session.get("user_voice_ref") or session.get("speaker_ref_embedding"):
+    if session.get("user_voice_ref") or _speaker_ref(session) is not None:
         return {"ok": True, "skipped": True, "reason": "reference_already_set"}
     voice_bytes = await user_voice.read()
     if len(voice_bytes) > 10_000_000:
@@ -4602,7 +4812,15 @@ def transcribe_endpoint(audio: UploadFile = File(...), session_id: str = Form(""
             ).start()
         sessions[session_id] = session
 
-    # If speaker mismatch was flagged, inform frontend
+    # If the interview was ended (voice mismatch, face check...), tell the frontend why
+    latest = sessions.get(session_id) if session else None
+    if latest and latest.get("phase") == "ended":
+        out = {"transcript": transcript, "stt_ms": stt_ms, "should_end": True,
+               "end_reason": latest.get("end_reason"),
+               "end_message": END_MESSAGES.get(latest.get("end_reason"), "This interview has been ended.")}
+        if latest.get("speaker_mismatch"):
+            out["speaker_mismatch"] = True
+        return out
     if session and session.get("speaker_mismatch"):
         return {"transcript": transcript, "stt_ms": stt_ms, "speaker_mismatch": True}
     return {"transcript": transcript, "stt_ms": stt_ms}
@@ -4624,17 +4842,13 @@ def submit_answer(data: dict):
         current_session = sessions.get(sid)
         if current_session and current_session.get("phase") == "ended":
             end_reason = current_session.get("end_reason", "unknown")
-            message = "This interview has been ended."
-            if end_reason == "speaker_verification_failed":
-                message = "Interview terminated — voice verification failed. Different speaker detected."
-            elif end_reason == "ai_answer_detected":
-                message = "Interview terminated — your answer was flagged as AI-generated."
+            message = END_MESSAGES.get(end_reason, "This interview has been ended.")
             log.info(f"[Session {sid[:8]}] Detected termination by background thread (reason: {end_reason})")
             return {
                 "question": message,
                 "question_type": "end", "turn": current_session["turn"], "phase": "ended",
                 "audio": "", "difficulty": "basic", "should_end": True,
-                "end_reason": end_reason,
+                "end_reason": end_reason, "end_message": message, **_progress(current_session),
             }
         if check_attempt < 2:  # Don't sleep on last check
             time.sleep(0.2)  # Wait 200ms for background thread
@@ -4654,7 +4868,7 @@ def submit_answer(data: dict):
             "question": message,
             "question_type": "end", "turn": session["turn"], "phase": "ended",
             "audio": "", "difficulty": "basic", "should_end": True,
-            "end_reason": end_reason,
+            "end_reason": end_reason, **_progress(session),
         }
 
     # Check if speaker mismatch was detected in background
@@ -4664,7 +4878,7 @@ def submit_answer(data: dict):
             "question": "This interview has been ended due to a speaker verification failure.",
             "question_type": "end", "turn": session["turn"], "phase": "ended",
             "audio": "", "difficulty": "basic", "should_end": True,
-            "speaker_mismatch": True,
+            "speaker_mismatch": True, **_progress(session),
         }
 
     t0_total = time.time()
@@ -4716,7 +4930,7 @@ def submit_answer(data: dict):
             "question": "Interview terminated — voice verification failed. Different speaker detected.",
             "question_type": "end", "turn": session["turn"], "phase": "ended",
             "audio": "", "difficulty": "basic", "should_end": True,
-            "end_reason": "speaker_verification_failed",
+            "end_reason": "speaker_verification_failed", **_progress(session),
         }
 
     return {
@@ -4726,6 +4940,7 @@ def submit_answer(data: dict):
         "should_end": result["should_end"],
         "pause_prompt": result.get("pause_prompt", False),
         "repeat_question": is_repeat,
+        **_progress(session),
         "timing": {"llm_ms": llm_ms, "tts_ms": tts_ms, "total_ms": total_ms},
     }
 
@@ -4778,11 +4993,11 @@ def stream_answer(data: dict):
         turn = session.get("turn", 0)
 
         def mismatch_stream():
-            msg = "Interview terminated — voice verification failed. Different speaker detected."
+            msg = END_MESSAGES["speaker_verification_failed"]
             yield f"data: {json.dumps({'type': 'text', 'content': msg, 'done': True, 'should_end': True, 'speaker_mismatch': True})}\n\n"
             # should_end on the 'done' event is what actually stops the client
             # (voice_agent_ui.html only calls endSession() from this event).
-            yield f"data: {json.dumps({'type': 'done', 'turn': turn, 'phase': 'ended', 'should_end': True, 'speaker_mismatch': True, 'end_reason': 'speaker_verification_failed'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'turn': turn, 'phase': 'ended', 'should_end': True, 'speaker_mismatch': True, 'end_reason': 'speaker_verification_failed', 'end_message': msg, **_progress(session)})}\n\n"
         return StreamingResponse(mismatch_stream(), media_type="text/event-stream")
 
     if session.get("phase") == "ended":
@@ -4793,15 +5008,26 @@ def stream_answer(data: dict):
         turn = session.get("turn", 0)
 
         def ended_stream():
-            msg = "This interview has been ended."
-            if end_reason == "ai_answer_detected":
-                msg = "Interview terminated — your answer was flagged as AI-generated."
+            msg = END_MESSAGES.get(end_reason, "This interview has been ended.")
             yield f"data: {json.dumps({'type': 'text', 'content': msg, 'done': True, 'should_end': True})}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'turn': turn, 'phase': 'ended', 'should_end': True, 'end_reason': end_reason})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'turn': turn, 'phase': 'ended', 'should_end': True, 'end_reason': end_reason, 'end_message': msg, **_progress(session)})}\n\n"
         return StreamingResponse(ended_stream(), media_type="text/event-stream")
 
     def event_stream():
         t0 = time.time()
+
+        # "Can you repeat the question?" is not an answer: re-ask the same question
+        # without recording it or advancing the turn. Sent as pause_prompt so the
+        # client keeps the question on screen and doesn't bump its counter.
+        if session["conversation"] and _is_repeat_request(answer):
+            last_q = session["conversation"][-1].get("question", "")
+            log.info(f"[RepeatRequest] {sid[:8]} — \"{answer[:60]}\" → repeating last question")
+            audio_bytes = tts_chunk(last_q)
+            yield f"data: {json.dumps({'type': 'text', 'content': last_q, 'done': True})}\n\n"
+            if audio_bytes:
+                yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'question': last_q, 'turn': session['turn'], 'phase': session['phase'], 'should_end': False, 'pause_prompt': True, 'repeat_question': True, **_progress(session)})}\n\n"
+            return
 
         # Add candidate's answer to history.
         # If the last LLM response was a pause prompt ("go ahead, finish that thought"),
@@ -4826,7 +5052,7 @@ def stream_answer(data: dict):
             yield f"data: {json.dumps({'type': 'text', 'content': end_msg, 'done': True, 'should_end': True})}\n\n"
             if audio_bytes:
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended', **_progress(session)})}\n\n"
             return
 
         # Stop agent runs OFF the critical path (background thread, spawned below),
@@ -4847,7 +5073,7 @@ def stream_answer(data: dict):
             yield f"data: {json.dumps({'type': 'text', 'content': closing, 'done': True, 'should_end': True})}\n\n"
             if audio_bytes:
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended', 'should_end': True})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'turn': session['turn'], 'phase': 'ended', 'should_end': True, **_progress(session)})}\n\n"
             return
 
         # Spawn the stop agent in parallel (off the response path) to decide about
@@ -4866,6 +5092,18 @@ def stream_answer(data: dict):
         # Ending is owned by the stop agent (server-enforced), NOT the interviewer —
         # so the interviewer must never end on its own. It keeps drilling weak answers
         # with follow-ups; the system classifies question type on its own (no tags).
+        # Streamed text is spoken immediately, so a repeat can't be caught and retried
+        # after generation — tell the model up front what it has already asked.
+        if not followup_nudge:
+            # This interview's questions, repeated here (closest to the decision) because the
+            # model has repeated a question inside one interview. Earlier interviews' questions
+            # (all of them, not the last 15) are in QUESTIONS ALREADY ASKED in the steering block.
+            _asked = [e["question"] for e in session["conversation"]
+                      if e.get("question") and not e.get("is_greeting") and not _is_pause_prompt(e["question"])]
+            if _asked:
+                pacing += ("\nALREADY ASKED IN THIS INTERVIEW — do NOT ask any of these again, not even "
+                           "reworded; pick a new concept:\n"
+                           + "\n".join(f"- {q[:150]}" for q in _asked))
         pacing += ("\nDo NOT end the interview yourself and do NOT output [END_INTERVIEW] — ending is "
                    "handled for you. Otherwise interview normally: when an answer is vague or hand-wavy "
                    "on something that matters, ask one follow-up to pin it down; otherwise move to a new "
@@ -5029,6 +5267,7 @@ def stream_answer(data: dict):
         for _t in ("[FOLLOWUP]", "[SCENARIO]", "[CONCEPT]", "[PROJECT]"):
             question = question.replace(_t, "")
         question = question.strip()
+        _commit_reference(session)
 
         # Check behavior tags
         is_end = False
@@ -5054,6 +5293,13 @@ def stream_answer(data: dict):
             session["_last_was_pause"] = True
         else:
             session.pop("_last_was_pause", None)
+            if not is_end:
+                _asked_now = [e["question"] for e in session["conversation"]
+                              if e.get("question") and not e.get("is_greeting")]
+                _dup = _question_too_similar(question, _asked_now + session.get("_prev_questions_cache", []))
+                if _dup:
+                    log.warning(f"[DupGuard] {sid[:8]} streamed a repeat (already spoken): "
+                                f"\"{question[:80]}\" matches \"{_dup[:80]}\"")
             session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
             session["turn"] += 1
             # Background jobs (off the hot path): expected points for scoring + follow-up
@@ -5093,6 +5339,7 @@ def stream_answer(data: dict):
                         f"({latest.get('end_reason')}) while streaming, preserving that state")
             session["phase"] = "ended"
             session["end_reason"] = latest.get("end_reason")
+            session["end_message"] = latest.get("end_message")
             session["ended_at"] = latest.get("ended_at")
             session["duration_minutes"] = latest.get("duration_minutes")
             for k in ("speaker_mismatch", "speaker_mismatch_count", "speaker_mismatches"):
@@ -5111,9 +5358,18 @@ def stream_answer(data: dict):
         log.error(f"[Stream Turn {session['turn']}] Total: {total_ms}ms (LLM: {llm_ms}ms, {sentence_count} TTS chunks, error={stream_error})")
 
         # Final done event
-        yield f"data: {json.dumps({'type': 'done', 'question': question, 'turn': session['turn'], 'phase': session['phase'], 'should_end': is_end, 'pause_prompt': is_pause_prompt, 'timing': {'llm_ms': llm_ms, 'total_ms': total_ms}})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'question': question, 'turn': session['turn'], 'phase': session['phase'], 'should_end': is_end, 'pause_prompt': is_pause_prompt, **_progress(session), 'timing': {'llm_ms': llm_ms, 'total_ms': total_ms}})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# Anti-cheat terminations decided in the browser. Anything else from the client is
+# recorded as "manual" so a client can't write arbitrary end reasons.
+CLIENT_END_REASONS = {
+    "eye_away", "tab_switch", "window_resize", "screen_overlay", "phone_detected",
+    "multiple_persons", "ai_tool_detected", "camera_covered", "camera_off",
+    "user_not_in_front", "voice_mismatch", "no_face_detected", "face_mismatch",
+}
 
 
 @app.post("/api/end-session")
@@ -5125,7 +5381,8 @@ def end_session(data: dict):
         # ended (e.g. speaker_verification_failed), this endpoint still gets called
         # by the client's cleanup path — don't clobber the real reason with "manual".
         if session.get("phase") != "ended":
-            _end_interview(session, reason="manual")
+            client_reason = data.get("reason")
+            _end_interview(session, reason=client_reason if client_reason in CLIENT_END_REASONS else "manual")
         # Evaluate synchronously, then KEEP the session row. The admin review reads
         # from active_sessions, so deleting here would make every completed interview
         # (and its evaluation) vanish from the review. The submit/stream end paths
@@ -5144,7 +5401,10 @@ def get_session_endpoint(session_id: str):
     return {"session_id": session_id, "phase": session["phase"], "turn": session["turn"],
             "resume": session.get("resume", {}), "mode": session.get("mode", "mock"),
             "has_voice_ref": bool(session.get("user_voice_ref")),
-            "has_face_ref": bool(session.get("has_face_ref"))}
+            "has_face_ref": bool(session.get("has_face_ref")),
+            "end_reason": session.get("end_reason"),
+            "end_message": (END_MESSAGES.get(session.get("end_reason"), "The interview has ended.")
+                            if session.get("phase") == "ended" else None)}
 
 
 @app.post("/api/generate-report")
@@ -5191,6 +5451,7 @@ def generate_report(data: dict):
                 "turns": session.get("turn", 0), "candidate": candidate,
                 "scores": {"status": "skipped",
                            "answered": evaluation.get("answered", 0),
+                           "min_questions": MIN_ANSWERS_FOR_EVAL,
                            "reason": evaluation.get("reason", "")}}
 
     if status == "error":
@@ -5214,6 +5475,9 @@ def generate_report(data: dict):
         "topic_breakdown": evaluation.get("topic_breakdown", []),
         "summary": evaluation.get("summary", ""),
         "answered": evaluation.get("answered", 0),
+        "score_percentage": evaluation.get("score_percentage"),
+        "pass_percentage": evaluation.get("pass_percentage"),
+        "passed": evaluation.get("passed"),
     }
     return {"status": "done", "session_id": sid, "phase": phase,
             "turns": session.get("turn", 0), "candidate": candidate,
@@ -5405,6 +5669,15 @@ def anticheat_event(data: dict):
     # Log the event
     sid = data.get("session_id", "")
     session = sessions.get(sid)
+    face = None
+    if session and event_type == "face_check":
+        meta = data.get("metadata")
+        image_b64 = meta.get("face_image", "") if isinstance(meta, dict) else ""
+        if "," in image_b64[:100]:          # tolerate a data: URL prefix
+            image_b64 = image_b64.split(",", 1)[1]
+        face = _check_face_snapshot(sid, session, image_b64)
+        if face:
+            session = sessions.get(sid) or session   # re-read: the compare took a moment
     if session:
         session.setdefault("anticheat_log", []).append({
             "event_type": event_type,
@@ -5412,7 +5685,14 @@ def anticheat_event(data: dict):
             "timestamp": data.get("timestamp", time.time()),
             "metadata": data.get("metadata", ""),
         })
+        if face:
+            _record_face_result(session, face.pop("_r"))
+            if face["should_end"] and session.get("phase") != "ended":
+                _end_interview(session, reason=face["end_reason"])
         sessions[sid] = session
+    if face:
+        return {"ok": True, "face": face, "should_end": face["should_end"],
+                "end_reason": face["end_reason"], "end_message": face["end_message"]}
     return {"ok": True}
 
 @app.get("/api/anticheat-settings")
@@ -5468,30 +5748,26 @@ async def sim_ai_done(data: dict):
 # ── LMS Integration API ────────────────────────────────────────────────────
 
 @app.get("/api/lms/quota")
-def get_lms_quota(email: str = None):
-    """GET user's interview quota/credits."""
+def get_lms_quota(request: Request, email: str = None):
+    """GET user's interview quota — now based on interview count, not minutes."""
+    api_key = request.headers.get("X-API-Key", "")
+    if not LMS_API_KEY or api_key != LMS_API_KEY:
+        raise HTTPException(401, "Invalid or missing API key.")
     if not email:
         raise HTTPException(400, "email parameter is required")
-    quota = database.get_user_quota(email)
-    if not quota:
-        return {
-            "ok": True,
-            "email": email,
-            "total_minutes_used": 0,
-            "quota_limit_minutes": 180,
-            "remaining_minutes": 180,
-        }
+    interview_count, interview_limit = _interview_usage(email)
     return {
         "ok": True,
         "email": email,
-        "total_minutes_used": quota["total_minutes_used"],
-        "quota_limit_minutes": quota["quota_limit_minutes"],
-        "remaining_minutes": quota["remaining_minutes"],
+        "interview_count": interview_count,
+        "max_interviews": interview_limit,
+        "interviews_remaining": max(0, interview_limit - interview_count),
     }
 
 
 @app.get("/api/lms/interview-results")
 def get_lms_interview_results(
+    request: Request,
     email: str = None,
     session_id: str = None,
     domain: str = None,
@@ -5499,6 +5775,9 @@ def get_lms_interview_results(
     limit: int = 100,
     offset: int = 0
 ):
+    api_key = request.headers.get("X-API-Key", "")
+    if not LMS_API_KEY or api_key != LMS_API_KEY:
+        raise HTTPException(401, "Invalid or missing API key.")
     """
     GET endpoint for lms_interview_results view.
 
@@ -5770,72 +6049,107 @@ def face_compare(data: dict):
     session = sessions.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
-    has_face_ref = session.get("has_face_ref", False)
-    if not has_face_ref:
-        return {"ok": True, "skipped": True, "reason": "no_reference_face"}
-
-    # Load face reference from database by email
-    candidate_email = session.get("resume", {}).get("email", "")
-    if not candidate_email:
-        return {"ok": True, "skipped": True, "reason": "no_email_in_session"}
-
-    ref_bytes, _, _ = database.get_face_reference(candidate_email)
-    if not ref_bytes:
-        return {"ok": True, "skipped": True, "reason": "face_not_found_in_db"}
-
     try:
-        target_bytes = base64.b64decode(image_b64)
-        _fc_t0 = time.time()
-        resp = rekognition_client.compare_faces(
-            SourceImage={"Bytes": ref_bytes},
-            TargetImage={"Bytes": target_bytes},
-            SimilarityThreshold=0.0,
-        )
-        # Recurring per-interview cost: this endpoint is polled ~once a minute.
-        session.setdefault("obs_log", []).append(
-            _obs_entry("Rekognition", "aws-rekognition-compare-faces",
-                       round((time.time() - _fc_t0) * 1000),
-                       cost_usd=_REKOGNITION_COST_PER_IMAGE))
-        matches = resp.get("FaceMatches", [])
-        if matches:
-            similarity = matches[0]["Similarity"]
-            matched = similarity >= FACE_COMPARE_THRESHOLD
-        else:
-            similarity = 0.0
-            matched = False
-
-        # Log anticheat event only if there's a problem
-        if not matched:
-            session.setdefault("anticheat_log", []).append({
-                "event_type": "face_comparison",
-                "turn": session.get("turn", 0),
-                "timestamp": time.time(),
-                "metadata": f"similarity={similarity:.1f}%, matched={matched}",
-            })
-            log.warning(f"[FaceCompare] Session {sid[:8]}: ALERT — similarity={similarity:.1f}%, matched={matched}")
-        sessions[sid] = session
-
-        result = {
-            "ok": True,
-            "matched": matched,
-            "similarity": round(similarity, 2),
-            "threshold": FACE_COMPARE_THRESHOLD,
-            "faces_in_target": len(matches),
-        }
-        return result
-    except rekognition_client.exceptions.InvalidParameterException as e:
-        # No face in source or target image
-        session.setdefault("anticheat_log", []).append({
-            "event_type": "face_comparison",
-            "turn": session.get("turn", 0),
-            "timestamp": time.time(),
-            "metadata": f"error=no_face_detected",
-        })
-        sessions[sid] = session
-        return {"ok": True, "matched": False, "similarity": 0, "error": "no_face_detected"}
+        r = _compare_face_image(session, image_b64)
     except Exception as e:
         log.error(f"[FaceCompare] Error: {e}")
         raise HTTPException(500, "Face comparison failed")
+    if r.get("skipped"):
+        return {"ok": True, "skipped": True, "reason": r["reason"]}
+    _record_face_result(session, r)
+    sessions[sid] = session
+    if r.get("error"):
+        return {"ok": True, "matched": False, "similarity": 0, "error": r["error"]}
+    return {"ok": True, "matched": r["matched"], "similarity": r["similarity"],
+            "threshold": FACE_COMPARE_THRESHOLD, "faces_in_target": r["faces_in_target"]}
+
+
+def _compare_face_image(session, image_b64):
+    """Compare one webcam frame with the student's registered face (AWS Rekognition).
+    Returns {"skipped": True, "reason"} when there is nothing to compare against, else
+    {matched, similarity, faces_in_target, error?, ms}. Does not modify the session."""
+    if not session.get("has_face_ref", False):
+        return {"skipped": True, "reason": "no_reference_face"}
+    candidate_email = session.get("resume", {}).get("email", "")
+    if not candidate_email:
+        return {"skipped": True, "reason": "no_email_in_session"}
+    ref_bytes, _, _ = database.get_face_reference(candidate_email)
+    if not ref_bytes:
+        return {"skipped": True, "reason": "face_not_found_in_db"}
+    t0 = time.time()
+    try:
+        resp = rekognition_client.compare_faces(
+            SourceImage={"Bytes": ref_bytes},
+            TargetImage={"Bytes": base64.b64decode(image_b64)},
+            SimilarityThreshold=0.0,
+        )
+    except rekognition_client.exceptions.InvalidParameterException:
+        # No face in the frame
+        return {"matched": False, "similarity": 0.0, "faces_in_target": 0,
+                "error": "no_face_detected", "ms": round((time.time() - t0) * 1000)}
+    matches = resp.get("FaceMatches", [])
+    similarity = matches[0]["Similarity"] if matches else 0.0
+    return {"matched": bool(matches) and similarity >= FACE_COMPARE_THRESHOLD,
+            "similarity": round(similarity, 2), "faces_in_target": len(matches),
+            "ms": round((time.time() - t0) * 1000)}
+
+
+def _record_face_result(session, r):
+    """Add a comparison's cost to obs_log and, when it failed, a face_comparison event."""
+    if not r.get("error"):
+        session.setdefault("obs_log", []).append(
+            _obs_entry("Rekognition", "aws-rekognition-compare-faces", r.get("ms", 0),
+                       cost_usd=_REKOGNITION_COST_PER_IMAGE))
+    if not r["matched"]:
+        meta = (f"error={r['error']}" if r.get("error")
+                else f"similarity={r['similarity']:.1f}%, matched=False")
+        session.setdefault("anticheat_log", []).append({
+            "event_type": "face_comparison", "turn": session.get("turn", 0),
+            "timestamp": time.time(), "metadata": meta})
+        log.warning(f"[FaceCompare] Session {session.get('id', '?')[:8]}: ALERT — {meta}")
+
+
+# LMS interview page: it posts a face_check snapshot (~every 30 s) to /api/anticheat-event.
+# Compare one per FACE_SNAPSHOT_INTERVAL_SEC; after a failed one, compare the next snapshots
+# straight away, and end the interview after FACE_SNAPSHOT_MISMATCH_LIMIT failures in a row
+# (same as voice_agent_ui.html: first failure + 2 re-checks).
+FACE_SNAPSHOT_INTERVAL_SEC = 60
+FACE_SNAPSHOT_MISMATCH_LIMIT = 3
+_face_state: dict = {}   # session_id -> {"last": ts, "count": consecutive failures}
+_face_lock = threading.Lock()
+
+
+def _check_face_snapshot(sid, session, image_b64):
+    """Returns None when this snapshot isn't compared, else the result for the LMS."""
+    if session.get("phase") == "ended" or not image_b64 or not rekognition_client:
+        return None
+    if not ANTICHEAT_FEATURES.get("face_comparison", {}).get("enabled", True):
+        return None
+    now = time.time()
+    with _face_lock:
+        st = _face_state.setdefault(sid, {"last": 0.0, "count": 0})
+        if st["count"] == 0 and now - st["last"] < FACE_SNAPSHOT_INTERVAL_SEC:
+            return None
+        st["last"] = now
+    try:
+        r = _compare_face_image(session, image_b64)
+    except Exception as e:
+        log.error(f"[FaceSnapshot] {sid[:8]} — compare failed: {e}")
+        return None
+    if r.get("skipped"):
+        return None
+    with _face_lock:
+        st["count"] = 0 if r["matched"] else st["count"] + 1
+        count = st["count"]
+    reason = r.get("error") or "face_mismatch"
+    end = count >= FACE_SNAPSHOT_MISMATCH_LIMIT
+    log.info(f"[FaceSnapshot] {sid[:8]} — similarity={r['similarity']}% matched={r['matched']} "
+             f"consecutive_failures={count}{' - INTERVIEW TERMINATED' if end else ''}")
+    out = {"matched": r["matched"], "similarity": r["similarity"],
+           "consecutive_failures": count, "error": r.get("error"),
+           "should_end": end, "end_reason": reason if end else None,
+           "end_message": END_MESSAGES[reason] if end else None, "_r": r}
+    return out
 
 
 # ── Admin: LLM Config ───────────────────────────────────────────────────
@@ -6009,7 +6323,7 @@ async def verification_telemetry(limit: int = 10, session_id: str = "", _=Depend
 # ── Admin: Voice Config ──────────────────────────────────────────────────
 
 @app.post("/api/toggle-tts")
-async def toggle_tts(data: dict):
+async def toggle_tts(data: dict, _=Depends(require_admin)):
     RUNTIME_CONFIG["tts_enabled"] = data.get("enabled", True)
     _persist_runtime_config()
     return {"ok": True, "tts_enabled": RUNTIME_CONFIG["tts_enabled"]}
@@ -6122,7 +6436,7 @@ async def clone_voice(_=Depends(require_admin)):
     return {"ok": False, "error": "Not supported in simple mode"}
 
 @app.post("/api/playground/tts")
-async def playground_tts(data: dict):
+async def playground_tts(data: dict, _=Depends(require_admin)):
     text = data.get("text", "")
     audio, tts_ms = synthesize_speech(text)
     return {"audio": audio, "tts_ms": tts_ms}
@@ -6181,39 +6495,122 @@ async def set_anticheat_config(data: dict, _=Depends(require_admin)):
 
 # ── Admin: User Quota Management ─────────────────────────────────────────
 
-@app.get("/api/admin/quota-list")
-async def admin_quota_list(_=Depends(require_admin), limit: int = 100):
-    """List all user quotas, ordered by usage descending."""
-    quotas = database.get_all_user_quotas(limit=limit)
-    return {"quotas": quotas}
+@app.get("/api/admin/interview-settings")
+async def get_interview_settings(_=Depends(require_admin)):
+    _sync_runtime_config()
+    return {"settings": {k: _setting(k) for k in INTERVIEW_SETTINGS},
+            "limits": {k: {"default": d, "min": lo, "max": hi} for k, (d, lo, hi) in INTERVIEW_SETTINGS.items()}}
 
-@app.post("/api/admin/quota-reset")
-async def admin_quota_reset(data: dict, _=Depends(require_admin)):
-    """Reset a user's quota usage to 0."""
-    email = data.get("email", "").strip()
+
+@app.post("/api/admin/interview-settings")
+async def save_interview_settings(data: dict, _=Depends(require_admin)):
+    """Any subset of session_minutes, max_interviews_per_user, pass_percentage (whole numbers)."""
+    _sync_runtime_config()
+    updates = {}
+    for key, value in data.items():
+        if key not in INTERVIEW_SETTINGS:
+            raise HTTPException(400, f"Unknown setting: {key}")
+        _, lo, hi = INTERVIEW_SETTINGS[key]
+        if not isinstance(value, int) or isinstance(value, bool) or not lo <= value <= hi:
+            raise HTTPException(400, f"{key} must be a whole number from {lo} to {hi}")
+        updates[key] = value
+    if not updates:
+        raise HTTPException(400, "No settings given")
+    RUNTIME_CONFIG.update(updates)
+    _persist_runtime_config()
+    log.info(f"[Admin] Interview settings updated: {updates}")
+    return {"ok": True, "settings": {k: _setting(k) for k in INTERVIEW_SETTINGS}}
+
+
+def _interview_quota_row(email):
+    used, limit = _interview_usage(email)
+    return {"email": email, "used": used, "limit": limit, "remaining": max(0, limit - used)}
+
+
+@app.get("/api/admin/interview-quota-list")
+async def admin_interview_quota_list(_=Depends(require_admin), limit: int = 500):
+    students = []
+    for r in database.list_interview_usage(limit=limit):
+        lim = r["max_interviews"] if r["max_interviews"] is not None else _default_interview_limit()
+        students.append({
+            "email": r["email"],
+            "used": r["used"],
+            "limit": lim,
+            "remaining": max(0, lim - r["used"]),
+            "missed_slots": r["missed_slots"],
+            "custom_limit": r["max_interviews"] is not None,
+            "reset_at": r["reset_at"],
+            "last_interview_at": r["last_interview_at"],
+        })
+    return {"default_limit": _default_interview_limit(), "students": students}
+
+
+@app.post("/api/admin/interview-quota-reset")
+async def admin_interview_quota_reset(data: dict, _=Depends(require_admin)):
+    email = _norm_email(data.get("email"))
     if not email:
-        raise HTTPException(400, "Email is required")
+        raise HTTPException(400, "email is required")
+    if not database.admin_reset_interviews(email):
+        raise HTTPException(500, "Reset failed")
+    return {"ok": True, **_interview_quota_row(email)}
 
-    database.admin_reset_user_quota(email)
-    quota = database.get_user_quota(email)
-    log.info(f"[Admin] Reset quota for {email}")
-    return {"status": "success", "message": f"Quota reset for {email}", "quota": quota}
 
-@app.post("/api/admin/quota-set-limit")
-async def admin_quota_set_limit(data: dict, _=Depends(require_admin)):
-    """Set custom quota limit for a user."""
-    email = data.get("email", "").strip()
-    limit_minutes = data.get("limit_minutes")
-
+@app.post("/api/admin/interview-quota-set-limit")
+async def admin_interview_quota_set_limit(data: dict, _=Depends(require_admin)):
+    """limit: non-negative integer, or null to go back to the global default."""
+    email = _norm_email(data.get("email"))
+    limit = data.get("limit")
     if not email:
-        raise HTTPException(400, "Email is required")
-    if limit_minutes is None or limit_minutes < 0:
-        raise HTTPException(400, "Valid limit_minutes is required (>= 0)")
+        raise HTTPException(400, "email is required")
+    if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit < 0):
+        raise HTTPException(400, "limit must be a non-negative integer, or null for the default")
+    if not database.admin_set_interview_limit(email, limit):
+        raise HTTPException(500, "Update failed")
+    return {"ok": True, **_interview_quota_row(email)}
 
-    database.admin_set_user_quota_limit(email, limit_minutes)
-    quota = database.get_user_quota(email)
-    log.info(f"[Admin] Set quota limit for {email} to {limit_minutes} minutes")
-    return {"status": "success", "message": f"Quota limit set to {limit_minutes} minutes for {email}", "quota": quota}
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@app.post("/api/admin/interview-quota-consume")
+async def admin_interview_quota_consume(data: dict, _=Depends(require_admin)):
+    """Record one used attempt without an interview (e.g. a missed LMS booking).
+    Body: {email, ref, reason?="missed_slot", occurred_at?=ISO timestamp (default now)}.
+    Idempotent on ref. 409 (remaining 0) when the student has no attempts left."""
+    email = _norm_email(data.get("email"))
+    ref = str(data.get("ref") or "").strip()
+    reason = str(data.get("reason") or "missed_slot").strip()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(400, "A valid email is required")
+    if not ref or len(ref) > 200:
+        raise HTTPException(400, "ref is required (max 200 characters)")
+    if len(reason) > 50:
+        raise HTTPException(400, "reason must be at most 50 characters")
+
+    now = datetime.now(timezone.utc)
+    occurred_at = now
+    if data.get("occurred_at") is not None:
+        try:
+            occurred_at = datetime.fromisoformat(str(data["occurred_at"]).replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, "occurred_at must be an ISO 8601 timestamp")
+        if occurred_at.tzinfo is None:
+            raise HTTPException(400, "occurred_at must include a timezone (e.g. Z or +05:30)")
+        occurred_at = min(occurred_at, now)  # a future time would dodge the next reset
+
+    try:
+        if database.consumption_exists(ref):
+            return {"ok": True, "already_recorded": True, **_interview_quota_row(email)}
+        row = _interview_quota_row(email)
+        if row["remaining"] <= 0:
+            return JSONResponse(status_code=409, content={
+                "ok": False, "detail": "No interview attempts left; nothing recorded.",
+                "already_recorded": False, **row, "remaining": 0})
+        inserted = database.record_consumption(email, ref, reason, occurred_at)
+    except Exception as e:
+        log.error(f"[Limit] consume failed for {email} ref={ref}: {e}")
+        raise HTTPException(500, "Could not record the attempt")
+    return {"ok": True, "already_recorded": not inserted, **_interview_quota_row(email)}
 
 
 # ── Admin: Sessions ──────────────────────────────────────────────────────
@@ -6964,7 +7361,8 @@ def api_cost_total(days: int = 30, _=Depends(require_admin)):
 def submit_review(data: dict, _=Depends(require_admin)):
     review_id = f"R-{secrets.token_hex(4).upper()}"
     session_id = data.get("session_id", "")
-    turn_number = int(data.get("turn_number", 0))
+    # admin.html sends question_turn / overall_feedback; turn_number / feedback kept for API callers.
+    turn_number = int(data.get("question_turn", data.get("turn_number", 0)) or 0)
 
     session_data = database.get_active_session(session_id) if session_id else None
     ai_score = float(data.get("ai_score", 0))
@@ -6986,7 +7384,7 @@ def submit_review(data: dict, _=Depends(require_admin)):
         ai_score=ai_score,
         human_score=float(data.get("human_score", 0)),
         verdict=data.get("verdict", ""),
-        feedback=data.get("feedback", ""),
+        feedback=data.get("overall_feedback", data.get("feedback", "")),
         error_flags=data.get("error_flags"),
     )
     return {"ok": ok, "review_id": review_id}

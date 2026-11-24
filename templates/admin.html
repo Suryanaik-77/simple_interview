@@ -98,6 +98,12 @@ tbody tr:hover td{background:var(--off)}
 .chip-red{background:var(--rb);color:var(--red)}
 .chip-blue{background:var(--bb);color:var(--blue)}
 .chip-gray{background:var(--sf);color:var(--t3)}
+/* Sessions grouped per student: one row per student, click to drop down their interviews */
+tr.grp-row td{background:var(--sf);cursor:pointer;border-top:1px solid var(--b)}
+tr.grp-row .grp-caret{display:inline-block;width:14px;color:var(--t3);transition:transform .15s}
+tr.grp-row.open .grp-caret{transform:rotate(90deg)}
+tr.grp-row .grp-email{font-size:11px;color:var(--t3);font-weight:400;margin-left:20px}
+tr.grp-child td:first-child{padding-left:34px}
 .empty-state{padding:48px;text-align:center;color:var(--t3);font-size:13px}
 .spinner{display:inline-block;width:20px;height:20px;border:2px solid var(--b);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;margin:24px auto;display:block}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -330,6 +336,10 @@ textarea::placeholder{color:var(--t4)}
     </div>
     <div class="sb-div"></div>
     <div class="sb-grp">Configuration</div>
+    <div class="sb-lnk" id="nav-interviewsettings" onclick="showSection('interviewsettings',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      Interview Settings
+    </div>
     <div class="sb-lnk" id="nav-llmconfig" onclick="showSection('llmconfig',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       LLM Config
@@ -386,7 +396,7 @@ textarea::placeholder{color:var(--t4)}
       <div class="stat-card"><div class="stat-label">Completed</div><div class="stat-val" id="s-done">—</div><div class="stat-sub">Ended</div></div>
       <div class="stat-card"><div class="stat-label">High risk</div><div class="stat-val" id="s-risk" style="color:var(--red)">—</div><div class="stat-sub">Signal count ≥ 5</div></div>
     </div>
-    <div class="sec-label">All sessions</div>
+    <div class="sec-label">Sessions by student <span style="font-weight:400;color:var(--t3)">— click a student to see their interviews</span></div>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Candidate</th><th>Domain</th><th>Level</th><th>Phase</th><th>Score</th><th>Questions</th><th>Duration</th><th>Risk</th><th>Trajectory</th><th>Started</th></tr></thead>
@@ -919,6 +929,34 @@ textarea::placeholder{color:var(--t4)}
     </div>
   </div>
 
+  <!-- ── INTERVIEW SETTINGS ── -->
+  <div class="section" id="sec-interviewsettings">
+    <div style="max-width:520px;margin:0 auto;padding:20px 0">
+      <div style="margin-bottom:20px">
+        <div style="font-size:15px;font-weight:600;color:var(--t);margin-bottom:4px">Interview Settings</div>
+        <div style="font-size:12px;color:var(--t3)">Apply to all students immediately. Session length applies to interviews running now and new ones. A per-student limit set in User Credits overrides the interviews-per-student value.</div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:16px;padding:20px">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:var(--t)">Session duration (minutes)
+          <input id="is-session_minutes" type="number" step="1" style="padding:9px 12px;border:1px solid var(--b);border-radius:7px;font-size:13px;background:var(--off);color:var(--t);outline:none">
+          <span class="is-hint" data-key="session_minutes" style="font-weight:400;font-size:11px;color:var(--t3)"></span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:var(--t)">Interviews per student
+          <input id="is-max_interviews_per_user" type="number" step="1" style="padding:9px 12px;border:1px solid var(--b);border-radius:7px;font-size:13px;background:var(--off);color:var(--t);outline:none">
+          <span class="is-hint" data-key="max_interviews_per_user" style="font-weight:400;font-size:11px;color:var(--t3)"></span>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:var(--t)">Pass percentage (%)
+          <input id="is-pass_percentage" type="number" step="1" style="padding:9px 12px;border:1px solid var(--b);border-radius:7px;font-size:13px;background:var(--off);color:var(--t);outline:none">
+          <span class="is-hint" data-key="pass_percentage" style="font-weight:400;font-size:11px;color:var(--t3)"></span>
+        </label>
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="btn" onclick="saveInterviewSettings()">Save settings</button>
+          <span id="is-status" style="font-size:12px"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── LLM CONFIG ── -->
   <div class="section" id="sec-llmconfig">
     <div style="max-width:640px;margin:0 auto;padding:20px 0">
@@ -1044,9 +1082,9 @@ textarea::placeholder{color:var(--t4)}
   <!-- ── USER CREDITS ── -->
   <div class="section" id="sec-credits">
     <div class="stat-grid">
-      <div class="stat-card"><div class="stat-label">Total users</div><div class="stat-val" id="cr-total">—</div><div class="stat-sub">With quota</div></div>
-      <div class="stat-card"><div class="stat-label">Low credit</div><div class="stat-val" id="cr-low" style="color:var(--amber)">—</div><div class="stat-sub">&lt; 30 min left</div></div>
-      <div class="stat-card"><div class="stat-label">Exhausted</div><div class="stat-val" id="cr-exhausted" style="color:var(--red)">—</div><div class="stat-sub">0 min remaining</div></div>
+      <div class="stat-card"><div class="stat-label">Total students</div><div class="stat-val" id="cr-total">—</div><div class="stat-sub">With interview history</div></div>
+      <div class="stat-card"><div class="stat-label">Last interview</div><div class="stat-val" id="cr-low" style="color:var(--amber)">—</div><div class="stat-sub">1 interview left</div></div>
+      <div class="stat-card"><div class="stat-label">Exhausted</div><div class="stat-val" id="cr-exhausted" style="color:var(--red)">—</div><div class="stat-sub">0 interviews left</div></div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div class="sec-label" style="margin:0">All user credits</div>
@@ -1057,7 +1095,7 @@ textarea::placeholder{color:var(--t4)}
     </div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Email</th><th>Used (min)</th><th>Limit (min)</th><th>Remaining (min)</th><th>Status</th><th>Last Interview</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Email</th><th>Used</th><th>Limit</th><th>Remaining</th><th>Status</th><th>Last Interview</th><th>Actions</th></tr></thead>
         <tbody id="credits-tbody"><tr><td colspan="7" class="loading-txt"><div class="spinner"></div></td></tr></tbody>
       </table>
     </div>
@@ -1073,6 +1111,7 @@ textarea::placeholder{color:var(--t4)}
 // ════════════════════════════════════════════════════════
 let AUTH = { username:'', role:'' };
 let ALL_SESSIONS = [];
+const OPEN_SESSION_GROUPS = new Set();   // students whose interview list is dropped down
 let OBS_LOGS = [], OBS_LOGS_FILTERED = [], OBS_PAGE = 0;
 const OBS_PS = 20;
 let AC_SESSION_ID = null;
@@ -1227,7 +1266,7 @@ document.getElementById('ln-pass').addEventListener('keydown', e => { if(e.key==
 // ════════════════════════════════════════════════════════
 // NAVIGATION
 // ════════════════════════════════════════════════════════
-const SECTION_TITLES = { sessions:'Sessions', anticheat:'Anti-Cheat Monitor', observability:'Observability', review:'Expert Review', llmconfig:'LLM Configuration', acconfig:'Anti-Cheat Configuration', playground:'Prompt Playground', voiceconfig:'Voice Configuration', credits:'User Credits' };
+const SECTION_TITLES = { sessions:'Sessions', anticheat:'Anti-Cheat Monitor', observability:'Observability', review:'Expert Review', llmconfig:'LLM Configuration', acconfig:'Anti-Cheat Configuration', playground:'Prompt Playground', voiceconfig:'Voice Configuration', credits:'User Credits', interviewsettings:'Interview Settings' };
 
 function showSection(id, el) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('on'));
@@ -1243,6 +1282,50 @@ function showSection(id, el) {
   if (id === 'acconfig')   loadAcConfig();
   if (id === 'voiceconfig') { onProviderChange(); loadVoiceLibrary(); loadTtsStatus(); loadSttConfig(); }
   if (id === 'credits')    loadCredits();
+  if (id === 'interviewsettings') loadInterviewSettings();
+}
+
+const IS_KEYS = ['session_minutes', 'max_interviews_per_user', 'pass_percentage'];
+
+function setIsStatus(text, color) {
+  const el = document.getElementById('is-status');
+  el.textContent = text; el.style.color = color;
+}
+
+async function loadInterviewSettings() {
+  setIsStatus('', '');
+  try {
+    const r = await fetch('/api/admin/interview-settings', {credentials:'include'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    IS_KEYS.forEach(k => {
+      const inp = document.getElementById('is-' + k), lim = d.limits[k];
+      inp.value = d.settings[k]; inp.min = lim.min; inp.max = lim.max;
+    });
+    document.querySelectorAll('.is-hint').forEach(h => {
+      const lim = d.limits[h.dataset.key];
+      h.textContent = `Allowed ${lim.min}–${lim.max} · default ${lim.default}`;
+    });
+  } catch(e) { setIsStatus('Failed to load settings', 'var(--red)'); }
+}
+
+async function saveInterviewSettings() {
+  const body = {};
+  for (const k of IS_KEYS) {
+    const inp = document.getElementById('is-' + k), v = Number(inp.value);
+    if (inp.value.trim() === '' || !Number.isInteger(v) || v < Number(inp.min) || v > Number(inp.max)) {
+      setIsStatus(`Enter a whole number from ${inp.min} to ${inp.max}`, 'var(--red)'); inp.focus(); return;
+    }
+    body[k] = v;
+  }
+  setIsStatus('Saving…', 'var(--t3)');
+  try {
+    const r = await fetch('/api/admin/interview-settings', {method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Save failed');
+    setIsStatus('Saved', 'var(--green)');
+  } catch(e) { setIsStatus(e.message, 'var(--red)'); }
 }
 
 // ── PROMPT PLAYGROUND ────────────────────────────────────
@@ -2327,10 +2410,62 @@ function renderSessionStats() {
   document.getElementById('s-risk').textContent   = highRisk;
 }
 
+// One row per student (by email, else name); clicking it drops down that student's
+// interviews, newest first. Clicking an interview opens its detail as before.
+function sessionGroupKey(s) {
+  const email = ((s.resume || {}).email || '').trim().toLowerCase();
+  return email || ('name:' + (s.candidate_name || '—').trim().toLowerCase());
+}
+
+function toggleSessionGroup(key) {
+  if (OPEN_SESSION_GROUPS.has(key)) OPEN_SESSION_GROUPS.delete(key); else OPEN_SESSION_GROUPS.add(key);
+  renderSessionsTable();
+}
+
+function scoreCell(v) {
+  return `<span style="font-family:var(--mono);font-weight:500;color:${v>=70?'var(--green)':v>=50?'var(--amber)':'var(--red)'}">${v ?? '—'}</span>`;
+}
+
 function renderSessionsTable() {
   const tbody = document.getElementById('sessions-tbody');
   if (!ALL_SESSIONS.length) { tbody.innerHTML = `<tr><td colspan="10" class="empty-state">No sessions yet. Run an interview first.</td></tr>`; return; }
-  tbody.innerHTML = ALL_SESSIONS.map(s => {
+  // ALL_SESSIONS is newest first, so each group's sessions and the group order are too.
+  const groups = new Map();
+  ALL_SESSIONS.forEach(s => {
+    const k = sessionGroupKey(s);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(s);
+  });
+  const rows = [];
+  groups.forEach((list, key) => {
+    const latest = list[0];
+    const open = OPEN_SESSION_GROUPS.has(key);
+    const live = list.filter(s => s.phase !== 'ended').length;
+    const scored = list.find(s => s.avg_score != null);
+    const maxRisk = Math.max(...list.map(s => s.signal_count || 0));
+    const totalMin = list.reduce((a, s) => a + (s.duration_minutes || 0), 0);
+    const email = (latest.resume || {}).email || '';
+    const keyArg = JSON.stringify(key).replace(/"/g, '&quot;');
+    rows.push(`<tr class="grp-row${open ? ' open' : ''}" onclick="toggleSessionGroup(${keyArg})">
+      <td style="font-weight:600"><span class="grp-caret">▸</span>${escH(latest.candidate_name||'—')}
+        <span class="chip chip-gray" style="margin-left:6px">${list.length} interview${list.length === 1 ? '' : 's'}</span>
+        ${email ? `<div class="grp-email">${escH(email)}</div>` : ''}</td>
+      <td><span class="chip chip-blue">${escH(latest.domain||'—').replace('_',' ')}</span></td>
+      <td style="font-size:11px;color:var(--t3)">${escH(latest.level||'—').replace(/_/g,' ')}</td>
+      <td>${live ? `<span class="chip chip-ok">${live} Live</span>` : `<span class="chip chip-gray">Ended</span>`}</td>
+      <td title="Latest scored interview">${scoreCell(scored ? scored.avg_score : null)}</td>
+      <td class="mono">${list.reduce((a, s) => a + (s.turn || 0), 0)}</td>
+      <td class="mono" style="color:var(--t3)">${totalMin ? Math.floor(totalMin) + ' min' : '—'}</td>
+      <td>${maxRisk >= 7 ? `<span class="chip chip-red">CRITICAL ${maxRisk}</span>` : maxRisk >= 4 ? `<span class="chip chip-warn">${maxRisk}</span>` : `<span class="chip chip-ok">${maxRisk}</span>`}</td>
+      <td></td>
+      <td class="mono" style="color:var(--t3)">${latest.started_at ? new Date(latest.started_at*1000).toLocaleString() : '—'}</td>
+    </tr>`);
+    if (open) rows.push(...list.map(sessionRowHtml));
+  });
+  tbody.innerHTML = rows.join('');
+}
+
+function sessionRowHtml(s) {
     const phase_chip = s.phase === 'ended' ? `<span class="chip chip-gray">Ended</span>` : `<span class="chip chip-ok">Live</span>`;
     const risk_chip  = s.signal_count >= 7 ? `<span class="chip chip-red">CRITICAL ${s.signal_count}</span>` :
                        s.signal_count >= 4 ? `<span class="chip chip-warn">${s.signal_count}</span>` :
@@ -2339,21 +2474,21 @@ function renderSessionsTable() {
                        s.trajectory === 'falling' ? `<span class="chip chip-warn">Falling</span>` :
                        s.trajectory === 'flat_strong' ? `<span class="chip chip-blue">Strong</span>` :
                        `<span class="chip chip-gray">${s.trajectory||'—'}</span>`;
-    const started    = s.started_at ? new Date(s.started_at*1000).toLocaleTimeString() : '—';
+    // Date + time: one student's interviews span several days
+    const started    = s.started_at ? new Date(s.started_at*1000).toLocaleString() : '—';
     const duration   = s.duration_minutes ? `${Math.floor(s.duration_minutes)} min` : (s.phase === 'ended' ? '—' : 'In progress');
-    return `<tr onclick="openSessionDetail('${s.session_id}')">
-      <td style="font-weight:500">${escH(s.candidate_name||'—')}</td>
+    return `<tr class="grp-child" onclick="openSessionDetail('${s.session_id}')">
+      <td style="font-weight:500;font-size:12px;color:var(--t2)">${escH(s.session_id.slice(0,8))}</td>
       <td><span class="chip chip-blue">${escH(s.domain||'—').replace('_',' ')}</span></td>
       <td style="font-size:11px;color:var(--t3)">${escH(s.level||'—').replace(/_/g,' ')}</td>
       <td>${phase_chip}</td>
-      <td><span style="font-family:var(--mono);font-weight:500;color:${s.avg_score>=70?'var(--green)':s.avg_score>=50?'var(--amber)':'var(--red)'}">${s.avg_score||'—'}</span></td>
+      <td>${scoreCell(s.avg_score)}</td>
       <td class="mono">${s.turn||0}</td>
       <td class="mono" style="color:var(--t3)">${duration}</td>
       <td>${risk_chip}</td>
       <td>${traj_chip}</td>
       <td class="mono" style="color:var(--t3)">${started}</td>
     </tr>`;
-  }).join('');
 }
 
 async function openSessionDetail(sid) {
@@ -3460,9 +3595,9 @@ async function loadCredits() {
   const tb = document.getElementById('credits-tbody');
   tb.innerHTML = '<tr><td colspan="7" class="loading-txt"><div class="spinner"></div></td></tr>';
   try {
-    const r = await fetch('/api/admin/quota-list?limit=500', {credentials:'include'});
+    const r = await fetch('/api/admin/interview-quota-list?limit=500', {credentials:'include'});
     const d = await r.json();
-    _creditsData = d.quotas || [];
+    _creditsData = d.students || [];
     renderCredits(_creditsData);
   } catch(e) {
     tb.innerHTML = '<tr><td colspan="7" class="loading-txt">Failed to load</td></tr>';
@@ -3472,25 +3607,24 @@ async function loadCredits() {
 function renderCredits(list) {
   const tb = document.getElementById('credits-tbody');
   document.getElementById('cr-total').textContent = list.length;
-  document.getElementById('cr-low').textContent = list.filter(q => q.remaining_minutes > 0 && q.remaining_minutes < 30).length;
-  document.getElementById('cr-exhausted').textContent = list.filter(q => q.remaining_minutes <= 0).length;
+  document.getElementById('cr-low').textContent = list.filter(q => q.remaining === 1).length;
+  document.getElementById('cr-exhausted').textContent = list.filter(q => q.remaining <= 0).length;
 
-  if (!list.length) { tb.innerHTML = '<tr><td colspan="7" class="loading-txt">No users found</td></tr>'; return; }
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="7" class="loading-txt">No students found</td></tr>'; return; }
   tb.innerHTML = list.map(q => {
-    const used = q.total_minutes_used?.toFixed(1) || '0.0';
-    const limit = q.quota_limit_minutes?.toFixed(0) || '180';
-    const rem = q.remaining_minutes?.toFixed(1) || '0.0';
-    const pct = q.quota_limit_minutes ? ((q.remaining_minutes / q.quota_limit_minutes) * 100) : 0;
+    const pct = q.limit ? ((q.remaining / q.limit) * 100) : 0;
     let status, stColor;
-    if (q.remaining_minutes <= 0) { status = 'Exhausted'; stColor = 'var(--red)'; }
-    else if (q.remaining_minutes < 30) { status = 'Low'; stColor = 'var(--amber)'; }
+    if (q.remaining <= 0) { status = 'Exhausted'; stColor = 'var(--red)'; }
+    else if (q.remaining === 1) { status = 'Last one'; stColor = 'var(--amber)'; }
     else { status = 'Active'; stColor = 'var(--green)'; }
     const lastInt = q.last_interview_at ? new Date(q.last_interview_at).toLocaleDateString() : '—';
+    const limitLabel = q.custom_limit ? `${q.limit} <span style="font-size:10px;color:var(--t3)">(custom)</span>` : q.limit;
+    const emailArg = escH(JSON.stringify(q.email)).replace(/"/g, '&quot;');
     return `<tr>
-      <td style="font-weight:500">${q.email}</td>
-      <td>${used}</td>
-      <td>${limit}</td>
-      <td><span style="color:${stColor};font-weight:600">${rem}</span>
+      <td style="font-weight:500">${escH(q.email)}</td>
+      <td>${q.used}${q.missed_slots ? ` <span style="font-size:10px;color:var(--t3)">(${q.missed_slots} missed slot${q.missed_slots > 1 ? 's' : ''})</span>` : ''}</td>
+      <td>${limitLabel}</td>
+      <td><span style="color:${stColor};font-weight:600">${q.remaining}</span>
         <div style="margin-top:4px;height:4px;background:var(--b);border-radius:2px;width:80px">
           <div style="height:100%;width:${Math.max(0,Math.min(100,pct))}%;background:${stColor};border-radius:2px"></div>
         </div>
@@ -3499,8 +3633,8 @@ function renderCredits(list) {
       <td style="font-size:11px;color:var(--t3)">${lastInt}</td>
       <td>
         <div style="display:flex;gap:6px">
-          <button class="btn" style="font-size:10px;padding:4px 10px" onclick="resetQuota('${q.email}')">Reset</button>
-          <button class="btn" style="font-size:10px;padding:4px 10px" onclick="setQuotaLimit('${q.email}', ${q.quota_limit_minutes})">Set Limit</button>
+          <button class="btn" style="font-size:10px;padding:4px 10px" onclick="resetQuota(${emailArg})">Reset</button>
+          <button class="btn" style="font-size:10px;padding:4px 10px" onclick="setQuotaLimit(${emailArg}, ${q.custom_limit ? q.limit : 'null'})">Set Limit</button>
         </div>
       </td>
     </tr>`;
@@ -3514,24 +3648,27 @@ function filterCredits() {
 }
 
 async function resetQuota(email) {
-  if (!confirm('Reset quota usage to 0 for ' + email + '?')) return;
+  if (!confirm('Reset interview count to 0 for ' + email + '? Past interview history is kept.')) return;
   try {
-    const r = await fetch('/api/admin/quota-reset', {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify({email})});
+    const r = await fetch('/api/admin/interview-quota-reset', {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify({email})});
     const d = await r.json();
-    if (d.status === 'success') { loadCredits(); }
+    if (d.ok) { loadCredits(); }
     else alert(d.detail || 'Failed');
   } catch(e) { alert('Error: ' + e.message); }
 }
 
 async function setQuotaLimit(email, currentLimit) {
-  const val = prompt('Set quota limit (minutes) for ' + email + ':', currentLimit);
+  const val = prompt('Interview limit for ' + email + ' (leave blank for the default):', currentLimit ?? '');
   if (val === null) return;
-  const mins = parseFloat(val);
-  if (isNaN(mins) || mins < 0) { alert('Invalid number'); return; }
+  let limit = null;
+  if (val.trim() !== '') {
+    limit = Number(val);
+    if (!Number.isInteger(limit) || limit < 0) { alert('Enter a whole number, 0 or more'); return; }
+  }
   try {
-    const r = await fetch('/api/admin/quota-set-limit', {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify({email, limit_minutes: mins})});
+    const r = await fetch('/api/admin/interview-quota-set-limit', {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify({email, limit})});
     const d = await r.json();
-    if (d.status === 'success') { loadCredits(); }
+    if (d.ok) { loadCredits(); }
     else alert(d.detail || 'Failed');
   } catch(e) { alert('Error: ' + e.message); }
 }

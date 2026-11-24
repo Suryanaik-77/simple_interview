@@ -308,12 +308,49 @@ SELECT
 
     -- Per-question detail with covered/missed points (JSON array)
     s.session_data->'evaluation'->'per_question'    AS per_question,
-    s.session_data->'conversation'                  AS conversation
+    -- Each entry gets question_label: main questions 1, 2, 3...; follow-ups 2a, 2b...
+    -- (follow-ups belong to the main question before them, so the last number = questions answered)
+    (SELECT jsonb_agg(y.e || jsonb_build_object('question_label', y.lbl) ORDER BY y.i)
+       FROM (SELECT x.e, x.i,
+                    CASE WHEN x.fu
+                         THEN x.main_no || chr(96 + (ROW_NUMBER() OVER (PARTITION BY x.main_no, x.fu ORDER BY x.i))::int)
+                         ELSE x.main_no::text END AS lbl
+               FROM (SELECT t.e, t.i,
+                            COALESCE((t.e->>'is_followup')::boolean, false) AS fu,
+                            SUM(CASE WHEN COALESCE((t.e->>'is_followup')::boolean, false) THEN 0 ELSE 1 END)
+                                OVER (ORDER BY t.i) AS main_no
+                       FROM jsonb_array_elements(
+                                CASE WHEN jsonb_typeof(s.session_data->'conversation') = 'array'
+                                     THEN s.session_data->'conversation' ELSE '[]'::jsonb END
+                            ) WITH ORDINALITY AS t(e, i)) x) y
+    )                                               AS conversation,
+
+    -- Pass/fail against the admin pass percentage in effect when scored (NULL for older results)
+    (s.session_data->'evaluation'->>'score_percentage')::int AS score_percentage,
+    (s.session_data->'evaluation'->>'pass_percentage')::int  AS pass_percentage,
+    (s.session_data->'evaluation'->>'passed')::boolean       AS passed,
+
+    -- Why a result was not scored (eval_status = 'skipped'), and the minimum main answers needed
+    s.session_data->'evaluation'->>'reason'                  AS eval_reason,
+    (s.session_data->'evaluation'->>'min_questions')::int    AS min_questions,
+
+    -- Why the interview stopped (e.g. speaker_verification_failed, face_mismatch, time_limit, manual)
+    -- and the sentence shown to the student (END_MESSAGES in main.py)
+    s.session_data->>'end_reason'                            AS end_reason,
+    s.session_data->>'end_message'                           AS end_message
 
 FROM active_sessions s
 WHERE LOWER(s.session_data->>'phase') = 'ended'
   AND s.session_data->'evaluation' IS NOT NULL
   AND s.session_data->'evaluation' != 'null'::jsonb;
+
+-- The DROP above removes privileges on the view, so re-grant the LMS read-only
+-- user on every startup (only if lms_db_setup.sql has created it).
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lms_reader') THEN
+        GRANT SELECT ON lms_interview_results TO lms_reader;
+    END IF;
+END $$;
 
 -- ═══════════════════════════════════════════
 -- USER INTERVIEW QUOTA (Lifetime 3-hour limit)
@@ -330,6 +367,32 @@ CREATE TABLE IF NOT EXISTS user_interview_quota (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_quota_email ON user_interview_quota(email);
+
+-- Interview-count limit (replaces the minutes quota). NULL max_interviews = global default.
+-- Only candidate_history rows created after interviews_reset_at count toward the limit,
+-- so an admin reset never deletes the history used for repeat-question avoidance.
+DO $$ BEGIN
+    ALTER TABLE user_interview_quota ADD COLUMN max_interviews INTEGER;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE user_interview_quota ADD COLUMN interviews_reset_at TIMESTAMPTZ;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- Attempts used without an interview (e.g. a missed LMS booking). Each row counts as
+-- one used interview if occurred_at is after the student's interviews_reset_at.
+-- ref (the LMS booking id) is unique so a repeated report counts once.
+-- email is stored lower-cased and trimmed.
+CREATE TABLE IF NOT EXISTS interview_quota_consumptions (
+    id          SERIAL PRIMARY KEY,
+    email       TEXT NOT NULL,
+    ref         TEXT NOT NULL UNIQUE,
+    reason      TEXT NOT NULL DEFAULT 'missed_slot',
+    occurred_at TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_quota_consumptions_email ON interview_quota_consumptions(email);
 
 COMMENT ON TABLE user_interview_quota IS 'Tracks lifetime interview time quota per user (default 3 hours)';
 COMMENT ON COLUMN user_interview_quota.total_minutes_used IS 'Total minutes consumed across all interviews';

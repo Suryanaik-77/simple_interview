@@ -344,39 +344,6 @@ def update_session_expected_points(session_id, turn_index, points):
         return False
 
 
-def get_past_session_questions(email, current_session_id, limit=3):
-    """Get questions from the candidate's last N sessions (excluding current) for anti-repetition."""
-    if not _db_available or not email:
-        return []
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT session_data->'conversation'
-                    FROM active_sessions
-                    WHERE session_data->'resume'->>'email' = %s
-                      AND session_id != %s
-                      AND session_data->>'phase' = 'ended'
-                    ORDER BY updated_at DESC
-                    LIMIT %s
-                """, (email, current_session_id, limit))
-                questions = []
-                for row in cur.fetchall():
-                    conv = row[0]
-                    if isinstance(conv, str):
-                        import json
-                        conv = json.loads(conv)
-                    if isinstance(conv, list):
-                        for entry in conv:
-                            q = entry.get("question", "").strip()
-                            if q and not entry.get("is_greeting"):
-                                questions.append(q)
-                return questions
-    except Exception as e:
-        log.error(f"[DB] get_past_session_questions failed: {e}")
-        return []
-
-
 def get_session_expected_points(session_id, turn_index):
     """Read expected_points for a single turn directly from Postgres (bypasses cache)."""
     if not _db_available:
@@ -657,7 +624,8 @@ def get_candidate_history(email):
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT session_summary FROM candidate_history WHERE email = %s ORDER BY created_at ASC", (email,))
+                cur.execute("SELECT session_summary FROM candidate_history "
+                            "WHERE LOWER(TRIM(email)) = LOWER(TRIM(%s)) ORDER BY created_at ASC", (email,))
                 rows = cur.fetchall()
                 history = []
                 for row in rows:
@@ -670,6 +638,7 @@ def get_candidate_history(email):
     except Exception as e:
         log.error(f"[DB] get_candidate_history failed: {e}")
         return []
+
 
 
 # ── Face References ──────────────────────────────────────────────────────
@@ -1004,125 +973,141 @@ def get_recent_score_drift_stats(hours=168):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# USER INTERVIEW QUOTA (Lifetime 3-hour limit)
+# INTERVIEW LIMIT (per-student count, stored on user_interview_quota)
 # ═══════════════════════════════════════════════════════════════════
 
-def get_user_quota(email):
-    """Get user's quota info. Returns dict with total_used, limit, remaining.
-    Creates entry with default 180 minutes if doesn't exist."""
+# Callers pass emails already trimmed + lower-cased (main._norm_email). Older
+# candidate_history / user_interview_quota rows may be mixed-case, so those are
+# matched with LOWER(TRIM(...)). Used attempts = interviews with >=1 answer
+# (legacy rows fall back to "turns") + recorded consumptions (missed slots),
+# each counted only if it happened after the student's last reset.
+_KEY = "LOWER(TRIM({col}))"
+
+_USAGE_SQL = f"""
+    SELECT
+      q.email,
+      (SELECT COUNT(*) FROM candidate_history h
+        WHERE {_KEY.format(col='h.email')} = q.email
+          AND COALESCE((h.session_summary->>'answered')::int, (h.session_summary->>'turns')::int, 0) >= 1
+          AND (q.reset_at IS NULL OR h.created_at > q.reset_at)) AS interviews,
+      (SELECT COUNT(*) FROM interview_quota_consumptions c
+        WHERE c.email = q.email
+          AND (q.reset_at IS NULL OR c.occurred_at > q.reset_at)) AS missed_slots,
+      q.max_interviews, q.reset_at,
+      (SELECT MAX(h.created_at) FROM candidate_history h
+        WHERE {_KEY.format(col='h.email')} = q.email) AS last_interview_at
+    FROM (
+      SELECT e.email,
+             (SELECT u.max_interviews FROM user_interview_quota u
+               WHERE {_KEY.format(col='u.email')} = e.email ORDER BY u.updated_at DESC LIMIT 1) AS max_interviews,
+             (SELECT u.interviews_reset_at FROM user_interview_quota u
+               WHERE {_KEY.format(col='u.email')} = e.email ORDER BY u.updated_at DESC LIMIT 1) AS reset_at
+      FROM ({{emails}}) e
+    ) q
+"""
+
+
+def get_interview_usage(email):
+    """Return (used, limit_override). used includes missed slots; limit_override None = global default."""
     if not _db_available:
-        return None
-    try:
-        from psycopg.rows import dict_row
-        with get_conn() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                # First ensure the user exists
-                cur.execute("""
-                    INSERT INTO user_interview_quota (email, total_minutes_used, quota_limit_minutes)
-                    VALUES (%s, 0, 180)
-                    ON CONFLICT (email) DO NOTHING
-                """, (email,))
-
-                # Then fetch the current quota
-                cur.execute("""
-                    SELECT email, total_minutes_used, quota_limit_minutes,
-                           (quota_limit_minutes - total_minutes_used) as remaining_minutes,
-                           last_interview_at, created_at, updated_at
-                    FROM user_interview_quota
-                    WHERE email = %s
-                """, (email,))
-                row = cur.fetchone()
-                conn.commit()
-                if row:
-                    return dict(row)
-                return None
-    except Exception as e:
-        log.error(f"[DB] get_user_quota failed: {e}")
-        return None
-
-
-def update_user_quota(email, minutes_used):
-    """Add minutes to user's total quota usage. Called when interview ends."""
-    if not _db_available:
-        return False
+        return 0, None
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO user_interview_quota (email, total_minutes_used, last_interview_at)
-                    VALUES (%s, %s, NOW())
-                    ON CONFLICT (email) DO UPDATE SET
-                        total_minutes_used = user_interview_quota.total_minutes_used + %s,
-                        last_interview_at = NOW(),
-                        updated_at = NOW()
-                """, (email, minutes_used, minutes_used))
-                conn.commit()
-                log.info(f"[Quota] Added {minutes_used} minutes to {email}")
-                return True
+                cur.execute(_USAGE_SQL.replace("{emails}", "SELECT %s::text AS email"), (email,))
+                _, interviews, missed, limit_override, _, _ = cur.fetchone()
+                return (interviews or 0) + (missed or 0), limit_override
     except Exception as e:
-        log.error(f"[DB] update_user_quota failed: {e}")
-        return False
+        log.error(f"[DB] get_interview_usage failed: {e}")
+        return 0, None
 
 
-def admin_reset_user_quota(email):
-    """Admin function: Reset user's quota to 0 (gives them full 3 hours again)."""
-    if not _db_available:
-        return False
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE user_interview_quota
-                    SET total_minutes_used = 0, updated_at = NOW()
-                    WHERE email = %s
-                """, (email,))
-                conn.commit()
-                log.info(f"[Quota] Admin reset quota for {email}")
-                return True
-    except Exception as e:
-        log.error(f"[DB] admin_reset_user_quota failed: {e}")
-        return False
-
-
-def admin_set_user_quota_limit(email, limit_minutes):
-    """Admin function: Set custom quota limit for specific user."""
-    if not _db_available:
-        return False
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO user_interview_quota (email, quota_limit_minutes)
-                    VALUES (%s, %s)
-                    ON CONFLICT (email) DO UPDATE SET
-                        quota_limit_minutes = %s,
-                        updated_at = NOW()
-                """, (email, limit_minutes, limit_minutes))
-                conn.commit()
-                log.info(f"[Quota] Admin set quota limit to {limit_minutes} min for {email}")
-                return True
-    except Exception as e:
-        log.error(f"[DB] admin_set_user_quota_limit failed: {e}")
-        return False
-
-
-def get_all_user_quotas(limit=100):
-    """Admin function: List all users with their quota usage."""
+def list_interview_usage(limit=500):
+    """Every student with an interview, a limit row or a missed slot."""
     if not _db_available:
         return []
     try:
         from psycopg.rows import dict_row
+        emails = f"""
+            SELECT {_KEY.format(col='email')} AS email FROM candidate_history
+            UNION SELECT {_KEY.format(col='email')} FROM user_interview_quota
+            UNION SELECT email FROM interview_quota_consumptions
+        """
         with get_conn() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute("""
-                    SELECT email, total_minutes_used, quota_limit_minutes,
-                           (quota_limit_minutes - total_minutes_used) as remaining_minutes,
-                           last_interview_at, created_at, updated_at
-                    FROM user_interview_quota
-                    ORDER BY total_minutes_used DESC
-                    LIMIT %s
-                """, (limit,))
-                return [dict(r) for r in cur.fetchall()]
+                cur.execute(f"SELECT * FROM ({_USAGE_SQL.replace('{emails}', emails)}) x "
+                            "ORDER BY last_interview_at DESC NULLS LAST LIMIT %s", (limit,))
+                return [{**r, "used": r["interviews"] + r["missed_slots"]} for r in cur.fetchall()]
     except Exception as e:
-        log.error(f"[DB] get_all_user_quotas failed: {e}")
+        log.error(f"[DB] list_interview_usage failed: {e}")
         return []
+
+
+def _upsert_quota_row(cur, email, column, value_sql, params=()):
+    """Set one column on the student's quota row, matching old mixed-case rows too."""
+    cur.execute(f"UPDATE user_interview_quota SET {column} = {value_sql}, updated_at = NOW() "
+                f"WHERE {_KEY.format(col='email')} = %s", (*params, email))
+    if cur.rowcount == 0:
+        cur.execute(f"INSERT INTO user_interview_quota (email, {column}) VALUES (%s, {value_sql})",
+                    (email, *params))
+
+
+def admin_reset_interviews(email):
+    """Start the student's count over from now. History and missed-slot rows are kept."""
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                _upsert_quota_row(cur, email, "interviews_reset_at", "NOW()")
+                conn.commit()
+                log.info(f"[Limit] Admin reset interview count for {email}")
+                return True
+    except Exception as e:
+        log.error(f"[DB] admin_reset_interviews failed: {e}")
+        return False
+
+
+def admin_set_interview_limit(email, max_interviews):
+    """Set a per-student limit; None clears it back to the global default."""
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                _upsert_quota_row(cur, email, "max_interviews", "%s", (max_interviews,))
+                conn.commit()
+                log.info(f"[Limit] Admin set interview limit for {email} to {max_interviews}")
+                return True
+    except Exception as e:
+        log.error(f"[DB] admin_set_interview_limit failed: {e}")
+        return False
+
+
+def consumption_exists(ref):
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM interview_quota_consumptions WHERE ref = %s", (ref,))
+                return cur.fetchone() is not None
+    except Exception as e:
+        log.error(f"[DB] consumption_exists failed: {e}")
+        raise
+
+
+def record_consumption(email, ref, reason, occurred_at):
+    """Insert one used attempt. Returns False if this ref was already recorded."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO interview_quota_consumptions (email, ref, reason, occurred_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (ref) DO NOTHING
+            """, (email, ref, reason, occurred_at))
+            conn.commit()
+            inserted = cur.rowcount == 1
+    if inserted:
+        log.info(f"[Limit] Recorded used attempt for {email} ({reason}, ref={ref})")
+    return inserted

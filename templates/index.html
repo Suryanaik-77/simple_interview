@@ -490,7 +490,7 @@ body { font-family: 'Inter', sans-serif; }
           <div class="score-ring" id="rc-ring">
             <div class="score-inner">
               <div class="text-4xl font-bold text-text-primary" id="rc-score">–</div>
-              <div class="text-[10px] uppercase tracking-[0.18em] text-text-tertiary mt-0.5">out of 10</div>
+              <div class="text-[10px] uppercase tracking-[0.18em] text-text-tertiary mt-0.5">overall</div>
             </div>
           </div>
           <div class="flex-1 text-center md:text-left">
@@ -1163,7 +1163,7 @@ function renderReport(report) {
       const answered = scores.answered || 0;
       document.getElementById('rc-alt-title').textContent = 'Not enough answers to score';
       document.getElementById('rc-alt-body').textContent =
-        `You answered ${answered} question(s). We need at least 8 answered questions before we can produce a full evaluation. Try a new interview when you're ready.`;
+        `You answered ${answered} question(s). We need at least ${scores.min_questions || 12} answered questions before we can produce a full evaluation. Follow-up questions count as part of their main question. Try a new interview when you're ready.`;
     } else if (status === 'error') {
       document.getElementById('rc-alt-title').textContent = 'Evaluation failed';
       document.getElementById('rc-alt-body').textContent =
@@ -1185,9 +1185,12 @@ function renderReport(report) {
 
   // status === 'done'
   const overall = scores.overall_score;
-  document.getElementById('rc-score').textContent = (overall != null ? overall : '–');
+  // Overall shown as a percentage (score_percentage = overall_score × 10, set at scoring time)
+  const pct = scores.score_percentage != null ? scores.score_percentage
+            : (overall != null ? Math.round(overall * 10) : null);
+  document.getElementById('rc-score').textContent = (pct != null ? pct + '%' : '–');
   const ring = document.getElementById('rc-ring');
-  ring.style.setProperty('--pct', (overall || 0) * 10);
+  ring.style.setProperty('--pct', pct || 0);
   ring.style.setProperty('--ring-col', scoreColor(overall));
 
   const fit = fitChip(scores.level_fit);
@@ -1201,7 +1204,10 @@ function renderReport(report) {
   commEl.className = 'chip ' + (comm == null ? 'chip-warn' : (comm >= 8 ? 'chip-good' : (comm >= 5 ? 'chip-warn' : 'chip-bad')));
 
   document.getElementById('rc-verdict').textContent = scores.verdict || 'Interview Complete';
-  const metaBits = [cand.domain, cand.level, (scores.answered ? `${scores.answered} answered` : null)].filter(Boolean);
+  const passBit = typeof scores.passed === 'boolean'
+    ? `${scores.passed ? 'Passed' : 'Not passed'} (${scores.score_percentage}% · pass mark ${scores.pass_percentage}%)`
+    : null;
+  const metaBits = [cand.domain, cand.level, (scores.answered ? `${scores.answered} answered` : null), passBit].filter(Boolean);
   document.getElementById('rc-meta').textContent = metaBits.join(' · ');
 
   // Strengths

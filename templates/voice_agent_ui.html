@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Interview Agent</title>
     <!-- MediaPipe Face Mesh 0.4 — face + iris landmark detection -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
     <!-- TensorFlow.js + COCO-SSD — mobile phone detection in webcam -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
     <!-- Silero VAD — client-side neural speech detection via ONNX WASM -->
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/bundle.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/bundle.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
 
@@ -780,7 +780,7 @@
         // Eye looking away detection (eyes fixed left/right while head straight)
         let eyeReadCount = 0;
         let eyeReadWarnings = 0;
-        const EYE_READ_LIMIT = 3;         // 3 consecutive checks (~4.5 seconds) = 1 warning
+        const EYE_READ_LIMIT = 6;         // 6 consecutive 1s checks = 1 warning (ignores thinking glances)
 
         // Reading pattern detection (X: smooth right sweep + sharp snap-back + Y: drops at snap-backs)
         let gazeXYHistory = [];            // Rolling buffer of {x, y}
@@ -945,17 +945,17 @@
                                 }
 
                                 // Eyes looking away — horizontal
-                                if (currentGaze < 0.40 || currentGaze > 0.55) {
+                                if (currentGaze < 0.35 || currentGaze > 0.65) {
                                     eyeReading = true;
-                                    eyeDirection = currentGaze < 0.40 ? 'left' : 'right';
+                                    eyeDirection = currentGaze < 0.35 ? 'left' : 'right';
                                 }
                                 // Eyes looking up (notes on wall, second screen above)
-                                else if (gazeY < 0.30) {
+                                else if (gazeY < 0.22) {
                                     eyeReading = true;
                                     eyeDirection = 'up';
                                 }
                                 // Eyes looking down (notes/phone in lap, second screen below)
-                                else if (gazeY > 0.72) {
+                                else if (gazeY > 0.80) {
                                     eyeReading = true;
                                     eyeDirection = 'down';
                                 }
@@ -1080,7 +1080,8 @@
                           ? 'Interview ended — camera was repeatedly covered.'
                           : (cameraPhysicallyOff
                             ? 'Interview ended — camera was turned off or disconnected.'
-                            : 'Interview ended — you were not in front of the camera.'));
+                            : 'Interview ended — you were not in front of the camera.'),
+                          frameCovered ? 'camera_covered' : (cameraPhysicallyOff ? 'camera_off' : 'user_not_in_front'));
                     }
                     noFaceCount = 0;
                 }
@@ -1110,7 +1111,7 @@
                     } else {
                         sendAntiCheat('eye_away_termination', `reading_${eyeReadWarnings}_times`);
                         if (interviewPaused) resumeInterview();
-                        endSessionWithMessage('Interview ended — repeated off-screen reading detected.');
+                        endSessionWithMessage('Interview ended — repeated off-screen reading detected.', 'eye_away');
                     }
 
                     eyeReadCount = 0;
@@ -1244,8 +1245,8 @@
     })();
 
     function updateQuestionCount(n) {
-        document.getElementById('d-qnum').textContent = n + ' questions';
-        document.getElementById('q-num-label').textContent = 'Q' + n;
+        document.getElementById('d-qnum').textContent = n + ' answered';
+        document.getElementById('q-num-label').textContent = n + ' answered';
         document.getElementById('stat-q').textContent = n;
     }
 
@@ -1742,7 +1743,9 @@
             // leave counter as-is
         } else if (phase === 'interview') {
             if (!warmupTurns) warmupTurns = (data.turn || 1) - 1;
-            techQuestionCount = Math.max(0, (data.turn || 0) - warmupTurns);
+            techQuestionCount = Number.isInteger(data.answered_questions)
+                ? data.answered_questions
+                : Math.max(0, (data.turn || 0) - warmupTurns);
             updateQuestionCount(techQuestionCount);
         } else {
             document.getElementById('d-qnum').textContent = 'Warmup';
@@ -1867,7 +1870,7 @@
         if (ticker) { clearInterval(ticker); ticker = null; }
         forceStopAllAudio();
         if (sessionId) {
-            const payload = JSON.stringify({ session_id: sessionId });
+            const payload = JSON.stringify({ session_id: sessionId, reason });
             if (navigator.sendBeacon) {
                 navigator.sendBeacon('/api/end-session', new Blob([payload], { type: 'application/json' }));
             } else {
@@ -1892,7 +1895,7 @@
     }
 
     // End session with a custom message
-    function endSessionWithMessage(message) {
+    function endSessionWithMessage(message, reason) {
         interviewEnded = true;
         sessionOn = false;
         releaseMic();
@@ -1901,7 +1904,7 @@
 
         // Tell the server to end the session (use sendBeacon so it survives page unload)
         if (sessionId) {
-            const payload = JSON.stringify({ session_id: sessionId });
+            const payload = JSON.stringify({ session_id: sessionId, reason });
             if (navigator.sendBeacon) {
                 navigator.sendBeacon('/api/end-session', new Blob([payload], { type: 'application/json' }));
             } else {
@@ -2527,7 +2530,10 @@
                             qCount = evt.turn || qCount;
                             if (evt.phase === 'interview') {
                                 if (!warmupTurns) warmupTurns = (evt.turn || 1) - 1;
-                                techQuestionCount = Math.max(0, (evt.turn || 0) - warmupTurns);
+                                // Server count excludes follow-ups; turn includes them.
+                                techQuestionCount = Number.isInteger(evt.answered_questions)
+                                    ? evt.answered_questions
+                                    : Math.max(0, (evt.turn || 0) - warmupTurns);
                                 updateQuestionCount(techQuestionCount);
                             } else {
                                 document.getElementById('d-qnum').textContent = 'Warmup';
@@ -2612,7 +2618,7 @@
                 // Second time — end interview
                 sendAntiCheat('tab_switch_termination', `left_${tabLeaveWarnings}_times`);
                 if (interviewPaused) resumeInterview();
-                endSessionWithMessage('Interview ended — you left the interview tab multiple times.');
+                endSessionWithMessage('Interview ended — you left the interview tab multiple times.', 'tab_switch');
             }
         }
     });
@@ -2652,7 +2658,7 @@
                 }
             } else if (tabLeaveWarnings >= 2) {
                 sendAntiCheat('tab_switch_termination', `blur_left_${tabLeaveWarnings}_times`);
-                endSessionWithMessage('Interview ended — you left the interview tab multiple times.');
+                endSessionWithMessage('Interview ended — you left the interview tab multiple times.', 'tab_switch');
             }
         }
     });
@@ -2943,7 +2949,7 @@
             if (splitWarnings >= 3) {
                 splitOverlay.style.display = 'none';
                 sendAntiCheat('split_screen_termination', `split_${splitWarnings}_times`);
-                endSessionWithMessage('Interview ended — window was split or resized repeatedly.');
+                endSessionWithMessage('Interview ended — window was split or resized repeatedly.', 'window_resize');
             }
         }
 
@@ -3005,7 +3011,7 @@
                 }
                 if (overlayWarnings >= 2) {
                     sendAntiCheat('overlay_termination', `overlays:${overlayWarnings}`);
-                    endSessionWithMessage('Interview ended — unauthorized screen overlay detected.');
+                    endSessionWithMessage('Interview ended — unauthorized screen overlay detected.', 'screen_overlay');
                 }
                 return;
             }
@@ -3021,7 +3027,7 @@
                     overlayWarnings++;
                     if (overlayWarnings >= 2) {
                         sendAntiCheat('overlay_termination', `shadow_overlays:${overlayWarnings}`);
-                        endSessionWithMessage('Interview ended — unauthorized screen overlay detected.');
+                        endSessionWithMessage('Interview ended — unauthorized screen overlay detected.', 'screen_overlay');
                     }
                 }
                 return;
@@ -3035,7 +3041,7 @@
                 overlayWarnings++;
                 if (overlayWarnings >= 2) {
                     sendAntiCheat('overlay_termination', `iframe_overlays:${overlayWarnings}`);
-                    endSessionWithMessage('Interview ended — unauthorized screen overlay detected.');
+                    endSessionWithMessage('Interview ended — unauthorized screen overlay detected.', 'screen_overlay');
                 }
                 return;
             }
@@ -3149,7 +3155,7 @@
                         } else {
                             sendAntiCheat('phone_termination', `warnings:${phoneWarnings}`);
                             if (interviewPaused) resumeInterview();
-                            endSessionWithMessage('Interview ended — mobile phone detected multiple times. Using external devices is not allowed.');
+                            endSessionWithMessage('Interview ended — mobile phone detected multiple times. Using external devices is not allowed.', 'phone_detected');
                             return;
                         }
                         break;
@@ -3193,7 +3199,7 @@
                         } else {
                             sendAntiCheat('multiple_persons_termination', `warnings:${multiPersonWarnings}`);
                             if (interviewPaused) resumeInterview();
-                            endSessionWithMessage('Interview ended — another person was repeatedly detected in the camera.');
+                            endSessionWithMessage('Interview ended — another person was repeatedly detected in the camera.', 'multiple_persons');
                             return;
                         }
                     }
@@ -3252,7 +3258,7 @@
                         if (found.length > 0) {
                             sendAntiCheat('ai_extension_detected', `name:${ext.name} selector:${sel} count:${found.length}`);
                             console.log(`[Anti-cheat] AI Extension detected: ${ext.name}`);
-                            endSessionWithMessage('Interview ended — AI assistance tool detected. This is not allowed during interviews.');
+                            endSessionWithMessage('Interview ended — AI assistance tool detected. This is not allowed during interviews.', 'ai_tool_detected');
                             return;
                         }
                     } catch(e) {}
@@ -3266,7 +3272,7 @@
                         if (found.length > 0) {
                             sendAntiCheat('ai_extension_detected', `name:${ext.name} tag:${tag} count:${found.length}`);
                             console.log(`[Anti-cheat] AI Extension detected via tag: ${ext.name} <${tag}>`);
-                            endSessionWithMessage('Interview ended — AI assistance tool detected. This is not allowed during interviews.');
+                            endSessionWithMessage('Interview ended — AI assistance tool detected. This is not allowed during interviews.', 'ai_tool_detected');
                             return;
                         }
                     } catch(e) {}
