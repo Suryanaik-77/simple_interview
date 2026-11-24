@@ -524,6 +524,7 @@
     }).catch(() => {});
     let interviewEnded = false;  // Flag to completely stop interview
     let interviewPaused = false; // Pause state — UI frozen, background monitoring active
+    let interviewActive = false;  // True only after first question is received — anti-cheat ignores events before this
     let pauseReason = '';        // Which violation caused the pause
     // Freeze bookkeeping: what was happening when a warning paused the interview,
     // so we can resume exactly that when the warning clears.
@@ -1684,6 +1685,7 @@
                 return;
             }
 
+            interviewActive = true;
             displayQuestion(data);
             await playAudio(data.question, data.audio, data.phase);
         } catch (e) {
@@ -2592,7 +2594,7 @@
     // 1. Tab switch / visibility change detection
     let visChangeDebounce = 0;
     document.addEventListener('visibilitychange', () => {
-        if (document.hidden && sessionOn && !interviewEnded) {
+        if (document.hidden && interviewActive && !interviewEnded) {
             const now = Date.now();
             if (now - blurDebounce < 1000) return; // blur already counted this
             visChangeDebounce = now;
@@ -2608,7 +2610,7 @@
             }
         }
         // Auto-resume or terminate when user comes BACK
-        if (!document.hidden && sessionOn && !interviewEnded && tabLeaveWarnings > 0) {
+        if (!document.hidden && interviewActive && !interviewEnded && tabLeaveWarnings > 0) {
             if (tabLeaveWarnings === 1) {
                 // First time — auto-resume on return
                 if (interviewPaused && pauseReason === 'tab_switch') {
@@ -2629,7 +2631,7 @@
     // We need both — blur catches desktop app switching that visibilitychange misses.
     let blurDebounce = 0;
     window.addEventListener('blur', () => {
-        if (!sessionOn || interviewEnded) return;
+        if (!interviewActive || interviewEnded) return;
         // Avoid double-counting when both blur and visibilitychange fire together
         const now = Date.now();
         if (now - blurDebounce < 1000) return;
@@ -2649,7 +2651,7 @@
         }
     });
     window.addEventListener('focus', () => {
-        if (!sessionOn || interviewEnded) return;
+        if (!interviewActive || interviewEnded) return;
         // Auto-resume or terminate when user comes BACK from desktop app
         if (tabLeaveWarnings > 0 && !document.hidden) {
             if (tabLeaveWarnings === 1) {

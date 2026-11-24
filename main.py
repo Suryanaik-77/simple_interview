@@ -53,6 +53,7 @@ app = FastAPI(title="Simple Interview Agent")
 
 _ALLOWED_ORIGINS = [
     "https://mockin.eduspark.sumedhait.com",
+    "https://eduspark.sumedhait.com",
     "https://stage-lms.sumedhait.com",
     "https://lms.sumedhait.com",
     "http://localhost:8001",
@@ -64,7 +65,7 @@ app.add_middleware(CORSMiddleware, allow_origins=_ALLOWED_ORIGINS, allow_methods
 @app.middleware("http")
 async def permissions_policy_header(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Permissions-Policy"] = "camera=(self), microphone=(self)"
+    response.headers["Permissions-Policy"] = 'camera=(self "https://eduspark.sumedhait.com"), microphone=(self "https://eduspark.sumedhait.com")'
     return response
 
 
@@ -93,14 +94,6 @@ async def _log_validation_error(request: Request, exc: RequestValidationError):
 _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 if os.path.isdir(_static_dir):
     app.mount("/static", StaticFiles(directory=_static_dir), name="static")
-
-# ── LangGraph Interview Agent (v2) ──────────────────────────────────────
-try:
-    from interview_agent.api import router as _v2_router
-    app.include_router(_v2_router)
-    log.info("[V2] LangGraph interview agent router mounted at /api/v2")
-except Exception as _v2_err:
-    log.warning("[V2] Agent router not loaded: %s", _v2_err)
 
 # ── Config ───────────────────────────────────────────────────────────────
 OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
@@ -3674,7 +3667,10 @@ async def interview_page(session_id: str = None):
     if not session_id:
         from starlette.responses import RedirectResponse
         return RedirectResponse(LMS_REDIRECT_URL)
-    return HTMLResponse(open("templates/voice_agent_ui.html", encoding="utf-8").read())
+    resp = HTMLResponse(open("templates/voice_agent_ui.html", encoding="utf-8").read())
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.get("/interview/v2", response_class=HTMLResponse)
