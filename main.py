@@ -444,6 +444,8 @@ def save_candidate_session(session):
         "topics_asked": topics_asked,
         "questions_asked": [e.get("question", "") for e in session.get("conversation", []) if e.get("question")],
         "bank_refs": session.get("bank_refs", []),   # curated questions already offered (see _pick_reference_question)
+        # specific concept of each question (tag classifier), for cross-interview topic memory
+        "concepts_asked": list(dict.fromkeys(c for c in (e.get("concept") for e in session.get("conversation", [])) if c)),
         "projects": session.get("resume", {}).get("key_projects", []),
         "skills": session.get("resume", {}).get("skills", []),
         "tools": session.get("resume", {}).get("tools", []),
@@ -545,6 +547,96 @@ def _previous_questions(prev_sessions, current_session_id="") -> list[str]:
             if len(out) >= PREV_QUESTIONS_MAX:
                 return out
     return out
+
+
+# ── Concept memory ───────────────────────────────────────────────────────
+# Questions are worded differently from one interview to the next, so a question list
+# alone let the same concept come back ("what is electromigration…" one day, "why is
+# electromigration a concern…" the next). Each question is tagged with its specific
+# concept (tag classifier) and the interviewer is told which concepts are covered.
+CONCEPTS_MAX = 60
+_concept_fill_running = set()
+_concept_fill_lock = threading.Lock()
+
+
+def _norm_concept(c) -> str:
+    c = re.sub(r"\s+", " ", str(c or "")).strip().strip(".").lower()
+    return c if 2 < len(c) <= 40 else ""
+
+
+def _previous_concepts(prev_sessions, current_session_id="") -> list[str]:
+    """Concepts from earlier interviews, newest first, de-duplicated, capped."""
+    out = []
+    for ps in reversed(prev_sessions):
+        if ps.get("session_id") == current_session_id:
+            continue
+        for c in ps.get("concepts_asked") or []:
+            c = _norm_concept(c)
+            if c and c not in out:
+                out.append(c)
+                if len(out) >= CONCEPTS_MAX:
+                    return out
+    return out
+
+
+def _concepts_block(session) -> str:
+    """CONCEPTS ALREADY COVERED steering text (earlier interviews + this one), or ''."""
+    earlier = session.get("_prev_concepts_cache") or []
+    now = list(dict.fromkeys(c for c in (_norm_concept(e.get("concept"))
+                                         for e in session.get("conversation", [])) if c))
+    if not earlier and not now:
+        return ""
+    lines = []
+    if now:
+        lines.append("This interview: " + ", ".join(now))
+    if earlier:
+        lines.append("Earlier interviews: " + ", ".join(earlier))
+    return ("\n\nCONCEPTS ALREADY COVERED — " + " | ".join(lines) + "\nFor a NEW topic, do NOT build the "
+            "question around any of these concepts, even worded differently ('what is electromigration' "
+            "and 'why is electromigration a concern' are the SAME concept). Pick a concept that is not in "
+            "this list. A follow-up on the current answer is the only exception.")
+
+
+def _fill_missing_concepts(email: str, current_session_id: str = ""):
+    """One-time: tag the questions of earlier interviews saved before concept tagging
+    existed, and store the result in their history row. Runs in a background thread at
+    interview start, so it never delays a question."""
+    key = email.strip().lower()
+    with _concept_fill_lock:
+        if key in _concept_fill_running:      # a start retry while the fill is still running
+            return
+        _concept_fill_running.add(key)
+    try:
+        for ps in _answered_previous(email):
+            sid = ps.get("session_id")
+            if not sid or sid == current_session_id or "concepts_asked" in ps:
+                continue
+            qs = [q for q in ps.get("questions_asked", [])
+                  if q and len(q) >= 15 and not q.strip().lower().startswith(_SKIP_QUESTION_PREFIXES)]
+            concepts = []
+            if qs:
+                raw, _ = call_llm([{"role": "user", "content":
+                    "For each interview question below, give the specific technical concept it tests, "
+                    "1-4 words, lowercase (e.g. 'electromigration', 'clock gating', 'setup vs hold', "
+                    "'congestion debug'), not a broad area. Return ONLY a JSON list of strings, one per "
+                    "question, same order.\n\n" + "\n".join(f"{i + 1}. {q}" for i, q in enumerate(qs))}],
+                    model_id="gpt-4o-mini", temperature=0, max_tokens=600)
+                parsed = safe_json(raw)
+                if not isinstance(parsed, list):
+                    m = re.search(r"\[.*\]", raw or "", re.DOTALL)
+                    try:
+                        parsed = json.loads(m.group()) if m else None
+                    except ValueError:
+                        parsed = None
+                if isinstance(parsed, list):
+                    concepts = list(dict.fromkeys(c for c in (_norm_concept(x) for x in parsed) if c))
+            database.update_candidate_history_concepts(sid, concepts)
+            log.info(f"[Concepts] filled {len(concepts)} concepts for earlier interview {sid[:8]} ({email})")
+    except Exception as e:
+        log.warning(f"[Concepts] fill failed for {email}: {e}")
+    finally:
+        with _concept_fill_lock:
+            _concept_fill_running.discard(key)
 
 # ── Auth ─────────────────────────────────────────────────────────────────
 security = HTTPBearer(auto_error=False)
@@ -1776,7 +1868,11 @@ def classify_question_tags(session, question: str):
     system_msg = (
         "You label one interview question. Compare the NEW question with the PREVIOUS "
         "question and the candidate's ANSWER to it. Return ONLY JSON: "
-        '{"followup": true/false, "scenario": true/false, "type": "PROJECT|CONCEPT|SCENARIO"}.\n'
+        '{"followup": true/false, "scenario": true/false, "type": "PROJECT|CONCEPT|SCENARIO", '
+        '"concept": "<the specific technical concept, 1-4 words, lowercase>"}.\n'
+        "concept = the main thing the NEW question tests, as specific as possible "
+        "(e.g. 'electromigration', 'clock gating', 'setup vs hold', 'congestion debug', "
+        "'uvm factory'), not a broad area like 'timing' or 'physical design'.\n"
         "followup=true if the NEW question stays on the SAME topic/thread — drilling the "
         "previous answer, asking for a missing detail, or reacting to something they just "
         "said; false if it opens a NEW topic.\n"
@@ -1791,9 +1887,10 @@ def classify_question_tags(session, question: str):
         t0 = time.time()
         raw, usage = call_llm([{"role": "system", "content": system_msg},
                                {"role": "user", "content": user_msg}],
-                              temperature=0.0, max_tokens=60)
+                              temperature=0.0, max_tokens=90)
         ms = round((time.time() - t0) * 1000)
         data = safe_json(raw) or {}
+        concept = _norm_concept(data.get("concept"))
         is_followup = bool(data.get("followup"))
         is_scenario = bool(data.get("scenario"))
         qtype = str(data.get("type", "")).upper()
@@ -1815,14 +1912,15 @@ def classify_question_tags(session, question: str):
         entry["is_followup"] = is_followup
         entry["is_scenario"] = is_scenario
         entry["qtype"] = qtype
+        entry["concept"] = concept
         # Atomic DB patches — avoid full read-modify-write race with the session blob.
         # Persist the cost as an array-append (not an in-memory append a later full-save
         # would double-count), then invalidate the stale cache so the next read
         # repopulates from Postgres — which now holds these patches.
-        database.update_session_question_tags(session["id"], idx, is_followup, is_scenario, qtype)
+        database.update_session_question_tags(session["id"], idx, is_followup, is_scenario, qtype, concept)
         database.append_session_obs_log(session["id"], obs)
         redis_cache.delete_session(session["id"])
-        log.info(f"[TagClassify] {ms}ms followup={is_followup} scenario={is_scenario} type={qtype}")
+        log.info(f"[TagClassify] {ms}ms followup={is_followup} scenario={is_scenario} type={qtype} concept={concept!r}")
     except Exception as e:
         log.error(f"[TagClassify] Failed: {e}")
 
@@ -1848,7 +1946,8 @@ def _load_question_bank():
             # topic + expected points let an "angle" reference be passed WITHOUT the
             # question text (the model copied the text even when told to change the angle).
             bank.setdefault(d, {}).setdefault(diff, []).append(
-                {"q": txt, "topic": q.get("topic", ""), "points": list(q.get("expected_points") or [])})
+                {"q": txt, "topic": q.get("topic", ""), "points": list(q.get("expected_points") or []),
+                 "diff": diff})
     n = sum(len(v) for t in bank.values() for v in t.values())
     log.info(f"[Bank] loaded {n} curated questions across {len(bank)} domains")
     return bank
@@ -1908,8 +2007,28 @@ def _pick_reference_question(session, prev_sessions, asked_this_session, prev_qu
         for q in ps.get("bank_refs", []):
             use_count[q] = use_count.get(q, 0) + 1
     asked_all = list(asked_this_session) + list(prev_questions)
-    fresh = next((it for it in pool if it["q"] not in used_now and it["q"] not in use_count
-                  and not _question_too_similar(_ref_core(it["q"]), asked_all, overlap=0.5)), None)
+    # Topic rotation: the shuffle ignores topics, so two references in a row could both be
+    # CTS while ECO never came up. Within the easier tier first (basic before intermediate
+    # for juniors), prefer the topic used least in THIS interview, then the one used least
+    # in earlier interviews; the shuffled order breaks ties.
+    tier_rank = {}
+    for it in pool:
+        tier_rank.setdefault(it.get("diff"), len(tier_rank))
+    topic_of = {it["q"]: it.get("topic", "") for it in pool}
+    topics_now, topics_before = {}, {}
+    for q in used_now:
+        t = topic_of.get(q, "")
+        topics_now[t] = topics_now.get(t, 0) + 1
+    for q, n in use_count.items():
+        t = topic_of.get(q, "")
+        topics_before[t] = topics_before.get(t, 0) + n
+    eligible = [(i, it) for i, it in enumerate(pool)
+                if it["q"] not in used_now and it["q"] not in use_count
+                and not _question_too_similar(_ref_core(it["q"]), asked_all, overlap=0.5)]
+    fresh = min(eligible, key=lambda p: (tier_rank.get(p[1].get("diff"), 0),
+                                         topics_now.get(p[1].get("topic", ""), 0),
+                                         topics_before.get(p[1].get("topic", ""), 0), p[0]),
+                default=(None, None))[1]
     rng = random.Random(seed + len(prev_sessions) * 101 + len(used_now))
     if fresh:
         return fresh, ("direct" if rng.random() < 0.5 else "angle"), False
@@ -1998,6 +2117,7 @@ def build_interview_prompt(session):
     if email:
         prev_sessions = _answered_previous(email)
     session["_prev_questions_cache"] = _previous_questions(prev_sessions, session.get("id", ""))
+    session["_prev_concepts_cache"] = _previous_concepts(prev_sessions, session.get("id", ""))
     if prev_sessions:
         prev_projects = set()
         all_topics = set()
@@ -2391,8 +2511,8 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
         ref_block = ("\n\nNO REFERENCE THIS TURN — for a new topic, draw on the candidate's projects "
                      "or the JOB DESCRIPTION (still following the TYPE MIX), not a textbook question.")
 
-    steering = (asked_block + project_block + mix_reminder + open_steer + followup_guard
-                + ramp_steer + ref_block).strip()
+    steering = (asked_block + _concepts_block(session) + project_block + mix_reminder + open_steer
+                + followup_guard + ramp_steer + ref_block).strip()
     if steering:
         messages.append({"role": "system", "content": steering})
 
@@ -3402,6 +3522,23 @@ def _enforce_followup_grouping(session, per_question: list) -> list:
 
 _eval_locks = {}  # per-session locks to prevent duplicate evaluation
 
+def _score_percentage(result: dict) -> int:
+    """Overall percentage = average of the per-question scores (0-10, follow-ups already merged
+    into their main question) × 10, rounded DOWN — e.g. 4.375 → 43%. The model's overall_score is
+    a whole number (4.375 came back as 5 → 50%, which passed a 50% mark). Falls back to
+    overall_score × 10 when there are no per-question scores."""
+    scores = []
+    for p in result.get("per_question") or []:
+        try:
+            scores.append(float(p.get("score")))
+        except (TypeError, ValueError):
+            continue
+    if scores:
+        # round(…, 6) first so float noise (5.6*10 = 55.999…) doesn't drop a whole point
+        return int(round(sum(scores) / len(scores) * 10, 6))
+    return int(round(float(result.get("overall_score")) * 10, 6))
+
+
 def _sanity_check_eval(parsed: dict, sid: str):
     """Post-evaluation sanity check — fix obvious score inconsistencies."""
     pq = parsed.get("per_question", [])
@@ -3517,7 +3654,12 @@ def evaluate_interview(session) -> dict:
             # Pass mark in effect at scoring time is stored with the result, so a
             # later admin change doesn't silently flip past results.
             try:
-                score_pct = round(float(result.get("overall_score")) * 10)
+                score_pct = _score_percentage(result)
+                # overall_score follows the same average (the LMS shows overall_score × 10),
+                # so the shown score, pass/fail and placement all come from one number.
+                # The model's own whole-number judgement is kept for reference.
+                result["model_overall_score"] = result.get("overall_score")
+                result["overall_score"] = score_pct / 10
                 pass_pct = _setting("pass_percentage")
                 result.update(score_percentage=score_pct, pass_percentage=pass_pct,
                               passed=score_pct >= pass_pct)
@@ -4588,6 +4730,11 @@ def start_interview(data: dict):
         raise HTTPException(404, detail={"reject_reason": "session_not_found",
                                          "message": "Interview session not found. The session may have expired or been ended. Please launch a new interview."})
 
+    # One-time concept tagging of this student's older interviews (background, never blocks).
+    if session.get("resume", {}).get("email"):
+        threading.Thread(target=_fill_missing_concepts,
+                         args=(session["resume"]["email"], sid), daemon=True).start()
+
     # ── Non-VLSI resume gate ─────────────────────────────────────────────────
     resume_data = session.get("resume", {})
     detected_domain = resume_data.get("candidate_domain") or resume_data.get("domain", "")
@@ -4711,10 +4858,15 @@ def start_interview(data: dict):
                         })
                         if not gate_ok:
                             log.info(f"[FaceGate] Session {sid[:8]}: start BLOCKED (similarity={similarity:.1f}%)")
+                            # Remembered so a following end-session saves the real reason
+                            # (face_mismatch) instead of "ended by the student".
+                            session["start_blocked"] = "face_mismatch"
+                            sessions[sid] = session
                             raise HTTPException(403, detail={"reject_reason": "face_mismatch",
                                                              "message": "Face verification failed — the person on camera does not match the registered photo. "
                                                                         "Make sure the registered candidate is clearly visible and well-lit, then try again."})
                         log.info(f"[FaceGate] Session {sid[:8]}: start verified (similarity={similarity:.1f}%)")
+                        session.pop("start_blocked", None)   # a retry passed
                     except HTTPException:
                         raise
                     except rekognition_client.exceptions.InvalidParameterException:
@@ -5100,6 +5252,9 @@ def stream_answer(data: dict):
                 pacing += ("\nALREADY ASKED IN THIS INTERVIEW — do NOT ask any of these again, not even "
                            "reworded; pick a new concept:\n"
                            + "\n".join(f"- {q[:150]}" for q in _asked))
+            if session.get("_prev_concepts_cache"):
+                pacing += ("\nConcepts from earlier interviews (do not reuse for a new topic): "
+                           + ", ".join(session["_prev_concepts_cache"]))
         pacing += ("\nDo NOT end the interview yourself and do NOT output [END_INTERVIEW] — ending is "
                    "handled for you. Otherwise interview normally: when an answer is vague or hand-wavy "
                    "on something that matters, ask one follow-up to pin it down; otherwise move to a new "
@@ -5378,7 +5533,14 @@ def end_session(data: dict):
         # by the client's cleanup path — don't clobber the real reason with "manual".
         if session.get("phase") != "ended":
             client_reason = data.get("reason")
-            _end_interview(session, reason=client_reason if client_reason in CLIENT_END_REASONS else "manual")
+            if client_reason not in CLIENT_END_REASONS and session.get("start_blocked") == "face_mismatch" \
+                    and not any(t.get("question") for t in session.get("conversation", [])):
+                # The start face check blocked this interview and it never began.
+                _end_interview(session, reason="face_mismatch")
+                session["end_message"] = ("The interview could not start: face verification failed — the "
+                                          "person on camera did not match the registered photo.")
+            else:
+                _end_interview(session, reason=client_reason if client_reason in CLIENT_END_REASONS else "manual")
         # Evaluate synchronously, then KEEP the session row. The admin review reads
         # from active_sessions, so deleting here would make every completed interview
         # (and its evaluation) vanish from the review. The submit/stream end paths
