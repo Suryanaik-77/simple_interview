@@ -2077,10 +2077,51 @@ def _subtopics_now(session) -> list:
     return list(dict.fromkeys(out))
 
 
-def _pick_subtopic(session, prev_sessions, domain) -> str:
+def _project_subtopics(session, domain) -> list:
+    """Curriculum sub-topics the candidate's projects clearly involved (one gpt-4.1-mini call per
+    interview, cached in the session) — the PROJECT turn targets one of these, so a project
+    question is about something they actually did."""
+    if "_project_subtopics" in session:
+        return session["_project_subtopics"]
+    projects = session.get("resume", {}).get("key_projects") or []
+    text = "\n".join(f"- {p.get('name', '')}: {p.get('description', '')}" if isinstance(p, dict) else f"- {p}"
+                     for p in projects)
+    subs = []
+    if text.strip():
+        try:
+            raw, _ = call_llm([{"role": "user", "content":
+                "Candidate's projects:\n" + text + "\n\nWhich of these curriculum sub-topics are HANDS-ON "
+                "work the candidate must have done themselves in these projects (steps they ran, decisions "
+                "they made, problems they fixed)? Do NOT include background theory the project only relies "
+                "on (device physics, fabrication process, number systems, Linux basics) unless the project "
+                "description says they worked on it. Return ONLY a JSON list of up to 12 sub-topic NUMBERS, "
+                "most relevant first; [] if none.\n\n"
+                + curriculum.numbered_subtopics(domain)}],
+                model_id="gpt-4.1-mini", temperature=0, max_tokens=120)
+            parsed = safe_json(raw)
+            if not isinstance(parsed, list):
+                m = re.search(r"\[.*?\]", raw or "", re.DOTALL)
+                parsed = json.loads(m.group()) if m else []
+            all_subs = curriculum.SUBTOPICS[domain]
+            for x in parsed:
+                try:
+                    n = int(x)
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= n <= len(all_subs):
+                    subs.append(all_subs[n - 1])
+        except Exception as e:
+            log.warning(f"[Curriculum] project sub-topic mapping failed: {e}")
+    session["_project_subtopics"] = list(dict.fromkeys(subs))
+    log.info(f"[Curriculum] project sub-topics: {session['_project_subtopics']}")
+    return session["_project_subtopics"]
+
+
+def _pick_subtopic(session, prev_sessions, domain, only=None) -> str:
     """Target sub-topic for the next new question: not yet in this interview; fewest times
-    asked in earlier interviews (never-asked first); module least used in this interview;
-    a per-student, per-interview shuffle breaks ties."""
+    asked in earlier interviews (never-asked first); the module furthest below its weighted
+    share in this interview (curriculum.module_weights: big modules get more turns); a
+    per-student, per-interview shuffle breaks ties."""
     import random, hashlib
     before = {}
     for ps in prev_sessions:
@@ -2097,9 +2138,15 @@ def _pick_subtopic(session, prev_sessions, domain) -> str:
     seed = (int(hashlib.md5(user_key.encode()).hexdigest(), 16) + len(prev_sessions)) & 0xffffffff
     order = list(curriculum.SUBTOPICS[domain])
     random.Random(seed).shuffle(order)
+    weight = curriculum.module_weights(domain)
     cands = [(i, s) for i, s in enumerate(order) if s not in now] or list(enumerate(order))
-    return min(cands, key=lambda p: (before.get(p[1], 0),
-                                     mod_now.get(curriculum.module_of(p[1]), 0), p[0]))[1]
+    if only:   # project turn: only sub-topics the candidate's project involved (if any left)
+        cands = [p for p in cands if p[1] in only] or cands
+
+    def _key(p):
+        m = curriculum.module_of(p[1])
+        return (before.get(p[1], 0), round((mod_now.get(m, 0) + 1) / weight.get(m, 1.0), 6), p[0])
+    return min(cands, key=_key)[1]
 
 
 def _curriculum_block(domain) -> str:
@@ -2118,24 +2165,70 @@ def _curriculum_block(domain) -> str:
             "- BASIC questions are expected too, not only reasoning ones: for a BASIC target a "
             "direct fundamentals question is fine (e.g. 'What is X and why do we need it?'). "
             "This overrides the 'never a simple What is X' rule above for BASIC targets.\n"
+            "- Each turn's TARGET SUB-TOPIC gives the question's type, level, style and the lesson's "
+            "key points — follow it.\n"
+            "- Vary your wording. The sample lead-ins above ('Okay, tell me one thing —', 'Just walk "
+            "me through it') are examples only: use each at most once per interview.\n"
             "Modules and sub-topics:\n" + curriculum.render_curriculum(domain))
 
 
-def _target_directive(target: str, level: str, n_main: int) -> str:
-    """Per-turn TARGET SUB-TOPIC for the next new question, with its difficulty: the first
-    question is always BASIC; juniors alternate BASIC / INTERMEDIATE, others get BASIC on
-    every third new question."""
-    basic = n_main == 0 or (n_main % 2 == 0 if level in _JUNIOR_LEVELS else n_main % 3 == 0)
-    rung = ("BASIC — a short fundamentals question: what it is, why it is needed, or how it "
-            "works" if basic else
-            "INTERMEDIATE — needs reasoning: how or why, a trade-off, or what goes wrong")
-    return (f"\n\nTARGET SUB-TOPIC FOR YOUR NEXT NEW QUESTION: {target}.\nLevel: {rung}.\n"
-            "Ask it as the TYPE MIX needs: CONCEPT = a standalone question on this sub-topic that "
-            "does NOT mention the candidate's project; PROJECT = how this sub-topic came up in "
-            "their own project (only if one of their projects plausibly involved it, otherwise "
-            "ask a CONCEPT question); SCENARIO = a realistic symptom within this sub-topic they "
-            "must reason through. Stay inside this sub-topic, and do not repeat anything in "
-            "QUESTIONS ALREADY ASKED or CONCEPTS ALREADY COVERED.")
+# Question plan per new main question, repeating every 4: concept, concept, scenario, project
+# (one project turn in four; the curriculum block says most questions are standalone).
+_TYPE_CYCLE = ("CONCEPT", "CONCEPT", "SCENARIO", "PROJECT")
+_INTERMEDIATE_STYLES = (
+    "WHY — why it is done / why it matters, with the reasoning",
+    "WHAT-IF — what happens if it is missing, wrong or pushed too far",
+    "COMPARE — how it differs from a closely related idea and when you choose each",
+    "CHECK/FIX — how you would verify it or fix a problem in it")
+_BASIC_STYLES = ("what it is and why it is needed", "how it works, in simple words")
+# Persona sample phrases the model overused ("Okay, tell me one thing —" on every question).
+_STOCK_OPENERS = ("tell me one thing", "walk me through it", "walk me through", "can you explain")
+
+
+def _turn_type(n_main: int, project_fit: bool) -> str:
+    """Planned type of the next new main question (PROJECT only when a sub-topic of the
+    candidate's project is available; otherwise that turn is a CONCEPT)."""
+    t = _TYPE_CYCLE[n_main % 4]
+    return "CONCEPT" if t == "PROJECT" and not project_fit else t
+
+
+def _target_directive(session, target: str, level: str, n_main: int, qtype: str = "CONCEPT") -> str:
+    """Per-turn TARGET SUB-TOPIC for the next new question: its key points, the question TYPE
+    (concept, concept, scenario, project — repeating), its LEVEL and, for an intermediate concept,
+    a STYLE that rotates so questions don't all sound alike. First question: BASIC concept.
+    Juniors: both concept slots BASIC; other levels: the first BASIC, the second INTERMEDIATE."""
+    slot = n_main % 4
+    basic = qtype == "CONCEPT" and (slot == 0 or (slot == 1 and level in _JUNIOR_LEVELS))
+    if basic:
+        how = ("Level BASIC — one concept, answerable in 2-3 sentences by a fresher who attended "
+               f"this lesson; no trade-offs or multi-step reasoning. Ask {_BASIC_STYLES[(n_main // 4) % 2]}.")
+    elif qtype == "CONCEPT":
+        how = f"Level INTERMEDIATE. Style: {_INTERMEDIATE_STYLES[(n_main // 4) % len(_INTERMEDIATE_STYLES)]}."
+    else:
+        how = "Level INTERMEDIATE."
+    proj_names = ", ".join((p.get("name", "") if isinstance(p, dict) else str(p))
+                           for p in session.get("resume", {}).get("key_projects") or [])
+    kind = {
+        "CONCEPT": "Type CONCEPT — a standalone question on this sub-topic; do NOT mention the "
+                   "candidate's project.",
+        "SCENARIO": "Type SCENARIO — describe a realistic symptom or situation within this sub-topic "
+                    "and ask how they would debug or handle it (not a definition, not a 'difference "
+                    "between' question). Not another 'a script fails with an error' style scenario "
+                    "if one was already asked.",
+        "PROJECT": f"Type PROJECT — name their project ({proj_names}) and ask what they did on this "
+                   "sub-topic in it: a decision they made, a problem they hit, or how they checked it."}[qtype]
+    pts = curriculum.key_points(target) if curriculum is not None else []
+    pts_line = ("\nKey points of this lesson — test ONE of them (one not already in CONCEPTS ALREADY "
+                "COVERED): " + "; ".join(pts) + "." if pts else "")
+    asked_lower = " ".join((e.get("question") or "").lower() for e in session.get("conversation", [])
+                           if not e.get("is_greeting"))
+    used = [p for p in _STOCK_OPENERS if p in asked_lower]
+    phrasing = ("\nPhrasing: after a brief neutral acknowledgement, ask the question directly in "
+                "your own words." + (f" Already used, do NOT use again: {', '.join(repr(p) for p in used)}."
+                                     if used else " Use stock lead-ins like 'tell me one thing' at most once."))
+    return (f"\n\nTARGET SUB-TOPIC FOR YOUR NEXT NEW QUESTION: {target}.{pts_line}\n{kind}\n{how}"
+            f"{phrasing}\nThis plan overrides the TYPE MIX for this question. Stay inside this "
+            "sub-topic, and do not repeat anything in QUESTIONS ALREADY ASKED or CONCEPTS ALREADY COVERED.")
 
 
 def build_interview_prompt(session):
@@ -2569,9 +2662,14 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
     n_main = sum(1 for e in _conv if e.get("question") and not e.get("is_greeting")
                  and not e.get("is_followup") and not _is_pause_prompt(e["question"]))
     if _cur and not _followup_nudge_msg:
-        target = _pick_subtopic(session, prev_sessions, _cur)
+        proj_subs = []
+        if _TYPE_CYCLE[n_main % 4] == "PROJECT":
+            done = set(_subtopics_now(session))
+            proj_subs = [s for s in _project_subtopics(session, _cur) if s not in done]
+        qtype = _turn_type(n_main, bool(proj_subs))
+        target = _pick_subtopic(session, prev_sessions, _cur, only=proj_subs if qtype == "PROJECT" else None)
         session["_target_this_turn"] = target
-        ref_block = _target_directive(target, level, n_main)
+        ref_block = _target_directive(session, target, level, n_main, qtype)
     elif _cur and _followup_nudge_msg:
         # Forced follow-up: keep it inside the sub-topic of the question just asked (the model
         # used to drift to an unguided new topic here).

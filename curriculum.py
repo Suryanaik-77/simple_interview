@@ -386,18 +386,49 @@ CURRICULA = {
 LABELS = {"physical_design": "PHYSICAL DESIGN", "design_verification": "DESIGN VERIFICATION",
           "analog_layout": "ANALOG LAYOUT"}
 
-# Flat sub-topic ids per domain, in curriculum order
-SUBTOPICS = {d: [f"{m} / {t}" for m, topics in c for t in topics] for d, c in CURRICULA.items()}
+# Course lessons that are not interview material: never targeted, not in the prompt.
+EXCLUDED = {
+    "physical_design": {"VLSI Design / Topic1_VLSI_Industry"},
+    "analog_layout": {"CL Core / Topic11_VLSI Industry", "CL Core / Topic38_Questions_to_ Designer"},
+}
+
+# Flat sub-topic ids per domain, in curriculum order (excluded lessons left out)
+SUBTOPICS = {d: [s for s in (f"{m} / {t}" for m, topics in c for t in topics)
+                 if s not in EXCLUDED.get(d, set())]
+             for d, c in CURRICULA.items()}
+
+try:
+    from curriculum_points import POINTS
+except Exception:          # the interview still works without key points
+    POINTS = {}
 
 
 def module_of(subtopic: str) -> str:
     return subtopic.split(" / ", 1)[0]
 
 
+def module_weights(domain: str) -> dict:
+    """Share of questions per module: square root of its sub-topic count, so big modules
+    (PNR 44, SSTA 31) get more turns than one-lesson modules (RTL) without drowning them."""
+    counts = {}
+    for s in SUBTOPICS[domain]:
+        counts[module_of(s)] = counts.get(module_of(s), 0) + 1
+    return {m: n ** 0.5 for m, n in counts.items()}
+
+
+def key_points(subtopic: str) -> list:
+    return POINTS.get(subtopic, [])
+
+
 def render_curriculum(domain: str) -> str:
     """The curriculum as prompt text, one module per line (" | " between sub-topics,
     since some names contain commas)."""
-    return "\n".join(f"- {m}: " + " | ".join(topics) for m, topics in CURRICULA[domain])
+    lines, by_mod = [], {}
+    for s in SUBTOPICS[domain]:
+        by_mod.setdefault(module_of(s), []).append(s.split(" / ", 1)[1])
+    for m, topics in by_mod.items():
+        lines.append(f"- {m}: " + " | ".join(topics))
+    return "\n".join(lines)
 
 
 def numbered_subtopics(domain: str) -> str:
