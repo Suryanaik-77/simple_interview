@@ -392,6 +392,18 @@ EXCLUDED = {
     "analog_layout": {"CL Core / Topic11_VLSI Industry", "CL Core / Topic38_Questions_to_ Designer"},
 }
 
+# Background modules a candidate of this domain only needs at a basic level (a PD engineer knows
+# RTL and fabrication basics, not RTL debugging): questions on them are always BASIC concept
+# questions — never scenario, project or intermediate.
+BASIC_ONLY = {
+    "physical_design": {"RTL", "Fab"},
+}
+
+
+def is_basic_only(domain: str, subtopic: str) -> bool:
+    return subtopic.split(" / ", 1)[0] in BASIC_ONLY.get(domain, set())
+
+
 # Flat sub-topic ids per domain, in curriculum order (excluded lessons left out)
 SUBTOPICS = {d: [s for s in (f"{m} / {t}" for m, topics in c for t in topics)
                  if s not in EXCLUDED.get(d, set())]

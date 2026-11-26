@@ -2220,7 +2220,11 @@ def _target_directive(session, target: str, level: str, n_main: int, qtype: str 
     a STYLE that rotates so questions don't all sound alike. First question: BASIC concept.
     Juniors: both concept slots BASIC; other levels: the first BASIC, the second INTERMEDIATE."""
     slot = n_main % 4
-    basic = qtype == "CONCEPT" and (slot == 0 or (slot == 1 and level in _JUNIOR_LEVELS))
+    dom = _curriculum_domain(session)
+    basic_only = bool(dom) and curriculum.is_basic_only(dom, target)
+    if basic_only:   # background module for this domain (e.g. RTL / Fab for PD): basics only
+        qtype = "CONCEPT"
+    basic = basic_only or (qtype == "CONCEPT" and (slot == 0 or (slot == 1 and level in _JUNIOR_LEVELS)))
     if basic:
         how = ("Level BASIC — one concept, answerable in 2-3 sentences by a fresher who attended "
                f"this lesson; no trade-offs or multi-step reasoning. Ask {_BASIC_STYLES[(n_main // 4) % 2]}.")
@@ -2687,7 +2691,8 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
         proj_subs = []
         if _TYPE_CYCLE[n_main % 4] == "PROJECT":
             done = set(_subtopics_now(session))
-            proj_subs = [s for s in _project_subtopics(session, _cur) if s not in done]
+            proj_subs = [s for s in _project_subtopics(session, _cur)
+                         if s not in done and not curriculum.is_basic_only(_cur, s)]
         qtype = _turn_type(n_main, bool(proj_subs))
         target = _pick_subtopic(session, prev_sessions, _cur, only=proj_subs if qtype == "PROJECT" else None)
         session["_target_this_turn"] = target
@@ -2699,8 +2704,11 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
         ref_block = ("\n\nFOLLOW-UP TURN — your next question is a follow-up on the missed point of "
                      "your last question" + (f", inside its sub-topic {sub}" if sub else "") +
                      ". Do NOT open a new topic or a different sub-topic this turn.")
+        if sub and curriculum.is_basic_only(_cur, sub):
+            ref_block += (" This is a background topic for this role — keep the follow-up BASIC "
+                          "(a simple fundamentals point, no debugging or design trade-offs).")
 
-    steering = (asked_block + _concepts_block(session) + project_block + mix_reminder + open_steer
+    steering =(asked_block + _concepts_block(session) + project_block + mix_reminder + open_steer
                 + followup_guard + ramp_steer + ref_block).strip()
     if steering:
         messages.append({"role": "system", "content": steering})
@@ -3515,16 +3523,16 @@ SPECIAL CASE — INTRODUCTION QUESTION ("tell me about yourself", "introduce you
 The introduction question uses DIFFERENT criteria than technical questions. It tests LISTENING, COMMUNICATION, and COMPLETENESS:
 
 INTRODUCTION SCORING SCALE (0-10):
-- 8-10: Complete introduction (name, education with branch/year, experience/skills, current activity). Got interviewer's name RIGHT. Well-structured, professional.
-- 6-7: Covers most elements (name, education, some experience). Got interviewer's name right. May be slightly incomplete but shows effort.
-- 4-5: Basic introduction (name + education only) BUT got interviewer's name RIGHT. Missing experience/skills/current role.
-- 2-3: Very incomplete (only name or only education) OR got interviewer's name WRONG (major listening failure). Missing most expected elements.
-- 0-1: Barely answered, completely off-topic, or multiple critical failures (wrong name + incomplete).
+- 8-10: Complete introduction (name, education with branch/year, experience/internships/projects, skills/interests). Well-structured, professional.
+- 6-7: Covers most elements (name, education, some experience or skills). May be slightly incomplete but shows effort.
+- 4-5: Basic introduction (name + education only). Missing experience/skills.
+- 2-3: Very incomplete (only name or only education). Missing most expected elements.
+- 0-1: Barely answered or completely off-topic.
 
 CRITICAL for introductions:
-- Getting the interviewer's name WRONG is a MAJOR penalty (cap score at 3/10 maximum, even if other content is good)
-- Missing what they've been doing since graduation (if years have passed) is a significant gap
-- Expected elements: name, education (branch + year), experience/internships, skills/interests, current role/activity
+- Expected elements: name, education (branch + year), experience/internships/projects, skills/interests.
+- Do NOT reduce the score for how the candidate says or spells the interviewer's name, or for not using it at all. The transcript comes from speech-to-text and often garbles names ("Sia" may appear as "Siya", "See ya", etc.).
+- Do NOT reduce the score if the candidate does not mention their current employment status, current role, or what they have been doing since graduation.
 
 TECHNICAL QUESTIONS - PER-QUESTION SCORING SCALE (enforce these thresholds):
 - 9-10: Deep understanding with specifics (numbers, decisions, debugging steps, tool commands, causal reasoning). Goes beyond textbook.
