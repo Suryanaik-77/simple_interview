@@ -1343,6 +1343,20 @@ def _is_repeat_request(text: str) -> bool:
     return False
 
 
+_DONT_KNOW_RE = re.compile(
+    r"\b(i\s*(do\s*not|don'?t|dont)\s*know|no\s*idea|(i'?m|i\s*am)\s*not\s*sure|not\s*sure|"
+    r"(i\s*)?(do\s*not|don'?t|dont)\s*(remember|recall)|(i\s*)?(have\s*not|haven'?t)\s*(learned|studied|done)|"
+    r"(i\s*)?(can'?t|cannot)\s*(answer|recall|remember)|(i'?m|i\s*am)\s*not\s*aware|skip(\s*this)?)\b", re.I)
+
+
+def _is_dont_know(answer: str) -> bool:
+    """True for an honest "I don't know" answer ("I don't know the answer", "No idea, sir",
+    "I'm not sure about that one"): a don't-know phrase in a SHORT answer. A longer attempt
+    ("I'm not sure, but I think skew is …") is a real answer and keeps the follow-up logic."""
+    a = (answer or "").strip()
+    return bool(a) and len(a.split()) <= 12 and bool(_DONT_KNOW_RE.search(a))
+
+
 def _is_short_ack(segment: str) -> bool:
     """A short leading acknowledgement ("Okay.", "Got it.", "Let's switch tracks.") — no
     question in it, so it can be spoken before the repeat check on the question."""
@@ -2526,7 +2540,11 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
     # NOTE: The actual nudge message is appended AFTER the steering block below,
     # so it's the last thing the LLM sees and cannot be overridden by other instructions.
     _followup_nudge_msg = None
-    if history and not (history[-1] or {}).get("is_followup"):
+    # An honest "I don't know" gets no follow-up: the next question is a new one.
+    _last_dont_know = bool(history) and _is_dont_know((history[-1] or {}).get("answer", ""))
+    if _last_dont_know:
+        log.info("[FollowupNudge] Skipped — the candidate said they don't know")
+    if history and not (history[-1] or {}).get("is_followup") and not _last_dont_know:
         last_entry = history[-1]
         last_answer = (last_entry.get("answer") or "").strip()
         last_question = (last_entry.get("question") or "").strip()
@@ -2673,6 +2691,9 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
     if _conv and _conv[-1].get("is_followup"):
         followup_guard = ("\n\nYOU JUST ASKED A FOLLOW-UP — do NOT follow up again. Move to a "
                           "NEW topic now with an untagged question.")
+    if _last_dont_know:
+        followup_guard += ("\n\nTHE CANDIDATE SAID THEY DON'T KNOW — do NOT ask a follow-up, a hint, or a "
+                           "reworded version of that question. Briefly acknowledge and ask the next NEW question.")
     # ── Difficulty ramp ──────────────────────────────────────────────────
     # DISABLED: Keep questions at consistent difficulty for the candidate's level
     # Do NOT progressively make questions harder during the interview
