@@ -2025,6 +2025,28 @@ except Exception as _cur_e:
     log.warning(f"[Curriculum] curriculum.py unavailable ({_cur_e}) — interviews fall back to the JD scope")
 
 
+# Trainer review of the key points (Admin → Curriculum), stored in app_config as
+# {"<sub-topic id>": {points, status, note, updated_by, updated_at}} — only edited sub-topics;
+# the rest use the draft points in curriculum_points.py. Cached for 60 s.
+CURRICULUM_REVIEW_KEY = "curriculum_review"
+CURRICULUM_REVIEW_STATUSES = ("draft", "approved", "needs_change")
+_curriculum_review_cache = {"data": {}, "at": 0.0}
+
+
+def _curriculum_review(force: bool = False) -> dict:
+    if force or time.time() - _curriculum_review_cache["at"] > 60:
+        data = database.get_app_config(CURRICULUM_REVIEW_KEY)
+        _curriculum_review_cache.update(data=data if isinstance(data, dict) else {}, at=time.time())
+    return _curriculum_review_cache["data"]
+
+
+def _key_points(subtopic: str) -> list:
+    """Key points the interviewer tests for a sub-topic: the trainer-edited ones if saved,
+    else the draft from curriculum_points.py."""
+    entry = _curriculum_review().get(subtopic) or {}
+    return entry.get("points") or (curriculum.key_points(subtopic) if curriculum is not None else [])
+
+
 def _curriculum_domain(session) -> str:
     """The session's domain if it has a curriculum, else ''."""
     d = session.get("resume", {}).get("domain", "physical_design")
@@ -2217,7 +2239,7 @@ def _target_directive(session, target: str, level: str, n_main: int, qtype: str 
                     "if one was already asked.",
         "PROJECT": f"Type PROJECT — name their project ({proj_names}) and ask what they did on this "
                    "sub-topic in it: a decision they made, a problem they hit, or how they checked it."}[qtype]
-    pts = curriculum.key_points(target) if curriculum is not None else []
+    pts = _key_points(target)
     pts_line = ("\nKey points of this lesson — test ONE of them (one not already in CONCEPTS ALREADY "
                 "COVERED): " + "; ".join(pts) + "." if pts else "")
     asked_lower = " ".join((e.get("question") or "").lower() for e in session.get("conversation", [])
@@ -6877,6 +6899,74 @@ async def save_interview_settings(data: dict, _=Depends(require_admin)):
     _persist_runtime_config()
     log.info(f"[Admin] Interview settings updated: {updates}")
     return {"ok": True, "settings": {k: _setting(k) for k in INTERVIEW_SETTINGS}}
+
+
+# ── Curriculum key points (Admin → Curriculum) ─────────────────────────────────────
+@app.get("/api/admin/curriculum")
+async def admin_curriculum(_=Depends(require_admin)):
+    """Every domain's active sub-topics with their key points: the trainer-edited version if
+    saved (with status / note / who / when), else the draft from curriculum_points.py."""
+    if curriculum is None:
+        raise HTTPException(503, "Curriculum unavailable")
+    review = _curriculum_review(force=True)
+    domains = []
+    for dom in curriculum.CURRICULA:
+        modules = {}
+        for sid in curriculum.SUBTOPICS[dom]:
+            e = review.get(sid) or {}
+            modules.setdefault(curriculum.module_of(sid), []).append({
+                "id": sid, "name": sid.split(" / ", 1)[1],
+                "points": e.get("points") or curriculum.key_points(sid),
+                "draft_points": curriculum.key_points(sid),
+                "status": e.get("status", "draft"), "note": e.get("note", ""),
+                "edited": bool(e.get("points")) and e.get("points") != curriculum.key_points(sid),
+                "updated_by": e.get("updated_by", ""), "updated_at": e.get("updated_at", "")})
+        domains.append({"domain": dom, "label": curriculum.LABELS.get(dom, dom),
+                        "modules": [{"module": m, "subtopics": s} for m, s in modules.items()]})
+    return {"domains": domains, "statuses": list(CURRICULUM_REVIEW_STATUSES)}
+
+
+@app.post("/api/admin/curriculum/points")
+async def admin_curriculum_save(data: dict, user=Depends(require_admin)):
+    """Save one sub-topic's key points + review status + note. Body: {subtopic, points: [str],
+    status: draft|approved|needs_change, note}. Interviews use the new points within 60 s."""
+    if curriculum is None:
+        raise HTTPException(503, "Curriculum unavailable")
+    sid = str(data.get("subtopic", ""))
+    if not any(sid in subs for subs in curriculum.SUBTOPICS.values()):
+        raise HTTPException(400, "Unknown sub-topic")
+    points = data.get("points")
+    if not isinstance(points, list):
+        raise HTTPException(400, "points must be a list")
+    points = [re.sub(r"\s+", " ", str(p)).strip() for p in points]
+    points = [p for p in points if p]
+    if not 1 <= len(points) <= 8 or any(len(p) > 200 for p in points):
+        raise HTTPException(400, "Give 1 to 8 key points, each at most 200 characters")
+    status = data.get("status", "draft")
+    if status not in CURRICULUM_REVIEW_STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(CURRICULUM_REVIEW_STATUSES)}")
+    note = str(data.get("note", "")).strip()[:500]
+    entry = {"points": points, "status": status, "note": note,
+             "updated_by": (user or {}).get("sub", "admin"),
+             "updated_at": datetime.now(tz=timezone.utc).isoformat(timespec="seconds")}
+    if not database.set_app_config_entry(CURRICULUM_REVIEW_KEY, sid, entry):
+        raise HTTPException(500, "Could not save")
+    _curriculum_review(force=True)
+    log.info(f"[Curriculum] {entry['updated_by']} saved {sid} ({status}, {len(points)} points)")
+    return {"ok": True, "entry": entry}
+
+
+@app.post("/api/admin/curriculum/reset")
+async def admin_curriculum_reset(data: dict, user=Depends(require_admin)):
+    """Drop a sub-topic's saved review: it goes back to the draft points and 'draft' status."""
+    sid = str(data.get("subtopic", ""))
+    if curriculum is None or not any(sid in subs for subs in curriculum.SUBTOPICS.values()):
+        raise HTTPException(400, "Unknown sub-topic")
+    if not database.delete_app_config_entry(CURRICULUM_REVIEW_KEY, sid):
+        raise HTTPException(500, "Could not reset")
+    _curriculum_review(force=True)
+    log.info(f"[Curriculum] {(user or {}).get('sub', 'admin')} reset {sid} to the draft")
+    return {"ok": True, "points": curriculum.key_points(sid)}
 
 
 def _interview_quota_row(email):

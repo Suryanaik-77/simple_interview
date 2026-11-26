@@ -340,6 +340,10 @@ textarea::placeholder{color:var(--t4)}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
       Interview Settings
     </div>
+    <div class="sb-lnk" id="nav-curriculum" onclick="showSection('curriculum',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      Curriculum
+    </div>
     <div class="sb-lnk" id="nav-llmconfig" onclick="showSection('llmconfig',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       LLM Config
@@ -957,6 +961,13 @@ textarea::placeholder{color:var(--t4)}
     </div>
   </div>
 
+  <!-- ── CURRICULUM (key points per sub-topic; script: /static/admin_curriculum.js) ── -->
+  <div class="section" id="sec-curriculum">
+    <div style="max-width:980px;margin:0 auto;padding:20px 0" id="cur-root">
+      <div style="font-size:12px;color:var(--t3)">Loading…</div>
+    </div>
+  </div>
+
   <!-- ── LLM CONFIG ── -->
   <div class="section" id="sec-llmconfig">
     <div style="max-width:640px;margin:0 auto;padding:20px 0">
@@ -1266,7 +1277,7 @@ document.getElementById('ln-pass').addEventListener('keydown', e => { if(e.key==
 // ════════════════════════════════════════════════════════
 // NAVIGATION
 // ════════════════════════════════════════════════════════
-const SECTION_TITLES = { sessions:'Sessions', anticheat:'Anti-Cheat Monitor', observability:'Observability', review:'Expert Review', llmconfig:'LLM Configuration', acconfig:'Anti-Cheat Configuration', playground:'Prompt Playground', voiceconfig:'Voice Configuration', credits:'User Credits', interviewsettings:'Interview Settings' };
+const SECTION_TITLES = { sessions:'Sessions', anticheat:'Anti-Cheat Monitor', observability:'Observability', review:'Expert Review', llmconfig:'LLM Configuration', acconfig:'Anti-Cheat Configuration', playground:'Prompt Playground', voiceconfig:'Voice Configuration', credits:'User Credits', interviewsettings:'Interview Settings', curriculum:'Curriculum' };
 
 function showSection(id, el) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('on'));
@@ -1283,6 +1294,7 @@ function showSection(id, el) {
   if (id === 'voiceconfig') { onProviderChange(); loadVoiceLibrary(); loadTtsStatus(); loadSttConfig(); }
   if (id === 'credits')    loadCredits();
   if (id === 'interviewsettings') loadInterviewSettings();
+  if (id === 'curriculum') loadCurriculum();
 }
 
 const IS_KEYS = ['session_minutes', 'max_interviews_per_user', 'pass_percentage'];
@@ -3674,5 +3686,6 @@ async function setQuotaLimit(email, currentLimit) {
 }
 
 </script>
+<script src="/static/admin_curriculum.js?v=1"></script>
 </body>
 </html>

@@ -553,6 +553,46 @@ def save_app_config(key, value):
         return False
 
 
+def set_app_config_entry(key, entry_key, value):
+    """Set ONE entry inside a JSON-object config value (insert the config row if missing).
+    Atomic per entry, so two admins saving different entries never overwrite each other."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO app_config (config_key, config_value, updated_at)
+                    VALUES (%s, jsonb_build_object(%s::text, %s::jsonb), NOW())
+                    ON CONFLICT (config_key) DO UPDATE SET
+                        config_value = COALESCE(app_config.config_value, '{}'::jsonb)
+                                       || jsonb_build_object(%s::text, %s::jsonb),
+                        updated_at = NOW()
+                """, (key, entry_key, json.dumps(value), entry_key, json.dumps(value)))
+                conn.commit()
+                return True
+    except Exception as e:
+        log.error(f"[DB] set_app_config_entry({key}) failed: {e}")
+        return False
+
+
+def delete_app_config_entry(key, entry_key):
+    """Remove ONE entry from a JSON-object config value."""
+    if not _db_available:
+        return False
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE app_config SET config_value = config_value - %s::text, updated_at = NOW()
+                               WHERE config_key = %s""", (entry_key, key))
+                conn.commit()
+                return True
+    except Exception as e:
+        log.error(f"[DB] delete_app_config_entry({key}) failed: {e}")
+        return False
+
+
 def save_session_evaluation(session_id, evaluation):
     """Merge the end-of-interview evaluation into the session blob via jsonb_set.
     The evaluation runs in a background thread, so it targets ONLY the top-level
