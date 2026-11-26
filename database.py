@@ -289,7 +289,8 @@ def update_session_ai_detection(session_id, turn_index, detection):
         return False
 
 
-def update_session_question_tags(session_id, turn_index, is_followup, is_scenario, qtype, concept=""):
+def update_session_question_tags(session_id, turn_index, is_followup, is_scenario, qtype, concept="",
+                                 subtopic=""):
     """Atomically write tag-classifier results onto a single conversation turn.
     Uses jsonb_set so it never races with the foreground turn handler."""
     if not _db_available:
@@ -303,11 +304,13 @@ def update_session_question_tags(session_id, turn_index, is_followup, is_scenari
                     UPDATE active_sessions
                     SET session_data = jsonb_set(
                         jsonb_set(
+                        jsonb_set(
                             jsonb_set(
                                 jsonb_set(session_data,
                                     %s::text[], %s::jsonb, true),
                                 %s::text[], %s::jsonb, true),
                             %s::text[], %s::jsonb, true),
+                        %s::text[], %s::jsonb, true),
                         %s::text[], %s::jsonb, true),
                         updated_at = NOW()
                     WHERE session_id = %s
@@ -316,6 +319,7 @@ def update_session_question_tags(session_id, turn_index, is_followup, is_scenari
                     ["conversation", str(turn_index), "is_scenario"], json.dumps(is_scenario),
                     ["conversation", str(turn_index), "qtype"], json.dumps(qtype),
                     ["conversation", str(turn_index), "concept"], json.dumps(concept or ""),
+                    ["conversation", str(turn_index), "subtopic"], json.dumps(subtopic or ""),
                     session_id,
                 ))
                 conn.commit()
@@ -620,9 +624,9 @@ def save_candidate_history(email, session_id, session_summary):
         return False
 
 
-def update_candidate_history_concepts(session_id, concepts):
-    """Store the concepts of an earlier interview's questions in its history summary
-    (filled once for interviews saved before concept tagging existed)."""
+def update_candidate_history_key(session_id, key, value):
+    """Set one key of an earlier interview's history summary (used to fill concepts_asked /
+    subtopics_asked once for interviews saved before that tagging existed)."""
     if not _db_available:
         return False
     try:
@@ -630,12 +634,12 @@ def update_candidate_history_concepts(session_id, concepts):
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""UPDATE candidate_history
-                               SET session_summary = session_summary || jsonb_build_object('concepts_asked', %s::jsonb)
-                               WHERE session_id = %s""", (json.dumps(concepts), session_id))
+                               SET session_summary = session_summary || jsonb_build_object(%s::text, %s::jsonb)
+                               WHERE session_id = %s""", (key, json.dumps(value), session_id))
                 conn.commit()
                 return True
     except Exception as e:
-        log.error(f"[DB] update_candidate_history_concepts failed: {e}")
+        log.error(f"[DB] update_candidate_history_key({key}) failed: {e}")
         return False
 
 

@@ -443,9 +443,11 @@ def save_candidate_session(session):
         "answered": _count_answered(session),
         "topics_asked": topics_asked,
         "questions_asked": [e.get("question", "") for e in session.get("conversation", []) if e.get("question")],
-        "bank_refs": session.get("bank_refs", []),   # curated questions already offered (see _pick_reference_question)
         # specific concept of each question (tag classifier), for cross-interview topic memory
         "concepts_asked": list(dict.fromkeys(c for c in (e.get("concept") for e in session.get("conversation", [])) if c)),
+        # curriculum sub-topics covered (tagger labels; the targets given if none were tagged)
+        "subtopics_asked": list(dict.fromkeys(s for s in (e.get("subtopic") for e in session.get("conversation", [])) if s))
+                           or list(session.get("subtopic_targets", [])),
         "projects": session.get("resume", {}).get("key_projects", []),
         "skills": session.get("resume", {}).get("skills", []),
         "tools": session.get("resume", {}).get("tools", []),
@@ -606,32 +608,63 @@ def _fill_missing_concepts(email: str, current_session_id: str = ""):
         if key in _concept_fill_running:      # a start retry while the fill is still running
             return
         _concept_fill_running.add(key)
+    def _ask_list(prompt):
+        raw, _ = call_llm([{"role": "user", "content": prompt}],
+                          model_id="gpt-4o-mini", temperature=0, max_tokens=600)
+        parsed = safe_json(raw)
+        if not isinstance(parsed, list):
+            m = re.search(r"\[.*\]", raw or "", re.DOTALL)
+            try:
+                parsed = json.loads(m.group()) if m else None
+            except ValueError:
+                parsed = None
+        return parsed if isinstance(parsed, list) else []
+
     try:
         for ps in _answered_previous(email):
             sid = ps.get("session_id")
-            if not sid or sid == current_session_id or "concepts_asked" in ps:
+            if not sid or sid == current_session_id:
+                continue
+            need_concepts = "concepts_asked" not in ps
+            # Earlier interviews of a domain with a curriculum: map their questions to its sub-topics.
+            ps_domain = ps.get("domain") or "physical_design"
+            need_subtopics = (curriculum is not None and "subtopics_asked" not in ps
+                              and ps_domain in curriculum.CURRICULA)
+            if not (need_concepts or need_subtopics):
                 continue
             qs = [q for q in ps.get("questions_asked", [])
                   if q and len(q) >= 15 and not q.strip().lower().startswith(_SKIP_QUESTION_PREFIXES)]
-            concepts = []
-            if qs:
-                raw, _ = call_llm([{"role": "user", "content":
-                    "For each interview question below, give the specific technical concept it tests, "
-                    "1-4 words, lowercase (e.g. 'electromigration', 'clock gating', 'setup vs hold', "
-                    "'congestion debug'), not a broad area. Return ONLY a JSON list of strings, one per "
-                    "question, same order.\n\n" + "\n".join(f"{i + 1}. {q}" for i, q in enumerate(qs))}],
-                    model_id="gpt-4o-mini", temperature=0, max_tokens=600)
-                parsed = safe_json(raw)
-                if not isinstance(parsed, list):
-                    m = re.search(r"\[.*\]", raw or "", re.DOTALL)
-                    try:
-                        parsed = json.loads(m.group()) if m else None
-                    except ValueError:
-                        parsed = None
-                if isinstance(parsed, list):
+            numbered = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(qs))
+            if need_concepts:
+                concepts = []
+                if qs:
+                    parsed = _ask_list(
+                        "For each interview question below, give the specific technical concept it tests, "
+                        "1-4 words, lowercase (e.g. 'electromigration', 'clock gating', 'setup vs hold', "
+                        "'congestion debug'), not a broad area. Return ONLY a JSON list of strings, one per "
+                        "question, same order.\n\n" + numbered)
                     concepts = list(dict.fromkeys(c for c in (_norm_concept(x) for x in parsed) if c))
-            database.update_candidate_history_concepts(sid, concepts)
-            log.info(f"[Concepts] filled {len(concepts)} concepts for earlier interview {sid[:8]} ({email})")
+                database.update_candidate_history_key(sid, "concepts_asked", concepts)
+                log.info(f"[Concepts] filled {len(concepts)} concepts for earlier interview {sid[:8]} ({email})")
+            if need_subtopics:
+                subs = []
+                if qs:
+                    parsed = _ask_list(
+                        "Map each interview question below to the closest sub-topic of this "
+                        "curriculum. Return ONLY a JSON list of sub-topic NUMBERS, one per "
+                        "question, same order.\n\nCURRICULUM:\n" + curriculum.numbered_subtopics(ps_domain)
+                        + "\n\nQUESTIONS:\n" + numbered)
+                    all_subs = curriculum.SUBTOPICS[ps_domain]
+                    for x in parsed:
+                        try:
+                            n = int(x)
+                        except (TypeError, ValueError):
+                            continue
+                        if 1 <= n <= len(all_subs):
+                            subs.append(all_subs[n - 1])
+                    subs = list(dict.fromkeys(subs))
+                database.update_candidate_history_key(sid, "subtopics_asked", subs)
+                log.info(f"[Curriculum] filled {len(subs)} sub-topics for earlier interview {sid[:8]} ({email})")
     except Exception as e:
         log.warning(f"[Concepts] fill failed for {email}: {e}")
     finally:
@@ -1310,6 +1343,13 @@ def _is_repeat_request(text: str) -> bool:
     return False
 
 
+def _is_short_ack(segment: str) -> bool:
+    """A short leading acknowledgement ("Okay.", "Got it.", "Let's switch tracks.") — no
+    question in it, so it can be spoken before the repeat check on the question."""
+    s = segment.strip()
+    return bool(s) and "?" not in s and len(s.split()) <= 4
+
+
 def _is_pause_prompt(text: str) -> bool:
     """True if the LLM output is a 'Take your time' / 'Go ahead' style pause prompt.
     These don't count as new questions — the candidate's next answer must attach
@@ -1875,22 +1915,47 @@ def classify_question_tags(session, question: str):
         "'uvm factory'), not a broad area like 'timing' or 'physical design'.\n"
         "followup=true if the NEW question stays on the SAME topic/thread — drilling the "
         "previous answer, asking for a missing detail, or reacting to something they just "
-        "said; false if it opens a NEW topic.\n"
+        "said; false if it opens a NEW topic. A different concept in the same broad area "
+        "(e.g. synthesis after a question on place-and-route outputs) is a NEW topic, not a follow-up.\n"
         "scenario=true if the NEW question is a hypothetical symptom / what-if the candidate "
         "did NOT already describe and must reason through.\n"
         "type=PROJECT if it is about their own work/projects; CONCEPT if it is a clean "
         "standalone fundamentals question; SCENARIO if it is a hypothetical.")
+    cur = _curriculum_domain(session)
+    entry_now = conv[idx]
+    if cur:
+        system_msg += ('\nAlso return "subtopic": the NUMBER of the curriculum sub-topic the NEW '
+                       "question is about (the closest one), from this list:\n"
+                       + curriculum.numbered_subtopics(cur))
+    # What the interviewer was told to do for this question — a strong hint for both labels.
+    hint = ""
+    if entry_now.get("followup_requested"):
+        hint = ("\nINTERVIEWER INSTRUCTION for the NEW question: ask a follow-up on a point the "
+                "candidate missed in the previous answer.")
+    elif entry_now.get("target_subtopic"):
+        tgt = entry_now["target_subtopic"]
+        num = (curriculum.SUBTOPICS[cur].index(tgt) + 1) if cur and tgt in curriculum.SUBTOPICS[cur] else ""
+        hint = (f"\nINTERVIEWER INSTRUCTION for the NEW question: ask a NEW question on sub-topic "
+                f"{num}. {tgt}. Use that number only if the NEW question is really about it; "
+                "otherwise return the sub-topic it is actually about.")
     user_msg = (f"PREVIOUS question: {prev_q or '(none — first question)'}\n"
                 f"Candidate ANSWER: {prev_a or '(none)'}\n"
-                f"NEW question: {question}")
+                f"NEW question: {question}{hint}")
     try:
         t0 = time.time()
         raw, usage = call_llm([{"role": "system", "content": system_msg},
                                {"role": "user", "content": user_msg}],
-                              temperature=0.0, max_tokens=90)
+                              temperature=0.0, max_tokens=110)
         ms = round((time.time() - t0) * 1000)
         data = safe_json(raw) or {}
         concept = _norm_concept(data.get("concept"))
+        subtopic = ""
+        if cur:
+            try:
+                n, subs = int(str(data.get("subtopic", "")).strip().rstrip(".")), curriculum.SUBTOPICS[cur]
+                subtopic = subs[n - 1] if 1 <= n <= len(subs) else ""
+            except ValueError:
+                subtopic = ""
         is_followup = bool(data.get("followup"))
         is_scenario = bool(data.get("scenario"))
         qtype = str(data.get("type", "")).upper()
@@ -1905,6 +1970,11 @@ def classify_question_tags(session, question: str):
         # Never chain two follow-ups in a row (deterministic backstop).
         if is_followup and prev_was_followup:
             is_followup = False
+        # A follow-up belongs to its main question's sub-topic (the tagger often picks a
+        # neighbouring one for a follow-up, e.g. DIBL after a Vt-scaling question).
+        prev_sub = (prev or {}).get("subtopic") or (prev or {}).get("target_subtopic")
+        if is_followup and prev_sub:
+            subtopic = prev_sub
         entry = conv[idx]
         obs = _obs_entry("LLM_tag_classify", RUNTIME_CONFIG["qgen_model"], ms, "success",
                          input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
@@ -1913,49 +1983,25 @@ def classify_question_tags(session, question: str):
         entry["is_scenario"] = is_scenario
         entry["qtype"] = qtype
         entry["concept"] = concept
+        if subtopic:
+            entry["subtopic"] = subtopic
         # Atomic DB patches — avoid full read-modify-write race with the session blob.
         # Persist the cost as an array-append (not an in-memory append a later full-save
         # would double-count), then invalidate the stale cache so the next read
         # repopulates from Postgres — which now holds these patches.
-        database.update_session_question_tags(session["id"], idx, is_followup, is_scenario, qtype, concept)
+        database.update_session_question_tags(session["id"], idx, is_followup, is_scenario, qtype, concept,
+                                              subtopic)
         database.append_session_obs_log(session["id"], obs)
         redis_cache.delete_session(session["id"])
-        log.info(f"[TagClassify] {ms}ms followup={is_followup} scenario={is_scenario} type={qtype} concept={concept!r}")
+        log.info(f"[TagClassify] {ms}ms followup={is_followup} scenario={is_scenario} type={qtype} "
+                 f"concept={concept!r} subtopic={subtopic!r}")
     except Exception as e:
         log.error(f"[TagClassify] Failed: {e}")
 
 
 
-# ── Curated question bank (from seed_question_bank.py) ─────────────────────────────
-# Research on LLM interviewers is clear: a curated question set calibrates an
-# interview better than turning the model loose to invent probes (which tunnels
-# and skips the easy/medium rungs). We already ship one — seed_question_bank —
-# but it was only used to seed the DB, never fed to the live interviewer. Load it
-# once, grouped by domain -> difficulty, so we can hand the LLM real, level-
-# appropriate CONCEPT questions to open easy and calibrate against.
-def _load_question_bank():
-    try:
-        from seed_question_bank import QUESTIONS
-    except Exception as e:
-        log.warning(f"[Bank] seed_question_bank unavailable: {e}")
-        return {}
-    bank = {}
-    for q in QUESTIONS:
-        d, diff, txt = q.get("domain"), q.get("difficulty"), q.get("question_text")
-        if d and diff and txt:
-            # topic + expected points let an "angle" reference be passed WITHOUT the
-            # question text (the model copied the text even when told to change the angle).
-            bank.setdefault(d, {}).setdefault(diff, []).append(
-                {"q": txt, "topic": q.get("topic", ""), "points": list(q.get("expected_points") or []),
-                 "diff": diff})
-    n = sum(len(v) for t in bank.values() for v in t.values())
-    log.info(f"[Bank] loaded {n} curated questions across {len(bank)} domains")
-    return bank
-
-QUESTION_BANK = _load_question_bank()
-
-# Per-domain job descriptions — these scope the interview (concept/scenario
-# topics come from the role's JD, not the candidate's self-listed skills).
+# Per-domain job descriptions. Used only for a domain with no curriculum in curriculum.py
+# (every current domain has one, so the curriculum is the interview scope).
 try:
     from job_descriptions import render_job_description
 except Exception as _jd_e:  # keep the app running even if the JD file is missing
@@ -1967,111 +2013,129 @@ except Exception as _jd_e:  # keep the app running even if the JD file is missin
 _JUNIOR_LEVELS = ("fresh_graduate", "trained_fresher", "experienced_junior")
 
 
-def _bank_pool(domain, level, session):
-    """Curated bank questions for this domain/level, in a stable per-student order (easier tier first)."""
-    import random, hashlib
-    tiers = QUESTION_BANK.get(domain, {})
-    names = ("basic", "intermediate") if level in _JUNIOR_LEVELS else ("intermediate", "advanced")
-    user_key = (session.get("resume", {}).get("email") or str(session.get("id", ""))).strip().lower()
-    seed = int(hashlib.md5(user_key.encode()).hexdigest(), 16) & 0xffffffff
-    pool = []
-    for i, name in enumerate(names):
-        tier = list(tiers.get(name, []))
-        random.Random(seed + i).shuffle(tier)
-        pool += tier
-    return pool, seed
+# ── Curriculum (replaces the question bank) ─────────────────────────────────────────
+# Every question must be on a module / sub-topic of the domain's curriculum (curriculum.py).
+# Each new main question gets one TARGET sub-topic, picked by the server: sub-topics this
+# student has never been asked come first, rotating across modules. Each question is tagged
+# with its sub-topic (classify_question_tags) and saved as subtopics_asked in the history.
+try:
+    import curriculum
+except Exception as _cur_e:
+    curriculum = None
+    log.warning(f"[Curriculum] curriculum.py unavailable ({_cur_e}) — interviews fall back to the JD scope")
 
 
-def _pick_reference_question(session, prev_sessions, asked_this_session, prev_questions):
-    """Choose the curated bank question the next NEW topic should be based on.
-
-    Replaces the old fixed exemplar list (7 easy + 5 medium per interview): with only 20
-    easy Physical Design questions the slices repeated from the 3rd interview, and the
-    model asked them word for word. Now the server picks ONE reference per turn:
-      - never one already used for this student (bank_refs in earlier interviews and this
-        one), nor one whose concept was already asked (similarity check);
-      - mode "direct" (ask it, may reword) or "angle" (same concept, different angle),
-        alternating so not every question sounds like the bank;
-      - when every bank question has been used, the least-used one comes back, always
-        as "angle" and never in the same interview twice.
-    Returns (bank item {q, topic, points}, mode, reused) or None."""
-    import random
-    resume = session.get("resume", {})
-    pool, seed = _bank_pool(resume.get("domain", "physical_design"),
-                            resume.get("level", "trained_fresher"), session)
-    if not pool:
-        return None
-    used_now = set(session.get("bank_refs", []))
-    use_count = {}
-    for ps in prev_sessions:
-        for q in ps.get("bank_refs", []):
-            use_count[q] = use_count.get(q, 0) + 1
-    asked_all = list(asked_this_session) + list(prev_questions)
-    # Topic rotation: the shuffle ignores topics, so two references in a row could both be
-    # CTS while ECO never came up. Within the easier tier first (basic before intermediate
-    # for juniors), prefer the topic used least in THIS interview, then the one used least
-    # in earlier interviews; the shuffled order breaks ties.
-    tier_rank = {}
-    for it in pool:
-        tier_rank.setdefault(it.get("diff"), len(tier_rank))
-    topic_of = {it["q"]: it.get("topic", "") for it in pool}
-    topics_now, topics_before = {}, {}
-    for q in used_now:
-        t = topic_of.get(q, "")
-        topics_now[t] = topics_now.get(t, 0) + 1
-    for q, n in use_count.items():
-        t = topic_of.get(q, "")
-        topics_before[t] = topics_before.get(t, 0) + n
-    eligible = [(i, it) for i, it in enumerate(pool)
-                if it["q"] not in used_now and it["q"] not in use_count
-                and not _question_too_similar(_ref_core(it["q"]), asked_all, overlap=0.5)]
-    fresh = min(eligible, key=lambda p: (tier_rank.get(p[1].get("diff"), 0),
-                                         topics_now.get(p[1].get("topic", ""), 0),
-                                         topics_before.get(p[1].get("topic", ""), 0), p[0]),
-                default=(None, None))[1]
-    rng = random.Random(seed + len(prev_sessions) * 101 + len(used_now))
-    if fresh:
-        return fresh, ("direct" if rng.random() < 0.5 else "angle"), False
-    # Bank exhausted for this student: bring back the least-used concept, from a new angle.
-    again = sorted((it for it in pool if it["q"] not in used_now), key=lambda it: use_count.get(it["q"], 0))
-    again = next((it for it in again
-                  if not _question_too_similar(_ref_core(it["q"]), asked_this_session, overlap=0.5)), None)
-    return (again, "angle", True) if again else None
+def _curriculum_domain(session) -> str:
+    """The session's domain if it has a curriculum, else ''."""
+    d = session.get("resume", {}).get("domain", "physical_design")
+    return d if curriculum is not None and d in curriculum.CURRICULA else ""
 
 
 def _commit_reference(session):
-    """The turn's question has been asked: count the offered reference as used, so neither
-    this interview nor later ones offer it again (saved to history as bank_refs)."""
-    ref = session.pop("_ref_this_turn", None)
-    if ref and ref not in session.setdefault("bank_refs", []):
-        session["bank_refs"].append(ref)
+    """The turn's question has been asked: record the offered curriculum target, so neither
+    this interview nor (via subtopics_asked) later ones target it again first. Returns the
+    target (or None) so it can be stored on the new conversation entry as a tagger hint."""
+    target = session.pop("_target_this_turn", None)
+    if target and target not in session.setdefault("subtopic_targets", []):
+        session["subtopic_targets"].append(target)
+    return target
 
 
-def _reference_directive(ref):
-    """Per-turn REFERENCE for the next new topic. It is a suggestion, not a script: the
-    interviewer may use it, adapt it, or pick another topic from the job description /
-    projects — as long as that topic is not in QUESTIONS ALREADY ASKED."""
-    item, mode, reused = ref
-    if mode == "direct":
-        head = ("\n\nREFERENCE FOR YOUR NEXT NEW TOPIC (a suggestion, not a script) — a curated "
-                f"question this candidate has not had yet:\n\"{item['q']}\"\n")
-        body = ("If you move to a new concept, you may ask this one, as written or in your own words.")
-    else:
-        # Angle mode: the question text is deliberately NOT shown, only the concept, so the
-        # model has to write its own question instead of rewording the bank one.
-        ideas = "; ".join(item.get("points", [])[:4]) or item["q"].split("?")[0]
-        head = ("\n\nREFERENCE CONCEPT FOR YOUR NEXT NEW TOPIC (a suggestion, not a script) — "
-                f"area: {item.get('topic') or 'core concept'}; key ideas: {ideas}.\n")
-        body = ("If you use it, write your OWN question that tests one or two of these ideas "
-                "from a practical angle — a 'what happens if…', a symptom to debug, a design "
-                "trade-off, or where it shows up in a real flow. Do NOT ask a plain definition "
-                "or 'difference between X and Y' question.")
-        if reused:
-            body += (" This concept came up in an earlier interview, so the angle must clearly "
-                     "differ from QUESTIONS ALREADY ASKED.")
-    return (head + body + " You are free to choose a different topic instead (from the job "
-            "description or the candidate's projects), but never one in QUESTIONS ALREADY ASKED, "
-            "and never a reworded copy of one.")
+def _new_question_entry(session, question, target, followup_nudge) -> dict:
+    """Conversation entry for a freshly asked question, with what the interviewer was told
+    to do (target sub-topic / follow-up requested) — the tag classifier uses it as a hint."""
+    entry = {"question": question, "answer": None, "turn": session["turn"]}
+    if target:
+        entry["target_subtopic"] = target
+    if followup_nudge:
+        entry["followup_requested"] = True
+    return entry
+
+
+def _dup_retry_instruction(session, dup: str) -> str:
+    """Regenerate instruction after a repeat was caught: a different concept, but still on
+    this turn's target sub-topic (a plain 'completely different topic' left the curriculum)."""
+    target = session.get("_target_this_turn")
+    where = (f"Ask a DIFFERENT question on the TARGET SUB-TOPIC {target}: another concept or angle "
+             "within it." if target else "Ask about a COMPLETELY DIFFERENT concept.")
+    return (f"STOP — your question is nearly identical to one already asked: \"{dup[:120]}\". "
+            f"{where} Do not rephrase the same question.")
+
+
+def _current_subtopic(session) -> str:
+    """Sub-topic of the latest question: the tagger's label, else the target it was asked on."""
+    for e in reversed(session.get("conversation", [])):
+        if e.get("question") and not e.get("is_greeting") and not _is_pause_prompt(e["question"]):
+            return e.get("subtopic") or e.get("target_subtopic") or ""
+    return ""
+
+
+def _subtopics_now(session) -> list:
+    """Sub-topics of this interview: the tagger's label per question, then the targets given."""
+    out = [e["subtopic"] for e in session.get("conversation", []) if e.get("subtopic")]
+    out += session.get("subtopic_targets", [])
+    return list(dict.fromkeys(out))
+
+
+def _pick_subtopic(session, prev_sessions, domain) -> str:
+    """Target sub-topic for the next new question: not yet in this interview; fewest times
+    asked in earlier interviews (never-asked first); module least used in this interview;
+    a per-student, per-interview shuffle breaks ties."""
+    import random, hashlib
+    before = {}
+    for ps in prev_sessions:
+        if ps.get("session_id") == session.get("id"):
+            continue
+        for s in ps.get("subtopics_asked") or []:
+            before[s] = before.get(s, 0) + 1
+    now = _subtopics_now(session)
+    mod_now = {}
+    for s in now:
+        m = curriculum.module_of(s)
+        mod_now[m] = mod_now.get(m, 0) + 1
+    user_key = (session.get("resume", {}).get("email") or str(session.get("id", ""))).strip().lower()
+    seed = (int(hashlib.md5(user_key.encode()).hexdigest(), 16) + len(prev_sessions)) & 0xffffffff
+    order = list(curriculum.SUBTOPICS[domain])
+    random.Random(seed).shuffle(order)
+    cands = [(i, s) for i, s in enumerate(order) if s not in now] or list(enumerate(order))
+    return min(cands, key=lambda p: (before.get(p[1], 0),
+                                     mod_now.get(curriculum.module_of(p[1]), 0), p[0]))[1]
+
+
+def _curriculum_block(domain) -> str:
+    """Session-stable curriculum scope (system prompt)."""
+    return (f"\n\nCURRICULUM — {curriculum.LABELS.get(domain, domain.upper())}. This is the ONLY "
+            "scope of this interview.\n"
+            "Every question (concept, project or scenario) must be on one of the modules / "
+            "sub-topics below. Do not ask about anything outside this list. Wherever the rules "
+            "above mention the JOB DESCRIPTION or the ROLE's skills, use this CURRICULUM and the "
+            "TARGET SUB-TOPIC given each turn.\n"
+            "- STANDALONE QUESTIONS: most questions are standalone questions on the sub-topic "
+            "(CONCEPT type) that do not mention the candidate's project. Do not tie every "
+            "question to their project.\n"
+            "- PROJECT questions: ask about the part of the candidate's project that falls "
+            "under the target sub-topic.\n"
+            "- BASIC questions are expected too, not only reasoning ones: for a BASIC target a "
+            "direct fundamentals question is fine (e.g. 'What is X and why do we need it?'). "
+            "This overrides the 'never a simple What is X' rule above for BASIC targets.\n"
+            "Modules and sub-topics:\n" + curriculum.render_curriculum(domain))
+
+
+def _target_directive(target: str, level: str, n_main: int) -> str:
+    """Per-turn TARGET SUB-TOPIC for the next new question, with its difficulty: the first
+    question is always BASIC; juniors alternate BASIC / INTERMEDIATE, others get BASIC on
+    every third new question."""
+    basic = n_main == 0 or (n_main % 2 == 0 if level in _JUNIOR_LEVELS else n_main % 3 == 0)
+    rung = ("BASIC — a short fundamentals question: what it is, why it is needed, or how it "
+            "works" if basic else
+            "INTERMEDIATE — needs reasoning: how or why, a trade-off, or what goes wrong")
+    return (f"\n\nTARGET SUB-TOPIC FOR YOUR NEXT NEW QUESTION: {target}.\nLevel: {rung}.\n"
+            "Ask it as the TYPE MIX needs: CONCEPT = a standalone question on this sub-topic that "
+            "does NOT mention the candidate's project; PROJECT = how this sub-topic came up in "
+            "their own project (only if one of their projects plausibly involved it, otherwise "
+            "ask a CONCEPT question); SCENARIO = a realistic symptom within this sub-topic they "
+            "must reason through. Stay inside this sub-topic, and do not repeat anything in "
+            "QUESTIONS ALREADY ASKED or CONCEPTS ALREADY COVERED.")
 
 
 def build_interview_prompt(session):
@@ -2215,7 +2279,7 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
     judgment_rules = (
         "\n\nHOW TO RUN THIS INTERVIEW\n"
         "OPEN EASY. Your first one or two technical questions must be easy, standalone CONCEPT "
-        "questions (the per-turn REFERENCE question is a good start), on a topic from the ROLE's required "
+        "questions (on the per-turn TARGET SUB-TOPIC when one is given), on a topic from the ROLE's required "
         "skills (see JOB DESCRIPTION) — not a probe of their project. Let them settle before you "
         "go deep.\n"
         "THIS IS A CONVERSATION, NOT A QUIZ. React naturally to what the candidate says — "
@@ -2287,9 +2351,11 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
     # The role's JD — not the candidate's self-listed skills — decides which
     # concept/scenario topics get tested. Session-stable (domain-based), so it
     # sits inside the cached prefix.
-    jd_text = render_job_description(domain)
     jd_block = ""
-    if jd_text:
+    if _curriculum_domain(session):
+        # The domain's curriculum is the interview scope (replaces the JD).
+        jd_block = _curriculum_block(_curriculum_domain(session))
+    elif (jd_text := render_job_description(domain)):
         jd_block = (
             "\n\nJOB DESCRIPTION — THE ROLE YOU ARE INTERVIEWING FOR\n"
             "This defines what to test. Draw your CONCEPT and SCENARIO topics from the required "
@@ -2299,9 +2365,7 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
             "below) for PROJECT questions — what they actually built — and to anchor scenarios in "
             "their tools.\n" + jd_text)
 
-    # Curated bank questions are no longer listed here (the same 12 per interview were
-    # asked word for word); one unused reference is offered per turn in the steering block.
-    system = base_prompt + judgment_rules + jd_block + candidate_info + returning_block
+    system =base_prompt + judgment_rules + jd_block + candidate_info + returning_block
 
     messages = [{"role": "system", "content": system}]
     # Add conversation history — last 6 turns so the LLM has enough context to
@@ -2402,7 +2466,9 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
     # pulls every question back into project-recall mode and the interview never
     # tests concepts or scenarios.
     mix_reminder = ""
-    if asked_block or project_block:
+    # Not on a forced follow-up turn: "SCENARIO DUE … any pending follow-up can wait" and
+    # "pick the type furthest below its share" pulled the model off the follow-up onto a new topic.
+    if (asked_block or project_block) and not _followup_nudge_msg:
         # ── Live type tally toward the 40/40/20 target ────────────────────
         # Counted in code from the interview's own data — the LLM's [SCENARIO]
         # tags and the candidate's own project names — no content keyword
@@ -2477,10 +2543,12 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
     # skipped), so the first question opens easy and we never chain two follow-ups
     # in a row — the two failure modes the persona file alone can't enforce.
     open_steer = ""
+    _cur = _curriculum_domain(session)
     if not asked:
         open_steer = ("\n\nFIRST TECHNICAL QUESTION — open EASY: ask ONE standalone CONCEPT "
-                      "question (the REFERENCE below is a good starting point). Do NOT open by "
-                      "probing their project.")
+                      + ("question on the TARGET SUB-TOPIC below, at BASIC level." if _cur else
+                         "question on a core skill of the JOB DESCRIPTION.")
+                      + " Do NOT open by probing their project.")
     followup_guard = ""
     _conv = session.get("conversation", [])
     if _conv and _conv[-1].get("is_followup"):
@@ -2494,22 +2562,23 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
     # Removed adaptive difficulty ramping - questions should stay appropriate
     # for the candidate's level throughout the interview, not get progressively deeper
 
-    # One curated reference for the next NEW topic — skipped on a forced follow-up turn.
-    # Recorded in session["bank_refs"] by _commit_reference() once the question is asked.
-    # Offered only on every other new topic (main questions 1, 3, 5…): with a reference every
-    # turn, every main question came from the bank and none from the projects / job description.
+    # One curriculum TARGET SUB-TOPIC for the next NEW question — skipped on a forced
+    # follow-up turn. Recorded in session["subtopic_targets"] by _commit_reference().
     ref_block = ""
-    session.pop("_ref_this_turn", None)
+    session.pop("_target_this_turn", None)
     n_main = sum(1 for e in _conv if e.get("question") and not e.get("is_greeting")
                  and not e.get("is_followup") and not _is_pause_prompt(e["question"]))
-    if not _followup_nudge_msg and n_main % 2 == 0:
-        ref = _pick_reference_question(session, prev_sessions, asked, past_questions)
-        if ref:
-            session["_ref_this_turn"] = ref[0]["q"]
-            ref_block = _reference_directive(ref)
-    elif not _followup_nudge_msg:
-        ref_block = ("\n\nNO REFERENCE THIS TURN — for a new topic, draw on the candidate's projects "
-                     "or the JOB DESCRIPTION (still following the TYPE MIX), not a textbook question.")
+    if _cur and not _followup_nudge_msg:
+        target = _pick_subtopic(session, prev_sessions, _cur)
+        session["_target_this_turn"] = target
+        ref_block = _target_directive(target, level, n_main)
+    elif _cur and _followup_nudge_msg:
+        # Forced follow-up: keep it inside the sub-topic of the question just asked (the model
+        # used to drift to an unguided new topic here).
+        sub = _current_subtopic(session)
+        ref_block = ("\n\nFOLLOW-UP TURN — your next question is a follow-up on the missed point of "
+                     "your last question" + (f", inside its sub-topic {sub}" if sub else "") +
+                     ". Do NOT open a new topic or a different sub-topic this turn.")
 
     steering = (asked_block + _concepts_block(session) + project_block + mix_reminder + open_steer
                 + followup_guard + ramp_steer + ref_block).strip()
@@ -2958,7 +3027,12 @@ def _question_too_similar(new_q: str, asked_questions: list[str], threshold: flo
              "called","meant","suppose","imagine","start","help","important","main",
              "each","other","some","any","all","both","such","like","more","most",
              "need","way","work","used","using","works","working","types","type",
-             "digital","circuits","circuit","design","designs","verification"}
+             "digital","circuits","circuit","design","designs","verification",
+             # question-template filler: basic questions share "walk me through …, what kind of
+             # … why does it matter" and were flagged as repeats of unrelated questions
+             "walk","through","kind","kinds","usually","typically","typical","role","purpose",
+             "matter","matters","consider","happen","happens","they","them","their","there",
+             "then","than","after","before","during","while","briefly","example","right","sure"}
     def _stem(w):
         # plural first, so "violations" and "violation" stem the same
         if len(w) > 4 and w.endswith("s") and not w.endswith(("ss", "us", "is")):
@@ -2981,18 +3055,16 @@ def _question_too_similar(new_q: str, asked_questions: list[str], threshold: flo
         shared = new_concepts & old_concepts
         union = new_concepts | old_concepts
         jaccard = len(shared) / len(union) if union else 0
-        if jaccard >= threshold:
+        # With only 2 shared words the match must be strong (e.g. "guard ring(s)"): two short
+        # questions sharing a context phrase ("timing analysis") are different concepts.
+        if jaccard >= threshold and (len(shared) >= 3 or jaccard >= 0.5):
             return old_q
-        if len(shared) >= 2 and len(shared) / min(len(new_concepts), len(old_concepts)) >= overlap:
+        # Overlap rule needs 3+ shared concept words: with short basic questions, 2 shared context
+        # words ("timing analysis") flagged different concepts (AOCV vs uncertainties). Exact /
+        # reworded repeats of short questions are still caught by the Jaccard rule above.
+        if len(shared) >= 3 and len(shared) / min(len(new_concepts), len(old_concepts)) >= overlap:
             return old_q
     return None
-
-
-def _ref_core(q: str) -> str:
-    """First sentence of a curated question — its core concept. Bank questions add a second
-    clause ("If you fix a setup violation by upsizing…") that dilutes the similarity check."""
-    m = re.match(r"(.+?[?.])\s", q.strip() + " ")
-    return m.group(1) if m else q
 
 
 def generate_question(session, candidate_answer: str, no_response: bool = False) -> dict:
@@ -3101,8 +3173,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     dup_match = _question_too_similar(question, all_asked)
     if dup_match and "[END_INTERVIEW]" not in question and not followup_nudge:
         log.warning(f"[DupGuard] Duplicate detected — retrying. New: \"{question[:80]}\" matches: \"{dup_match[:80]}\"")
-        retry_msg = (f"STOP — your question is nearly identical to one already asked: \"{dup_match[:120]}\". "
-                     "You MUST ask about a COMPLETELY DIFFERENT topic. Do not rephrase — pick a new concept entirely.")
+        retry_msg = _dup_retry_instruction(session, dup_match)
         messages.append({"role": "assistant", "content": question})
         messages.append({"role": "user", "content": retry_msg})
         t0_retry = time.time()
@@ -3114,7 +3185,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         question = re.sub(r'`([^`]+)`', r'\1', question)
         question = re.sub(r'#{1,3}\s*', '', question)
         usage = {k: usage.get(k, 0) + usage2.get(k, 0) for k in usage}
-    _commit_reference(session)
+    _turn_target = _commit_reference(session)
 
     obs = _obs_entry("LLM_question", RUNTIME_CONFIG["qgen_model"], llm_ms, "success",
                      input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"],
@@ -3159,7 +3230,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         session["_last_was_pause"] = True
     else:
         session.pop("_last_was_pause", None)
-        session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
+        session["conversation"].append(_new_question_entry(session, question, _turn_target, followup_nudge))
         session["turn"] += 1
 
     # Store LLM timing + cost
@@ -5255,6 +5326,9 @@ def stream_answer(data: dict):
             if session.get("_prev_concepts_cache"):
                 pacing += ("\nConcepts from earlier interviews (do not reuse for a new topic): "
                            + ", ".join(session["_prev_concepts_cache"]))
+            if session.get("_target_this_turn"):
+                pacing += (f"\nYour next new question must be on the curriculum sub-topic "
+                           f"{session['_target_this_turn']} (see TARGET SUB-TOPIC).")
         pacing += ("\nDo NOT end the interview yourself and do NOT output [END_INTERVIEW] — ending is "
                    "handled for you. Otherwise interview normally: when an answer is vague or hand-wavy "
                    "on something that matters, ask one follow-up to pin it down; otherwise move to a new "
@@ -5292,6 +5366,8 @@ def stream_answer(data: dict):
         def _is_voice_only(text):
             return any(p in text.lower().strip().rstrip('.!') for p in _VOICE_ONLY_PATTERNS)
 
+        ack_text = ""     # leading acknowledgement, spoken while the question is generated
+        held = []         # question segments, spoken after the repeat check
         try:
             pending_tts = None  # (future, t0_tts, sentence)
             token_hold = []
@@ -5319,6 +5395,22 @@ def stream_answer(data: dict):
                     return [f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"]
                 return []
 
+            def _emit(sentence):
+                """Show + speak one segment (TTS pipelined: previous segment's audio first)."""
+                nonlocal pending_tts, sentence_count
+                if not _is_voice_only(sentence):
+                    ui_text = _clean_for_tts(sentence)
+                    if ui_text:
+                        yield f"data: {json.dumps({'type': 'token', 'content': ui_text + ' '})}\n\n"
+                else:
+                    log.info(f"[Stream] Voice-only (hidden from UI): \"{sentence[:60]}\"")
+                for evt in _flush_tts():
+                    yield evt
+                sentence_count += 1
+                tts_sentence = _clean_for_tts(sentence)
+                if tts_sentence:
+                    pending_tts = (_tts_executor.submit(tts_chunk, tts_sentence), time.time(), tts_sentence)
+
             for token in stream_llm(messages, temperature=0.7, max_tokens=150):
                 full_text += token
                 sentence_buffer += token
@@ -5339,24 +5431,15 @@ def stream_answer(data: dict):
                     sentence_buffer = ""
                     if not sentence:
                         continue
-                    voice_only_hold = _is_voice_only(sentence)
-                    if not voice_only_hold:
-                        ui_text = _clean_for_tts(sentence)
-                        if ui_text:
-                            yield f"data: {json.dumps({'type': 'token', 'content': ui_text + ' '})}\n\n"
-                    else:
-                        log.info(f"[Stream] Voice-only (hidden from UI): \"{sentence[:60]}\"")
                     token_hold = []
-
-                    # Flush previous TTS before starting new one
-                    for evt in _flush_tts():
-                        yield evt
-
-                    sentence_count += 1
-                    tts_sentence = _clean_for_tts(sentence)
-                    t0_tts = time.time()
-                    if tts_sentence:
-                        pending_tts = (_tts_executor.submit(tts_chunk, tts_sentence), t0_tts, tts_sentence)
+                    # A leading short acknowledgement ("Okay.", "Got it.") is spoken at once;
+                    # the question itself is held until the repeat check below has passed.
+                    if not held and not ack_text and _is_short_ack(sentence):
+                        ack_text = sentence
+                        for evt in _emit(sentence):
+                            yield evt
+                    else:
+                        held.append(sentence)
 
         except Exception as e:
             stream_error = True
@@ -5374,30 +5457,44 @@ def stream_answer(data: dict):
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': 0})}\n\n"
             log.error(f"[Stream] Empty LLM response — sent fallback (error={stream_error})")
 
-        # Flush remaining buffer
         if sentence_buffer.strip():
-            sentence = sentence_buffer.strip()
-            if not _is_voice_only(sentence):
-                ui_text = _clean_for_tts(sentence)
-                if ui_text:
-                    yield f"data: {json.dumps({'type': 'token', 'content': ui_text + ' '})}\n\n"
+            held.append(sentence_buffer.strip())
+            sentence_buffer = ""
             token_hold = []
-            # Flush any pending TTS first
-            for evt in _flush_tts():
+
+        # Repeat check BEFORE the question is spoken (same rule as the typed path): a question
+        # too similar to one already asked (this interview or earlier ones) is regenerated once.
+        # Not on a forced follow-up turn, where staying on the same point is the intent.
+        _retry_usage = None
+        if held and not followup_nudge:
+            _cand = " ".join(held)
+            _asked_now = [e["question"] for e in session["conversation"]
+                          if e.get("question") and not e.get("is_greeting") and not _is_pause_prompt(e["question"])]
+            _dup = _question_too_similar(_cand, _asked_now + session.get("_prev_questions_cache", []))
+            if _dup and "[END_INTERVIEW]" not in _cand:
+                log.warning(f"[DupGuard] {sid[:8]} repeat caught before speaking — retrying. New: "
+                            f"\"{_cand[:80]}\" matches: \"{_dup[:80]}\"")
+                try:
+                    _new, _retry_usage = call_llm(messages + [
+                        {"role": "assistant", "content": full_text},
+                        {"role": "user", "content": _dup_retry_instruction(session, _dup)
+                            + " Reply with ONLY the new question — no acknowledgement."}],
+                        temperature=0.9, max_tokens=150)
+                    _new = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', _new or "").strip()
+                    if ack_text:   # the acknowledgement was already spoken; don't say a second one
+                        _new = re.sub(r"^(okay|ok|alright|all right|right|got it|sure|fine|great)[,.!]?\s+",
+                                      "", _new, flags=re.I)
+                        _new = _new[:1].upper() + _new[1:]
+                    if _new:
+                        held = [_new]
+                        full_text = (ack_text + " " if ack_text else "") + _new
+                except Exception as e:
+                    log.warning(f"[DupGuard] retry failed, speaking the original: {e}")
+        for _seg in held:
+            for evt in _emit(_seg):
                 yield evt
-            sentence_count += 1
-            tts_sentence = _clean_for_tts(sentence)
-            t0_tts = time.time()
-            audio_bytes = tts_chunk(tts_sentence) if tts_sentence else b""
-            tts_ms = round((time.time() - t0_tts) * 1000)
-            total_tts_ms += tts_ms
-            total_tts_chars += len(sentence)
-            if audio_bytes:
-                yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode(), 'tts_ms': tts_ms})}\n\n"
-        else:
-            # Flush last pending TTS
-            for evt in _flush_tts():
-                yield evt
+        for evt in _flush_tts():
+            yield evt
 
         llm_ms = round((time.time() - t0_llm) * 1000)
         # Use actual Bedrock usage if available (includes cache info), else estimate
@@ -5407,6 +5504,10 @@ def stream_answer(data: dict):
         _cache_read = _bu.get("cache_read_input_tokens", 0)
         _cache_create = _bu.get("cache_creation_input_tokens", 0)
         llm_cost = _calc_llm_cost(qgen_model, input_tokens_est, output_tokens_est, _cache_read, _cache_create)
+        if _retry_usage:   # the repeat-check regeneration
+            input_tokens_est += _retry_usage.get("input_tokens", 0)
+            output_tokens_est += _retry_usage.get("output_tokens", 0)
+            llm_cost += _retry_usage.get("cost_usd", 0.0)
 
         # Clean the full text
         question = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', full_text)
@@ -5418,7 +5519,7 @@ def stream_answer(data: dict):
         for _t in ("[FOLLOWUP]", "[SCENARIO]", "[CONCEPT]", "[PROJECT]"):
             question = question.replace(_t, "")
         question = question.strip()
-        _commit_reference(session)
+        _turn_target = _commit_reference(session)
 
         # Check behavior tags
         is_end = False
@@ -5451,7 +5552,7 @@ def stream_answer(data: dict):
                 if _dup:
                     log.warning(f"[DupGuard] {sid[:8]} streamed a repeat (already spoken): "
                                 f"\"{question[:80]}\" matches \"{_dup[:80]}\"")
-            session["conversation"].append({"question": question, "answer": None, "turn": session["turn"]})
+            session["conversation"].append(_new_question_entry(session, question, _turn_target, followup_nudge))
             session["turn"] += 1
             # Background jobs (off the hot path): expected points for scoring + follow-up
             # steering, and tag classification (follow-up / scenario / type). Both must be
