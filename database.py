@@ -204,7 +204,8 @@ def list_active_sessions():
 
 
 def list_ended_sessions_needing_eval(grace_sec: int = 120, limit: int = 50):
-    """Ended sessions with no evaluation, untouched for at least grace_sec.
+    """Ended sessions with no evaluation (or one without a status, i.e. no score), untouched
+    for at least grace_sec.
     The grace window keeps the sweeper from racing the foreground end-handler that
     just spawned its own eval thread."""
     if not _db_available:
@@ -217,7 +218,10 @@ def list_ended_sessions_needing_eval(grace_sec: int = 120, limit: int = 50):
                     SELECT session_data FROM active_sessions
                     WHERE session_data->>'phase' = 'ended'
                       AND (session_data->'evaluation' IS NULL
-                           OR session_data->'evaluation' = 'null'::jsonb)
+                           OR session_data->'evaluation' = 'null'::jsonb
+                           -- an evaluation with no status (e.g. only a 'comparison') has no score
+                           OR (jsonb_typeof(session_data->'evaluation') = 'object'
+                               AND NOT (session_data->'evaluation' ? 'status')))
                       AND updated_at < NOW() - (%s || ' seconds')::interval
                     ORDER BY updated_at ASC
                     LIMIT %s
@@ -597,7 +601,9 @@ def save_session_evaluation(session_id, evaluation):
     """Merge the end-of-interview evaluation into the session blob via jsonb_set.
     The evaluation runs in a background thread, so it targets ONLY the top-level
     'evaluation' key rather than rewriting the whole blob — a full read-modify-write
-    would race the foreground turn handler and the ai_detection writer."""
+    would race the foreground turn handler and the ai_detection writer.
+    A 'comparison' already stored (written by its own background job, which may finish
+    first) is kept unless the new evaluation carries its own."""
     if not _db_available:
         return False
     try:
@@ -606,7 +612,10 @@ def save_session_evaluation(session_id, evaluation):
             with conn.cursor() as cur:
                 cur.execute("""
                     UPDATE active_sessions
-                    SET session_data = jsonb_set(session_data, '{evaluation}', %s::jsonb, true),
+                    SET session_data = jsonb_set(session_data, '{evaluation}',
+                            jsonb_strip_nulls(jsonb_build_object(
+                                'comparison', session_data #> '{evaluation,comparison}'))
+                            || %s::jsonb, true),
                         updated_at = NOW()
                     WHERE session_id = %s
                 """, (json.dumps(evaluation), session_id))
@@ -614,6 +623,31 @@ def save_session_evaluation(session_id, evaluation):
                 return True
     except Exception as e:
         log.error(f"[DB] save_session_evaluation failed: {e}")
+        return False
+
+
+def save_session_comparison(session_id, comparison):
+    """Set ONLY evaluation.comparison (creating 'evaluation' if missing). The comparison runs
+    in its own background thread; writing the whole evaluation from its stale in-memory copy
+    wiped a score saved a few seconds earlier."""
+    if not _db_available:
+        return False
+    try:
+        import json
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE active_sessions
+                    SET session_data = jsonb_set(session_data, '{evaluation}',
+                            COALESCE(session_data->'evaluation', '{}'::jsonb)
+                            || jsonb_build_object('comparison', %s::jsonb), true),
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                """, (json.dumps(comparison), session_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        log.error(f"[DB] save_session_comparison failed: {e}")
         return False
 
 

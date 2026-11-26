@@ -493,12 +493,11 @@ def _generate_comparison_async(session, email):
                 model="gpt-4o-mini"  # Use OpenAI model for comparison
             )
 
-            # Store comparison in session data
+            # Store ONLY evaluation.comparison — writing the whole evaluation from this thread's
+            # stale copy wiped a score that the evaluation thread had saved seconds earlier.
             if database.is_available():
-                database.save_session_evaluation(session["id"], {
-                    **session.get("evaluation", {}),
-                    "comparison": comparison
-                })
+                database.save_session_comparison(session["id"], comparison)
+                redis_cache.delete_session(session["id"])
             else:
                 session.setdefault("evaluation", {})["comparison"] = comparison
 
@@ -1346,7 +1345,10 @@ def _is_repeat_request(text: str) -> bool:
 _DONT_KNOW_RE = re.compile(
     r"\b(i\s*(do\s*not|don'?t|dont)\s*know|no\s*idea|(i'?m|i\s*am)\s*not\s*sure|not\s*sure|"
     r"(i\s*)?(do\s*not|don'?t|dont)\s*(remember|recall)|(i\s*)?(have\s*not|haven'?t)\s*(learned|studied|done)|"
-    r"(i\s*)?(can'?t|cannot)\s*(answer|recall|remember)|(i'?m|i\s*am)\s*not\s*aware|skip(\s*this)?)\b", re.I)
+    r"(i\s*)?(can'?t|cannot)\s*(answer|recall|remember)|(i'?m|i\s*am)\s*not\s*aware|skip(\s*this)?|"
+    # asking to move on: "Can you move on to the next question?", "Ask me next question"
+    r"move\s*on|move\s*to\s*(the\s*)?next|next\s*question|go\s*(on\s*)?(to\s*)?(the\s*)?next\s*(one|question))\b",
+    re.I)
 
 
 def _is_dont_know(answer: str) -> bool:
@@ -1354,7 +1356,8 @@ def _is_dont_know(answer: str) -> bool:
     "I'm not sure about that one"): a don't-know phrase in a SHORT answer. A longer attempt
     ("I'm not sure, but I think skew is …") is a real answer and keeps the follow-up logic."""
     a = (answer or "").strip()
-    return bool(a) and len(a.split()) <= 12 and bool(_DONT_KNOW_RE.search(a))
+    return bool(a) and len(a.split()) <= 12 and (bool(_DONT_KNOW_RE.search(a))
+                                                 or bool(re.fullmatch(r"\W*pass\W*", a, re.I)))
 
 
 def _is_short_ack(segment: str) -> bool:
