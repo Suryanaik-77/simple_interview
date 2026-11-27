@@ -4420,6 +4420,11 @@ def _extract_resume_text(content: bytes, filename: str) -> str:
     return text.strip()
 
 
+def _name_words(name: str) -> set:
+    """Lower-case words of 2+ letters in a name, split on anything that isn't a letter."""
+    return {w for w in re.findall(r"[^\W\d_]+", (name or "").lower()) if len(w) >= 2}
+
+
 def _launch_reject(status: int, reason: str, message: str):
     """Raise an HTTPException with a structured JSON body so the LMS can parse
     both a machine-readable reject_reason and a human-readable message."""
@@ -4495,10 +4500,12 @@ async def lms_launch(
         _launch_reject(400, "not_a_resume", "The uploaded document is not a resume. Please upload a valid resume/CV.")
 
     # ── Resume name mismatch check ─────────────────────────────────────────
-    resume_name = parsed.get("candidate_name", "").lower().split()
-    lms_name = name.lower().split()
+    # Words of 2+ letters, split on anything that isn't a letter, so 'D.Barhan' matches
+    # 'DUDEKULA BARHAN' on 'barhan'; a shared initial alone is not a match.
+    resume_name = _name_words(parsed.get("candidate_name", ""))
+    lms_name = _name_words(name)
     if resume_name and lms_name:
-        overlap = set(resume_name) & set(lms_name)
+        overlap = resume_name & lms_name
         if not overlap:
             r_display = parsed.get("candidate_name", "")
             log.warning(f"[LMS] Resume name mismatch: resume='{r_display}' vs LMS='{name}' (email={email})")

@@ -1,4 +1,4 @@
-Latest change: suryanaik, 2026-11-23 — end_reason/end_message on every ended interview (view columns, get-session, transcribe/stream/submit end responses); LMS face_check snapshots are now compared server-side every 60 s and end the interview after 3 failures in a row.
+Latest change: suryanaik, 2026-11-27 — resume name check at launch splits names on any non-letter (so LMS 'D.Barhan' matches resume 'DUDEKULA BARHAN'); a shared initial alone is no longer a match.
 
 # LMS Integration
 
@@ -15,6 +15,10 @@ EduSpark LMS creates interview sessions on this app and reads results back. All 
 The LMS can also query `lms_interview_results` directly as the read-only `lms_reader` user (created once by `lms_db_setup.sql`). `schema.sql` drops and recreates the view on every app start, which removes privileges, so it re-grants `SELECT` to `lms_reader` right after creating the view (skipped if the role doesn't exist).
 
 The LMS base URL must be the bare host; the launch path is `/api/lms/launch` (a doubled `/api/lms/launch/api/lms/launch` returns 404).
+
+## Resume name check at launch
+
+`/api/lms/launch` rejects with 400 `resume_name_mismatch` when the resume's parsed name and the LMS `name` share no word. Words come from `_name_words()` in `main.py`: lower-cased, split on anything that isn't a letter (spaces, dots, hyphens, commas), only words of 2+ letters. So `D.Barhan` matches `DUDEKULA BARHAN` (on "barhan"), while a shared initial alone (`K V Ramana` vs `K V Rao`) does not match.
 
 ## Interview settings (admin-editable)
 
