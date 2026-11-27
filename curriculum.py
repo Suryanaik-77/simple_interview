@@ -397,6 +397,12 @@ EXCLUDED = {
 # questions — never scenario, project or intermediate.
 BASIC_ONLY = {
     "physical_design": {"RTL", "Fab"},
+    "analog_layout": {"SL", "Basic Electronics"},
+}
+
+# Extra weight for a domain's core module(s), multiplied into module_weights().
+MODULE_FOCUS = {
+    "analog_layout": {"CL Core": 3.0},
 }
 
 
@@ -421,11 +427,13 @@ def module_of(subtopic: str) -> str:
 
 def module_weights(domain: str) -> dict:
     """Share of questions per module: square root of its sub-topic count, so big modules
-    (PNR 44, SSTA 31) get more turns than one-lesson modules (RTL) without drowning them."""
+    (PNR 44, SSTA 31) get more turns than one-lesson modules (RTL) without drowning them.
+    MODULE_FOCUS multiplies a core module's weight (Analog: CL Core ×3)."""
     counts = {}
     for s in SUBTOPICS[domain]:
         counts[module_of(s)] = counts.get(module_of(s), 0) + 1
-    return {m: n ** 0.5 for m, n in counts.items()}
+    focus = MODULE_FOCUS.get(domain, {})
+    return {m: n ** 0.5 * focus.get(m, 1.0) for m, n in counts.items()}
 
 
 def key_points(subtopic: str) -> list:
