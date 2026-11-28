@@ -1,4 +1,4 @@
-Latest change: suryanaik, 2026-11-27 — resume name check at launch splits names on any non-letter (so LMS 'D.Barhan' matches resume 'DUDEKULA BARHAN'); a shared initial alone is no longer a match.
+Latest change: suryanaik, 2026-11-28 — recommendation follows the pass mark: a failed interview's `yes`/`strong_yes` becomes `no` (model's pick kept in `model_recommendation`).
 
 # LMS Integration
 
@@ -31,6 +31,7 @@ Admin panel → Configuration → **Interview Settings**. Stored in `RUNTIME_CON
 | `pass_percentage` | 60 (`PASS_PERCENTAGE`) | 1–100 | Scored interview passes when `overall_score × 10 ≥ pass_percentage` |
 
 - Endpoints (`require_admin`): `GET /api/admin/interview-settings` → `{settings, limits}`; `POST /api/admin/interview-settings` with any subset of the keys (whole numbers, validated against the ranges).
+- A failed interview is never recommended: if the model returns `yes`/`strong_yes` but `passed` is false, `evaluate_interview()` sets `recommendation = "no"` and keeps the model's pick in `model_recommendation` (`maybe`/`no` are left as they are).
 - At scoring time the evaluation stores `score_percentage`, `pass_percentage` and `passed`, so a later change to the pass mark doesn't alter past results. Returned in `/api/generate-report` scores, shown on the student report card, and exposed as `score_percentage`, `pass_percentage`, `passed` columns at the end of the `lms_interview_results` view (NULL for older results).
 
 ## Interview limit

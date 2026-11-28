@@ -1339,6 +1339,15 @@ def _is_repeat_request(text: str) -> bool:
         if len(t) < 50:  # Short utterances only
             return True
 
+    # Short replies (fallback when the LLM reply check is unavailable): "tell me again",
+    # "explain it again", "once more", "I did not get the question", "come again"
+    if len(t.split()) <= 12 and re.search(
+            r"\b((say|tell|explain|ask|read)\s+(me\s+|it\s+|that\s+|the\s+question\s+)?again|"
+            r"once\s+more|one\s+more\s+time|come\s+again|"
+            r"(did\s*not|didn'?t|didnt)\s+(get|catch|hear|follow|understand)\s+(the\s+question|that|it|you)|"
+            r"(did\s*not|didn'?t|didnt)\s+(get|catch|hear|follow|understand)$)", t):
+        return True
+
     return False
 
 
@@ -1358,6 +1367,71 @@ def _is_dont_know(answer: str) -> bool:
     a = (answer or "").strip()
     return bool(a) and len(a.split()) <= 12 and (bool(_DONT_KNOW_RE.search(a))
                                                  or bool(re.fullmatch(r"\W*pass\W*", a, re.I)))
+
+
+REPLY_CHECK_MAX_WORDS = 25      # longer replies are always real answers (no LLM call, no delay)
+REPLY_CHECK_TIMEOUT_SEC = 3.0   # past this, fall back to the phrase rules
+_REPLY_KINDS = ("ANSWER", "REPEAT", "DONT_KNOW", "WAIT")
+_REPLY_SYSTEM = (
+    "You classify a candidate's spoken reply to an interview question. The reply comes from "
+    "speech-to-text and may be garbled. Return ONLY JSON: {\"kind\": \"ANSWER|REPEAT|DONT_KNOW|WAIT\"}\n"
+    "- ANSWER: any attempt to answer, even partial, wrong, vague or hedged (\"I'm not sure, but I "
+    "think ...\"), or any reply with technical content.\n"
+    "- REPEAT: asks to hear the question again, or says they didn't hear/understand/get the "
+    "question (\"can you repeat\", \"I did not get the question\", \"explain the question again\", "
+    "\"what do you mean\").\n"
+    "- DONT_KNOW: says they don't know or can't answer, or asks to skip / move to the next "
+    "question, with no real attempt at the answer.\n"
+    "- WAIT: asks for a moment before answering (\"wait a second\", \"let me think\", \"give me a "
+    "minute\") without answering yet.\n"
+    "If the reply contains a real attempt at the answer, it is ANSWER.")
+
+
+def _reply_rules(answer: str) -> str:
+    """Phrase-rule fallback when the LLM check is unavailable."""
+    if _is_repeat_request(answer):
+        return "REPEAT"
+    if _is_dont_know(answer):
+        return "DONT_KNOW"
+    return "ANSWER"
+
+
+def classify_reply(question: str, answer: str, sid: str = "") -> str:
+    """What kind of reply this is: ANSWER, REPEAT (ask the same question again), DONT_KNOW
+    (no follow-up, move to a new topic) or WAIT (give them a moment, same question).
+    Only short replies go to the LLM (RUNTIME_CONFIG reply_model, default gpt-4.1-mini); a
+    long reply is an answer. Falls back to the phrase rules on error or timeout."""
+    a = (answer or "").strip()
+    if not a or len(a.split()) > REPLY_CHECK_MAX_WORDS:
+        return "ANSWER"
+    box = {}
+
+    def _run():
+        try:
+            raw, _ = call_llm([{"role": "system", "content": _REPLY_SYSTEM},
+                               {"role": "user", "content": f"QUESTION: {question}\nREPLY: {a}"}],
+                              model_id=RUNTIME_CONFIG.get("reply_model") or "gpt-4.1-mini",
+                              temperature=0.0, max_tokens=20)
+            box["kind"] = str((safe_json(raw) or {}).get("kind", "")).strip().upper()
+        except Exception as e:
+            box["error"] = str(e)
+
+    t0 = time.time()
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+    th.join(REPLY_CHECK_TIMEOUT_SEC)
+    kind = box.get("kind")
+    ms = round((time.time() - t0) * 1000)
+    if kind not in _REPLY_KINDS:
+        kind = _reply_rules(a)
+        log.info(f"[ReplyCheck] {sid[:8]} fallback to rules ({box.get('error') or 'timeout/bad output'}) "
+                 f"→ {kind} | {ms}ms | \"{a[:60]}\"")
+    else:
+        log.info(f"[ReplyCheck] {sid[:8]} {kind} | {ms}ms | \"{a[:60]}\"")
+    return kind
+
+
+WAIT_REPLY = "Sure, take your time. Answer whenever you're ready."
 
 
 def _is_short_ack(segment: str) -> bool:
@@ -2544,7 +2618,11 @@ concepts, different scenarios, different angles. If basic topics are exhausted, 
     # so it's the last thing the LLM sees and cannot be overridden by other instructions.
     _followup_nudge_msg = None
     # An honest "I don't know" gets no follow-up: the next question is a new one.
-    _last_dont_know = bool(history) and _is_dont_know((history[-1] or {}).get("answer", ""))
+    _last = (history[-1] or {}) if history else {}
+    # reply_kind comes from classify_reply (LLM, or the phrase rules as its fallback);
+    # entries saved before it existed use the phrase rule.
+    _last_dont_know = bool(history) and (_last["reply_kind"] == "DONT_KNOW" if "reply_kind" in _last
+                                         else _is_dont_know(_last.get("answer", "")))
     if _last_dont_know:
         log.info("[FollowupNudge] Skipped — the candidate said they don't know")
     if history and not (history[-1] or {}).get("is_followup") and not _last_dont_know:
@@ -3224,19 +3302,19 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
     no_response=True means the candidate stayed silent past the time limit: the current
     question is recorded as unanswered (empty answer) and the LLM is told to move on."""
 
-    # Check if candidate is asking to repeat the question
-    is_repeat_request = _is_repeat_request(candidate_answer)
-
-    if is_repeat_request and session["conversation"]:
+    # What kind of reply is this? (LLM check on short replies — classify_reply)
+    reply_kind = "ANSWER"
+    if session["conversation"] and not no_response:
         last_question = session["conversation"][-1].get("question", "")
-        log.info(f"[RepeatRequest] Detected repeat request: \"{candidate_answer}\" - repeating question")
-        return {
-            "question": last_question,
-            "should_end": False,
-            "pause_prompt": False,
-            "llm_ms": 0,
-            "repeat_question": True
-        }
+        reply_kind = classify_reply(last_question, candidate_answer, session.get("id", ""))
+        if reply_kind == "REPEAT":   # ask the same question again; the request is not an answer
+            log.info(f"[RepeatRequest] \"{candidate_answer[:60]}\" - repeating question")
+            return {"question": last_question, "should_end": False, "pause_prompt": False,
+                    "llm_ms": 0, "repeat_question": True}
+        if reply_kind == "WAIT":     # give them a moment; same question, nothing stored
+            log.info(f"[WaitRequest] \"{candidate_answer[:60]}\" - waiting on the same question")
+            return {"question": WAIT_REPLY, "should_end": False, "pause_prompt": True,
+                    "llm_ms": 0, "repeat_question": True}
 
     # STT failure recovery — if transcript is empty (not a deliberate silence),
     # ask the candidate to repeat instead of moving on silently
@@ -3270,6 +3348,7 @@ def generate_question(session, candidate_answer: str, no_response: bool = False)
         else:
             session["conversation"][-1]["answer"] = candidate_answer
         if not no_response:
+            session["conversation"][-1]["reply_kind"] = reply_kind
             session.pop("_stt_retry_count", None)
             if not session.get("first_real_answer_at"):
                 session["first_real_answer_at"] = time.time()
@@ -3886,6 +3965,13 @@ def evaluate_interview(session) -> dict:
                 pass_pct = _setting("pass_percentage")
                 result.update(score_percentage=score_pct, pass_percentage=pass_pct,
                               passed=score_pct >= pass_pct)
+                # A fail can never be a hire recommendation (the model judges it on its own,
+                # ignoring the pass mark); its original pick is kept for reference.
+                if not result["passed"] and result.get("recommendation") in ("yes", "strong_yes"):
+                    result["model_recommendation"] = result["recommendation"]
+                    result["recommendation"] = "no"
+                    log.info(f"[Eval] {sid[:8]} recommendation {result['model_recommendation']} -> no "
+                             f"(failed: {score_pct}% < {pass_pct}%)")
             except (TypeError, ValueError):
                 pass
 
@@ -5397,11 +5483,17 @@ def stream_answer(data: dict):
         # "Can you repeat the question?" is not an answer: re-ask the same question
         # without recording it or advancing the turn. Sent as pause_prompt so the
         # client keeps the question on screen and doesn't bump its counter.
-        if session["conversation"] and _is_repeat_request(answer):
+        # "Wait a second" works the same way, with a short "take your time" instead.
+        reply_kind = "ANSWER"
+        if session["conversation"]:
             last_q = session["conversation"][-1].get("question", "")
-            log.info(f"[RepeatRequest] {sid[:8]} — \"{answer[:60]}\" → repeating last question")
-            audio_bytes = tts_chunk(last_q)
-            yield f"data: {json.dumps({'type': 'text', 'content': last_q, 'done': True})}\n\n"
+            reply_kind = classify_reply(last_q, answer, sid)
+        if reply_kind in ("REPEAT", "WAIT"):
+            spoken = last_q if reply_kind == "REPEAT" else WAIT_REPLY
+            log.info(f"[{'RepeatRequest' if reply_kind == 'REPEAT' else 'WaitRequest'}] {sid[:8]} — "
+                     f"\"{answer[:60]}\" → same question")
+            audio_bytes = tts_chunk(spoken)
+            yield f"data: {json.dumps({'type': 'text', 'content': spoken, 'done': True})}\n\n"
             if audio_bytes:
                 yield f"data: {json.dumps({'type': 'audio', 'data': base64.b64encode(audio_bytes).decode()})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'question': last_q, 'turn': session['turn'], 'phase': session['phase'], 'should_end': False, 'pause_prompt': True, 'repeat_question': True, **_progress(session)})}\n\n"
@@ -5415,6 +5507,7 @@ def stream_answer(data: dict):
                 session["conversation"][-1]["answer"] += " " + answer
             else:
                 session["conversation"][-1]["answer"] = answer
+            session["conversation"][-1]["reply_kind"] = reply_kind
             if answer.strip() and not session.get("first_real_answer_at"):
                 session["first_real_answer_at"] = time.time()
             turn_idx = len(session["conversation"]) - 1
